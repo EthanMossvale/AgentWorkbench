@@ -1,0 +1,49 @@
+{
+  "name": "agent-workbench",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "Claude-first native agent desktop with an independent bilingual workflow",
+  "main": "dist/host/main.cjs",
+  "scripts": {
+    "dev": "vite --host 127.0.0.1",
+    "setup:electron": "node scripts/setup-electron.mjs",
+    "typecheck": "tsc --noEmit",
+    "check:docs": "node --test scripts/check-public-docs.test.mjs && node scripts/check-public-docs.mjs",
+    "check:plugins": "node scripts/check-plugin-contracts.mjs",
+    "check:ui-preferences": "node --import tsx scripts/check-ui-preferences.mjs",
+    "test:plugin-recovery": "node --import tsx scripts/test-plugin-recovery-ui.mjs",
+    "audit:public": "node scripts/audit-public-tree.mjs",
+    "test": "tsx --test tests/*.test.ts",
+    "build": "npm run typecheck && vite build && node scripts/build-host.mjs",
+    "start": "electron .",
+    "test:desktop": "node scripts/test-desktop.mjs",
+    "check": "node scripts/verify.mjs",
+    "package:windows": "npm run build && electron-builder --win --x64 --publish never"
+  },
+  "dependencies": {
+    "electron-updater": "6.8.9",
+    "entities": "8.1.0",
+    "katex": "0.18.9",
+    "marked": "18.0.14",
+    "monaco-editor": "0.57.0",
+    "react": "19.3.0",
+    "react-dom": "19.3.0",
+    "smol-toml": "1.9.0"
+  },
+  "devDependencies": {
+    "@types/node": "24.13.6",
+    "@types/react": "19.3.0",
+    "@types/react-dom": "19.3.0",
+    "electron": "44.4.5",
+    "electron-builder": "26.15.3",
+    "esbuild": "0.25.12",
+    "playwright": "https://registry.npmjs.org/playwright/-/playwright-1.63.0.tgz",
+    "tsx": "4.23.15",
+    "typescript": "5.9.3",
+    "vite": "7.3.6"
+  },
+  "overrides": {
+    "playwright-core": "https://registry.npmjs.org/playwright-core/-/playwright-core-1.63.0.tgz"
+  }
+}

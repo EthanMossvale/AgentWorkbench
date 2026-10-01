@@ -1,0 +1,9 @@
+.syntax-code { color:var(--code-text,var(--text));font:inherit;tab-size:4; }
+.syntax-code .syntax-keyword { color:var(--syntax-keyword,#7e4191); }
+.syntax-code .syntax-string { color:var(--syntax-string,#33613e); }
+.syntax-code .syntax-number { color:var(--syntax-number,#9b482c); }
+.syntax-code .syntax-comment { color:var(--syntax-comment,#70685f);font-style:italic; }
+.syntax-code .syntax-function { color:var(--syntax-function,#285f85); }
+.syntax-code .syntax-type { color:var(--syntax-type,#806119); }
+.syntax-code .syntax-punctuation { color:var(--syntax-punctuation,#605c56); }
+:root[data-appearance] .message-markdown .markdown-code-block { background:var(--code-bg); }

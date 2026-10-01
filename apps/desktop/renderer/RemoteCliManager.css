@@ -1,0 +1,34 @@
+.remote-cli{padding:4px 0 8px;container:remote-cli / inline-size}
+.remote-cli-heading{display:flex;justify-content:space-between;align-items:center;gap:12px;margin-bottom:6px}
+.remote-cli-heading h3{font-family:inherit;font-size:1rem;font-weight:500;margin:0}
+:is(.remote-cli-row,.remote-configuration-row){display:grid;grid-template-columns:minmax(0,1fr) auto;align-items:center;gap:6px 18px;padding:14px 0;border-top:1px solid var(--line)}
+.remote-cli-summary{display:flex;align-items:flex-start;gap:10px;min-width:0}
+.remote-cli-summary>svg{flex:none;margin-top:3px;color:var(--muted)}
+.remote-cli-description{min-width:0}
+.remote-cli-name{display:flex;flex-wrap:wrap;align-items:baseline;gap:4px 9px}
+.remote-cli-name h4{margin:0;font-size:1.076923rem;font-weight:600;line-height:1.5}
+.remote-cli-name span{font-size:0.846154rem;color:var(--muted)}
+:is(.remote-cli-row,.remote-configuration-row) dl{display:flex;flex-wrap:wrap;gap:2px 14px;margin:3px 0 0;font-size:0.846154rem;line-height:1.6}
+:is(.remote-cli-row,.remote-configuration-row) dl>div{display:flex;gap:6px}
+:is(.remote-cli-row,.remote-configuration-row) dt{color:var(--muted)}
+:is(.remote-cli-row,.remote-configuration-row) dd{margin:0;font-variant-numeric:tabular-nums}
+.remote-cli-actions{display:flex;align-items:center;justify-content:flex-end;gap:8px;min-width:0}
+.remote-cli-actions .button{white-space:nowrap}
+.remote-cli-policies{border:0;padding:0;margin:0 8px 0 0;min-width:0}
+.remote-cli-policies .toggle-row{padding:0;min-height:32px;gap:8px;white-space:nowrap}
+.remote-cli-policies .toggle-row strong{margin:0}
+.remote-cli-policies[disabled]{opacity:.6}
+.remote-cli-path,.remote-cli-targets{font-size:0.846154rem;font-family:var(--font-mono,monospace);color:var(--muted)}
+.remote-cli-path{margin:3px 0 0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.remote-cli-targets{padding-left:20px;overflow-wrap:anywhere}
+.remote-cli-targets li{margin:8px 0}
+.remote-cli-message{grid-column:1/-1;margin:0 0 0 27px;overflow-wrap:anywhere}
+.remote-cli-message.inline-error{padding:0;border:0;border-radius:0;font-size:0.846154rem;line-height:1.6}
+.remote-cli-update-error{font-size:0.846154rem;color:var(--muted)}
+.remote-cli-update-error summary{cursor:pointer}
+.remote-cli-update-error p{margin:4px 0 0}
+@container remote-cli (max-width:540px){:is(.remote-cli-row,.remote-configuration-row){grid-template-columns:minmax(0,1fr);gap:8px}.remote-cli-actions{justify-content:flex-start;margin-left:27px;flex-wrap:wrap}.remote-cli-policies{margin-right:8px}}
+
+.remote-configuration-note{font-size:0.846154rem;color:var(--muted);margin:3px 0 0}
+
+.remote-configuration-row[hidden],.remote-cli-row[hidden]{display:none}

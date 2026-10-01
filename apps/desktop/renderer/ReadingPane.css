@@ -1,0 +1,37 @@
+.message-translation-note{margin:6px 0 0;padding:6px 0 0;border-top:1px solid var(--line);color:var(--text);line-height:1.8}
+.original-messages .native-message .message-text,.original-messages .user-message .message-text,.child-conversation-dock .message-text{font-family:var(--font-content,Georgia,"Noto Serif CJK SC","Microsoft YaHei",serif);font-size:1.076923rem;line-height:1.8}
+.original-messages .message-translation-note .message-text,.child-conversation-dock .message-translation-note .message-text{font-size:1.076923rem;line-height:1.8}
+.translation-note-error,.translation-note-hint{color:var(--muted);font-size:0.846154rem;margin:8px 0 0}
+.translation-note-error{color:var(--danger)}
+.child-conversation-dock{display:flex;flex-direction:column;flex:0 0 clamp(260px,var(--file-pane-width,420px),calc(100% - 345px));min-width:0;min-height:0;background:var(--bg);outline:none}
+.child-reader-header{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1.4fr) auto;align-items:start;gap:6px 10px;padding:20px 21px 13px;flex-shrink:0}
+.child-reader-header>h2{grid-column:1/-1}
+.child-model-settings{min-width:0;text-align:right;font-size:0.769231rem;color:var(--muted);line-height:1.6}
+.child-model-name{display:block;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:var(--text)}
+.child-model-options{display:flex;justify-content:flex-end;gap:4px 9px;flex-wrap:wrap}
+.child-model-options .fast-enabled{color:var(--accent)}
+.child-reader-header small{font-size:0.769231rem;color:var(--muted);letter-spacing:.06em}
+.child-reader-header h2{font-family:var(--font-ui,Georgia,'Noto Serif SC','Songti SC',serif);font-weight:500;font-size:1.461538rem;line-height:1.55;margin:6px 0 0;overflow-wrap:anywhere}
+.child-conversation-dock .child-conversation-nav{padding:0 21px 12px;border-bottom:1px solid var(--line);gap:12px;font-size:0.769231rem}
+.child-conversation-dock .child-conversation-nav>span{margin-left:auto}
+.child-conversation-dock .child-conversation-nav>button:last-child{margin-left:0}
+.child-conversation-dock .child-conversation-body{padding:14px 21px 24px;scrollbar-gutter:stable;overflow-wrap:anywhere}
+.child-reader-model{font-size:0.769231rem;color:var(--muted);margin:0 0 16px;overflow-wrap:anywhere}
+.child-conversation-dock .child-assignment{margin:0 0 14px;padding:0 0 10px}
+.child-conversation-dock .child-assignment>small{display:block;margin-bottom:5px}
+.child-conversation-dock .child-message{margin:0 0 16px;font-size:1.076923rem;line-height:1.8}
+.child-message-actions{display:flex;align-items:center;gap:6px;margin-top:5px;color:var(--muted)}
+.original-messages .native-message .message-actions{margin-top:5px}
+.child-message-actions .icon-button{padding:4px}
+.child-conversation-dock .child-conversation-footer{padding:12px 21px;font-size:0.769231rem;line-height:1.8;color:var(--muted)}
+.translation-layout-setting{margin:4px 0 14px;padding:0 0 12px;border:0;border-bottom:1px solid var(--line)}
+.translation-layout-setting legend{float:left;font-size:0.846154rem;margin:6px 12px 0 0}
+.translation-layout-options{display:flex;gap:8px;flex-wrap:wrap}
+.translation-layout-options label{display:flex;align-items:center;gap:8px;font-size:0.846154rem;border:1px solid var(--line);padding:5px 9px;border-radius:6px;cursor:pointer}
+.translation-layout-options label:has(input:checked){border-color:var(--accent);background:var(--tint)}
+.translation-layout-options input{margin:0;padding:0;min-height:0;width:12px;height:12px;accent-color:var(--accent)}
+.translation-layout-setting p{font-size:0.846154rem;color:var(--muted);line-height:1.8;margin:10px 0 0}
+@media(max-width:700px){.has-reader-dock .conversation-column{min-width:0}.child-conversation-dock{flex-basis:48%;min-width:220px}.child-reader-header{padding:14px 12px 10px}.child-conversation-dock .child-conversation-body{padding:12px}.child-conversation-dock .child-conversation-nav{padding:0 12px 10px}}
+
+.original-messages .native-entry{position:relative;padding:0;margin:0 0 16px}
+.split-workspace .reading-turn .user-message{margin-bottom:15px}

@@ -1,0 +1,19 @@
+.sidebar-session-preview{pointer-events:auto;max-height:calc(100vh - 16px);overflow:auto}
+.sidebar-session-preview:focus-visible{outline:1px solid var(--muted);outline-offset:2px}
+.session-preview-body{margin-top:10px;padding-top:9px;border-top:1px solid var(--line);min-width:0}
+.session-preview-body-label,.session-preview-hint{font-size:0.769231rem;color:var(--muted)}
+.session-preview-text{margin:5px 0 0;white-space:pre-wrap;overflow-wrap:anywhere;font-size:0.923077rem;line-height:1.55;max-height:240px;overflow:auto}
+.session-preview-body[data-expanded=false] .session-preview-text{display:-webkit-box;-webkit-line-clamp:3;-webkit-box-orient:vertical;overflow:hidden}
+.session-preview-hint{display:block;margin-top:6px}
+.session-preview-hint:empty{display:none}
+.session-preview-title-button{display:flex;align-items:flex-start;gap:5px;width:100%;padding:2px 3px;margin:-2px -3px;border:0;border-radius:4px;background:transparent;color:inherit;font:inherit;text-align:left;overflow-wrap:anywhere;cursor:text}
+.session-preview-title-button>svg{flex-shrink:0;margin-top:4px;opacity:0;color:var(--muted)}
+.session-preview-title-button:hover,.session-preview-title-button:focus-visible{background:var(--hover)}
+.session-preview-title-button:hover>svg,.session-preview-title-button:focus-visible>svg{opacity:1}
+.session-preview-title-editor{min-width:0}
+.session-preview-title-controls{display:flex;align-items:center;gap:2px;min-width:0}
+.session-preview-title-controls>input{min-width:0;width:100%;padding:2px 3px;border:1px solid var(--line);border-radius:4px;background:var(--surface);color:var(--text);font:inherit}
+.session-preview-title-controls>button{display:inline-flex;align-items:center;justify-content:center;flex:0 0 20px;width:20px;height:24px;padding:0;border:0;border-radius:4px;background:transparent;color:var(--muted)}
+.session-preview-title-controls>button:hover{background:var(--hover);color:var(--text)}
+.session-preview-title-controls>button:disabled{opacity:.5}
+.session-preview-title-error{display:block;margin-top:4px;font-size:0.769231rem;line-height:1.4;color:var(--danger)}

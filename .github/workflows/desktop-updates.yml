@@ -1,0 +1,50 @@
+name: Desktop update channel
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: desktop-update-channel
+  cancel-in-progress: false
+jobs:
+  build:
+    runs-on: windows-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
+        with:
+          node-version: 24
+          cache: npm
+      - run: npm ci
+      - run: npm run check:docs
+      - run: npm run check:plugins
+      - run: npm run check:ui-preferences
+      - run: node --import tsx --test tests/desktop-updates.test.ts
+      - name: Assign monotonically increasing build version
+        shell: pwsh
+        run: npm version "0.1.${{ github.run_number }}" --no-git-tag-version
+      - run: npm run package:windows
+        env:
+          CSC_IDENTITY_AUTO_DISCOVERY: false
+      - run: node scripts/prepare-update-site.mjs
+      - uses: actions/upload-pages-artifact@56afc609e74202658d3ffba0e8f6dda462b719fa
+        with:
+          path: build/update-site
+  deploy:
+    needs: build
+    runs-on: ubuntu-latest
+    permissions:
+      pages: write
+      id-token: write
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - name: Publish update feed after successful build
+        id: deployment
+        uses: actions/deploy-pages@d6db90164ac5ed86f2b6aed7e0febac5b3c0c03e

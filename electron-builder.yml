@@ -1,0 +1,28 @@
+appId: com.ethanmossvale.agentworkbench
+productName: AgentWorkbench
+asar: true
+directories:
+  output: build/distribution
+files:
+  - dist/**/*
+  - package.json
+  - '!**/*.map'
+  - '!**/__pycache__/**'
+win:
+  icon: packages/branding/connected-w.ico
+  target:
+    - target: nsis
+      arch: [x64]
+nsis:
+  oneClick: true
+  perMachine: false
+  allowElevation: false
+  createDesktopShortcut: true
+  createStartMenuShortcut: true
+  shortcutName: AgentWorkbench
+  deleteAppDataOnUninstall: false
+  runAfterFinish: true
+artifactName: AgentWorkbench-${version}-${arch}-setup.${ext}
+publish:
+  provider: generic
+  url: https://ethanmossvale.github.io/AgentWorkbench/updates/

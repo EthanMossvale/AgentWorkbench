@@ -1,0 +1,5 @@
+.brand-mark:has(>img){background:none;border-radius:0;overflow:hidden}
+.brand-mark>img{display:block;width:100%;height:100%;object-fit:contain;pointer-events:none}
+.sidebar-identity{display:flex;align-items:center;gap:8px;min-width:0}
+.sidebar-top .brand-mark.small{width:24px;height:24px;flex:0 0 24px;border-radius:0}
+.sidebar.is-compact .sidebar-identity{display:none}

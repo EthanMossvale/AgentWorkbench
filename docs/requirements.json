@@ -1,0 +1,773 @@
+{
+  "source": "Project requirement register; private conversation identifiers omitted",
+  "implementationAuthorization": "2026-09-25 Asia/Tokyo",
+  "parallelism": "Standing ceiling: each main task may run at most one sub-agent concurrently. Latest user instruction pauses all sub-agent delegation to save usage until explicitly re-enabled; coordinate shared Electron QA and builds between main tasks.",
+  "requirements": [
+    {
+      "id": "U1",
+      "requirement": "独立桌面工作台，不依附旧 Codex 插件",
+      "module": "apps/desktop",
+      "stage": "P0",
+      "acceptance": "构建后的 Electron 应用独立运行"
+    },
+    {
+      "id": "U2",
+      "requirement": "原创暖灰浅色与深灰暗色，项目/会话/路径交互",
+      "module": "apps/desktop/renderer",
+      "stage": "P0",
+      "acceptance": "真实桌面主题、侧栏和原文双栏验收"
+    },
+    {
+      "id": "U3",
+      "requirement": "管理员发现/复用空间，缺少再创建，重建单独确认；用户不能管理",
+      "module": "services/host-control",
+      "stage": "P1",
+      "acceptance": "只读发现、远端权限证据、明确计划；真实部署仍需授权"
+    },
+    {
+      "id": "U4",
+      "requirement": "检测两家 CLI，可选安装一方或双方",
+      "module": "services/environment-profile",
+      "stage": "P1",
+      "acceptance": "版本探测已实现；安装与回滚不能冒称完成"
+    },
+    {
+      "id": "U5",
+      "requirement": "独立原生账号、额度和重置卡",
+      "module": "packages/runtime-codex + packages/runtime-claude",
+      "stage": "P1",
+      "acceptance": "VPS 原生认证不变；无接口则 unknown，不自动消费重置卡"
+    },
+    {
+      "id": "U6",
+      "requirement": "保留两家原生运行时、工具、认证、循环",
+      "module": "packages/runtime-* + services/local-executor",
+      "stage": "P1",
+      "acceptance": "不得以 SDK、自研循环或同名 MCP 工具替代；逐项原生联验"
+    },
+    {
+      "id": "U7",
+      "requirement": "会话建立后固定家族与身份，支持的同家参数回合边界变化",
+      "module": "packages/session-core",
+      "stage": "P0/P1",
+      "acceptance": "冻结 provider/runtime/account/execution/egress；拒绝静默变更"
+    },
+    {
+      "id": "U8",
+      "requirement": "离散思考滑块、独立 Fast、上下文与压缩设置",
+      "module": "apps/desktop/renderer",
+      "stage": "P1",
+      "acceptance": "未知能力禁用或待核实；不以 UI 请求值宣称已生效"
+    },
+    {
+      "id": "U9",
+      "requirement": "SSH 只是模式之一，未来任意兼容模型",
+      "module": "packages/contracts",
+      "stage": "P2",
+      "acceptance": "接口预留；第三方翻译器不是通用 Agent"
+    },
+    {
+      "id": "U10",
+      "requirement": "VPS 原生 CLI 经 SSH 操作本机，模型请求远端发出",
+      "module": "packages/runtime-* + packages/ssh-transport",
+      "stage": "P1",
+      "acceptance": "H 模式真实工具/文件/网络证据；断线不回退本机 CLI 或远端同名路径"
+    },
+    {
+      "id": "U11",
+      "requirement": "未来多 Agent 讨论组，当前不优先",
+      "module": "packages/contracts",
+      "stage": "P3",
+      "acceptance": "保留来源身份，不提前替代当前主线"
+    },
+    {
+      "id": "U12",
+      "requirement": "先更新本机 Claude 后判断能力",
+      "module": "docs/10-local-claude-update.md",
+      "stage": "historical",
+      "acceptance": "前任务更新记录保留，本轮不重复升级旧应用"
+    },
+    {
+      "id": "U13",
+      "requirement": "优先复用已有管理员和成员账户",
+      "module": "services/host-control",
+      "stage": "P1",
+      "acceptance": "不写死账户数，不自动新建或删旧；本轮经授权只读识别现有空间，结果与模型执行验收分开"
+    },
+    {
+      "id": "U14",
+      "requirement": "复用已经证明的 Codex 原生执行技术",
+      "module": "packages/runtime-codex",
+      "stage": "P1",
+      "acceptance": "0.155.1 deferred executor 基线独立保存，不混同新版 Code Mode host"
+    },
+    {
+      "id": "U15",
+      "requirement": "产品主要服务 Claude，Claude 原生桥优先",
+      "module": "packages/runtime-claude",
+      "stage": "P1",
+      "acceptance": "不以 Codex 通过代替 Claude 通过"
+    },
+    {
+      "id": "U16",
+      "requirement": "翻译先行：中文输入转英文、可选公开进度旁注、最终原文/中文双栏",
+      "module": "packages/translation + apps/desktop",
+      "stage": "P0",
+      "acceptance": "输入确认/一次提交、原文保留、输出失败只重译；不索取隐藏推理"
+    },
+    {
+      "id": "U17",
+      "requirement": "第三方翻译协议辅助识别、目录、手动模型与思考档位",
+      "module": "packages/translation/provider.ts",
+      "stage": "P0",
+      "acceptance": "三协议独立适配；目录不等于全部能力；effort无证据不生效"
+    },
+    {
+      "id": "U18",
+      "requirement": "SSH 识别 VPS 并投影/物化环境；限制自动设备信息扫描",
+      "module": "services/environment-profile + services/environment-runtime",
+      "stage": "P1",
+      "acceptance": "允许字段、版本/过期、无宿主补扫；真实隔离不靠输出伪装"
+    },
+    {
+      "id": "U19",
+      "requirement": "同 owner 普通文件跨工作区与目录访问",
+      "module": "services/owner-file-service",
+      "stage": "P1",
+      "acceptance": "workspace不作围栏；OS/其他owner/凭据/管理面边界继续有效"
+    },
+    {
+      "id": "U82",
+      "requirement": "统一 Codex 原生账号入口，移除整个工作台的旧 token 中转并保留旧会话",
+      "module": "vps-account-broker/migration + native-owner gateway + account-usage + session migration",
+      "stage": "P0/P1",
+      "acceptance": "聊天、模型目录、额度读取和重置卡只通过原生账号所有者运行；缺失服务不降级，旧账号目录仅可只读核对，授权集中在工作空间策略。管理员明确确认原账号并完成官方登录；迁移仅复制 allowlist 原生 rollout，不读取/复制认证文件、配置或数据库。保留账号 ID/代次、原线程、子线程、目录、设备、待确认回合和配给借还账；分页前缀依赖必须完整，回退后的多个物理版本需明确原生活跃路径，不猜测。桌面仅通过真实 SSH 成员读取匹配回执后接入，不用旧 H 验收、不重发消息；重置卡未知请求保留原生幂等键，数值账本保留去重 scope。源码/VPS固定文案英文；本轮只做仓库实现、隔离 UI/Linux 和官方 CLI 无账号合成历史验证，不自动改动真实 VPS 或迁移真实账号。"
+    },
+    {
+      "id": "U96",
+      "requirement": "设备隔离的原生记忆交接、首次来源选择、英文落盘与核验回执",
+      "module": "native-memory + native-resources + renderer/NativeMemorySettings",
+      "stage": "P0",
+      "acceptance": "首次选择 Codex、Claude Code 或两边现有记忆，未选旧文件建基线；后续双向捕获本机新增、修改和撤回。来源按运行时记录，按绑定接收运行时派发，不依赖模型厂商、名字或 API URL。用户明确发送任务后，由记忆模块复用绑定运行时、模型、思考档位和权限，使用独立后台会话处理冻结的待收档案；前台不注入记忆交接提示或档案，后台会话不进入聊天列表；新增原生记忆正文、摘要、索引描述用英文，技术原文保真。模型先对原生记忆和批次去重，经支持的原生入口落盘并提交文件/索引回读回执。核验 runtime/revision/scope/hash/provenance 后盖章；部分失败、审批提问、结果未知保留待处理，不自动重试或重启；后台仅按已核验进度继续分批，最多处理本次前120份档案。关闭、取消、退出和超时停止所属任务；记忆页展示任务状态，原生官方上下文保持原样。原生记忆可独立使用，不跨设备、不另建检索引擎；不伪称 Codex 待整合笔记已吸收或语义无损。单开关、紧凑首次来源选择、待接收计数、最近核验交接时间和原文管理；管理器 CAS 保护、旧副本仅按哈希退役。 查看与管理记忆按 Codex / Claude Code / 工作台标签分区；原生文件显示核验来源，工作台保留全部只读档案、待收/已收状态及历史版本。接收模型修改正文、来源标记或移除原生文件不得移除档案或撤销历史接收，只另示当前证据变化；重启后保留。"
+    },
+    {
+      "id": "U97",
+      "requirement": "直接识别两家原生与官方Skill，独立开关、同名冲突、ZIP分享",
+      "module": "native-skills + native-resources/archive + renderer/NativeSettings",
+      "stage": "P0",
+      "acceptance": "直接读取原生目录而非复制到工作台；顶部只有官方/个人文字标签，自动汇集两家技能；直接读取原生显示标题、短描述和图标，缺少agents/openai.yaml时使用SKILL.md名称与描述并单行省略，不生成或改写原生展示文件。行内官方/个人标签前标明Codex或Claude Code来源；文学阅读风格，导出按钮位于开关右侧，无常驻来源选项框。真实路径去重、同名冲突保留。补齐Claude已安装官方插件和本机运行时自带技能，统一标签为Claude Code · 官方，不追加内置。官方页只提供查看与原生开关，不显示导入或导出；个人页保留ZIP导入导出，导入仅进入所选提供方的个人目录。开关写入原生配置并以新会话生效为保证，不要求重启工作台，也不主动重载已有会话；Claude插件按所属插件整组控制并先确认影响范围，不能导出的运行时技能不伪造ZIP。ZIP含SKILL.md及配套资源；点击导入按钮直接打开紧凑弹窗，无前置下拉菜单或箭头，安装目标只在顶部Codex/Claude Code左右文字标签选择，初始显式选中Codex并可切换，下方带文件图标的虚线区支持真实ZIP拖放安装和点击选择文件，禁止两个大卡片。目录自动识别，无路径输入，安装后按实际位置显示来源。取消选择不安装，错误留在弹窗可重试，成功刷新列表；可完整导出，不执行脚本或覆盖已有安装。 个人页顶部提供 Codex/Claude logo，行内两枚logo位于来源右侧、开关左侧，按实际原生目录连接点亮；顶部显示当前过滤列表全部/部分/未接入计数，批量先确认范围。另一方连接直接指向最终真实技能源目录，不复制、不增加上下文目录、不改CC Switch配置；复用相同目标，同名冲突/断链不覆盖。只撤销工作台创建且身份吻合的链接，外部原生条目保护；项目/官方/插件技能不提升为全局个人技能。描述省略保留完整悬停文本，与来源标记同一行时留至少24px间距。单行/批量、部分失败、两向实际CLI、外部变化与重启均分层验证。"
+    },
+    {
+      "id": "U98",
+      "requirement": "插件设置页和高度可扩展宿主插件接口",
+      "module": "plugins-core + host/main/native-resources + renderer/PluginSettings",
+      "stage": "P0",
+      "acceptance": "左侧插件标签，双语工作流默认折叠，右侧开关接通真实翻译模块；压缩每行上下留白，说明文字始终随新增插件排在列表末尾。支持用户插件ZIP导入导出、上下文、颜色/背景、本机宿主命令和请求中间件；代码插件按整包哈希启用，关闭解除钩子；文档和可导入示例齐全。 原生插件另列已安装/可安装目录，标注Codex或Claude Code及市场；使用原生安装、整组开关、范围确认和原生回读；支持预览未注册的Claude官方市场，确认安装后才注册，不自动同意市场声明的额外命令。 工作台/运行时插件采用顶部标签分区；双语工作流只保留插件行开关，开发说明和ZIP入口归属工作台侧。显式批准的整包代码插件开放现有宿主服务调用与状态事件，支持renderer自包含ESM、样式/面板及完整界面替换；停用/变更/失败释放自有资源，原生恢复入口直达核心。原生插件不载入工作台代码宿主。 工作台插件导入 ZIP 直接打开与 Skill 同风格的紧凑虚线拖放弹窗，不显示 Codex/Claude 目标选择；支持真实单 ZIP 拖入或点击选择，取消不安装、错误原位重试、不覆盖同名，导入后默认关闭。"
+    },
+    {
+      "id": "U99",
+      "requirement": "本机官方 CLI 管理、原生安装默认、npm 可选、版本检查和空闲自动更新",
+      "module": "native-runtime + host/native-resources + renderer/RuntimeCliSettings",
+      "stage": "P0/P1",
+      "acceptance": "设置增加运行时 CLI 标签，识别本机可执行文件与版本、查询官方版本，缺少的一方可单独按官方默认方式安装。不静默迁移原生配置目录、不接管登录、不要求两家都安装；未安装运行时不出现在新任务选择器，历史绑定保留。更新与默认关闭的工作台空闲自动更新保留原渠道，未知渠道不伪称支持；安装超时停止本次进程树，状态未知不重试。安装命令、原生版本读取、隔离界面与实际安装验收分开；不更新固定版本执行桥、不自动部署远端。 两家CLI操作独立，同一运行时互斥；安装默认最新版，工作台无运行中、结果未知或待处理会话时才自动更新，并和任务准入互斥。已安装CLI提供卸载图标和二次确认，核验原渠道和安装revision；只卸载程序，不清理配置、记忆、技能、档案或偏好。 两家首次安装默认调用官方原生安装器，npm为显式可选方式，无npm不阻挡原生安装；选择方式不执行安装。原渠道版本检查、更新和卸载不得静默迁移；Codex原生入口及版本目录链接按官方布局识别，卸载核验边界并保留其他包、用户原文及桌面端。 运行时 CLI 页面沿用文学阅读字体、平整紧凑行与细分隔线，不使用整块卡片或系统下拉菜单；安装方式用原生/npm文字选择，路径与命令默认折叠到详情，安装更新卸载行为不变。"
+    },
+    {
+      "id": "U100",
+      "requirement": "本机原生记忆控制与设备内交接独立，并按 CLI 安装状态显示",
+      "module": "native-memory/controls + native-memory + renderer/NativeMemorySettings",
+      "stage": "P0",
+      "acceptance": "原生用户配置是状态来源，直接保存、回读并反映外部修改，不持久化工作台镜像。Codex 主开关和工具聊天来源选项分开，Claude 使用已核实的 autoMemoryEnabled；不以 CLI 文档推断 Desktop 全部开关。尊重原生 Home 和已发现覆盖，未知不能冒称关闭或生效。远端工作台自动记忆关闭仅作源码修改。零安装显示安装入口，一家显示其原生控制和原文管理，两家才显示独立交接开关；卸载暂停交接并保留原文、档案、队列和偏好，有历史时保留管理入口，重装可恢复。接收方关闭或未知时不发放；不承诺独立远端、MDM/server-managed 或全部启动参数共用本机设置。 工具聊天选项以已安装运行时的实际解析能力检测为准，不以旧补丁版本白名单锁死新版本。 Codex记忆与工具聊天来源配置平级、独立保存和判断覆盖；记忆关闭不锁定来源偏好，来源偏好不单独开启记忆。Claude不虚构工具来源过滤开关，也不把autoMemoryEnabled说成所有记忆相关配置的唯一选项。"
+    },
+    {
+      "id": "U102",
+      "requirement": "侧栏拖拽整理、项目浮层、长列表优先级与任务附件",
+      "module": "desktop/Sidebar/Workspace + session-core/sidebar-order + attachments + runtime inputs",
+      "stage": "P0",
+      "acceptance": "项目拖拽排序及会话跨项目移动可持久化，移动不改原工作目录或运行时身份。项目悬停显示数量、目录、置顶和编辑。每项目默认五条、展开余量、折叠偏好、一键全部折叠。会话支持当前项目/置顶区/分组内拖拽及 Alt+上下键手动排序并持久化；仅静置严格超过一小时后再次活动的会话按待处理/审批、运行中、未读、最近活动重新放置，其余会话相对顺序保留。一小时内的活动不触发重排，持续运行不视为闲置，手动调整续期当前区域保护；并行请求串行应用相对目标，过期归属拒绝，不用旧整表覆盖。附件支持选择、真实文件拖放、图片粘贴、预览、移除和仅附件提交；附件快照绑定发送预览，送入已支持运行时的实际输入，并保留消息、编辑和分支元数据。验证须区分协议、桌面和真实模型理解，不扩大原生执行门禁。"
+    },
+    {
+      "id": "U104",
+      "requirement": "会话实时权限、运行中输入、全局中途翻译与回复文件交互",
+      "module": "session-core + runtime-codex + host/api-runner/native-codex + renderer/Workspace",
+      "stage": "P0/P1",
+      "acceptance": "移除权限菜单的下次提交说明；按项目及无项目、运行时分别记忆权限。按用户最新澄清，Codex 运行中立即向 CLI 发送原生权限设置更新，成功回执后更新选择与偏好，拒绝时保留原值；原生后续请求何时使用新权限由 CLI 决定，不以该时序阻止拨动、不等待下个回合才发送、不隐藏重启。Claude H 未验收边界保留。运行中明确输入使用原生 steer 或 API 下一请求边界，不重放、不将过期预览转成新回合。模型来源、模型参数、API 直连、SSH 与缺失状态清楚区分。用户消息无分支按钮，助手回复提供复制/分支及有来源证据的只悬停记忆提示。HTML 点击打开内置隔离预览，补齐文件右键菜单。翻译开启时自动处理每条公开助手消息；会话输入框下方、“翻译后直接发送”右侧默认开启的中途翻译开关全局持久化，关闭保留已有译文，最终回复仍翻译。详见 session-controls-20260927.md。"
+    },
+    {
+      "id": "U112",
+      "requirement": "输入框自适应高度、全窗口图片查看与明确的附件存储/清理",
+      "module": "desktop renderer + attachments",
+      "stage": "P0",
+      "acceptance": "输入增高和缩回，达到视口受限上限后内部滚动；图片支持缩放、拖动、翻页、另存为和标注副本，仅底部小字。直接点击图片即可展开，右键图片打开菜单，不增加独立的查看图片按钮；图片展开使用随主题变化的半透毛玻璃遮罩，覆盖原有应用界面；使用较薄遮罩透出柔化的背景轮廓，保持清爽朦胧的高斯模糊。图片操作与独立关闭按钮浮在系统窗口控制区下方，缩放居中放在底部，形成明确层级，保持浅深色工作台风格。点击图片外空白也可关闭，图片点击、拖动和控件交互不误关，导出中保留关闭保护。会话运行时的图片、普通附件及全屏图片提供中文右键菜单，支持复制原图/路径、另存为、定位及显式默认应用打开；模型看图属于原生过程日志，默认折叠，展开后只显示无文件名和大小的小缩略图；生图与展示按原生返回另行呈现，不混同为附件卡片。历史附件可去重加入当前草稿而不发送任务，提供键盘菜单、视口避让及清晰完成/错误反馈。按来源区分原路径、粘贴临时文件和托管附件，提供位置与安全遗留清理；保留旧记录、保护原件和会话引用。验证实际隐藏 Electron UI 和宿主字节/路径边界。"
+    },
+    {
+      "id": "U113",
+      "requirement": "用户根目录迁移与可恢复的自动工作树清理",
+      "module": "app-data + worktrees + desktop",
+      "stage": "P0",
+      "acceptance": "默认应用根为用户主目录下独立隐藏目录，启动单实例锁下迁移旧数据/相邻附件/工作树并保留兼容链接；冲突不覆盖。可设置工作树自动清理及保留数量，先验证完整副本再删除，保护运行/待确认/置顶/当前会话，支持恢复未提交及忽略文件和未推送提交。"
+    },
+    {
+      "id": "U114",
+      "requirement": "无需推理的档位识别与可用滑块，显式选择优先",
+      "module": "model-api + desktop",
+      "stage": "P0",
+      "acceptance": "勾选即去抖检测，无需展开，保存不等待；只测试 light/low/medium/high/xhigh/max/ultra 原始参数，未知不猜。优先解析错误档位响应中的上游允许值列表，区分声明与实际验证；检测失败显示固定原因/HTTP 状态。详情始终提供手动档位及默认值选择、恢复自动；手动配置可在未知状态保存并原样发送，后台检测与目录刷新不得覆盖。来源变更丢弃陈旧证据，连接忙碌不阻塞检测、不改变当前任务。实际档位无额外默认停靠点，无档位才显示默认，手掌指针与有能力才显示 Fast。 2026-09-28 后续修订：取消打开、勾选、编辑与保存时自动推理检测，普通读取/保存仅获取目录；目录声明、已保存证据及明确手动配置贯通设置、滑块、会话校验和原生参数，用户指定档位优先。未知声明可手选，不以真实请求作为解锁前提。旧无效值对照不证明模型不支持或连接失败；底层推理验证必须额外显式授权，已接管作业仍可取消。"
+    },
+    {
+      "id": "U115",
+      "requirement": "模型页共存 API 与本机官方多账号；自适应折叠卡片、官方额度与重置卡、按来源和模型的 token 与美元参考统计；按运行时隔离官方模型并记忆账号选择",
+      "module": "model-management + desktop host/renderer + native runtime integration",
+      "stage": "P0",
+      "acceptance": "API 区域在前且全部行参与页面滚动，官方账号网格按宽度和缩放自动增减列数、默认折叠，启用开关始终可见。官方账号只调用对应厂商原生 CLI，独立本机登录目录，不改 VPS；目录顺序 SSH、官方账号、API，官方同名模型合并，选模型后单独选账号。记忆明确选择的账号、模型、思考档位和既有项目/运行时权限，不因限流或停用自动换号。额度窗口只展示原生实际返回项；重置卡仅明确确认后兑换并持久化幂等键，Claude 未核实的读取/兑换接口不伪造。工作台用量按 1day/7day/已观测完整周期/本月查询，保留未知计数与价格假设；移除聊天不删除已记录统计。插件接口、失败清理、重启持久化、合成协议与隐藏桌面验证分别记录，真实官方登录/模型与远端验收不能由模拟替代。 官方账号区域沿用技能页的 Codex/Claude 标签分区，添加默认跟随分区；两家登录参数分别核实。Claude 无 API Key Console 额外隔离 Anthropic 配置，只有原生请求时才提供临时授权码输入，不持久化。所有折叠箭头收起向右、展开向下。"
+    },
+    {
+      "id": "U116",
+      "requirement": "可配置外观与本机字体选择，独立界面、正文及代码排版，整齐数字显示",
+      "module": "appearance + host/appearance-fonts + renderer/AppearanceSettings",
+      "stage": "P0",
+      "acceptance": "外观页提供浅色、深色、跟随系统，暖灰与中性配色，自定义强调色，可搜索的本机字体，独立界面/正文/代码字号与字体、等高数字、减少动态效果、实时预览及确认恢复默认。选择持久化并立即生效，重启回读；旧状态缺少外观字段时兼容，修订冲突和保存失败不可静默覆盖。Windows 从已安装字体目录读取家族名称，不下载或打包第三方字体；不修改原生 CLI 或其他客户端设置。公开 appearance/get、appearance/set、appearance/fonts 与 CSS 变量接口，验证插件调用、替换、停用恢复以及主/译/子会话、Markdown 和已挂载 Monaco。隐藏独立窗口验证，不操作正在使用的客户端。 后续明确：默认正文使用 Claude 桌面阅读字体 Anthropic Serif，中文采用系统回退；保留用户显式改选并持久保存。只引用本机已安装 Claude 的静态字体资源，不复制到仓库或发行包，无资源时明确回退。"
+    },
+    {
+      "id": "U117",
+      "requirement": "浅深色配色预设、独立代码字体与可注册主题插件",
+      "module": "appearance/themes + appearance/syntax + renderer/plugin-renderer",
+      "stage": "P0",
+      "acceptance": "提供至少六个浅色与六个深色模板，分别持久化选择并随系统切换，协调界面与代码高亮；切换模板保留三类字体和字号。外观预览可切换 TypeScript、Python、JSON 并展示真实语法颜色；回复代码块及已挂载 Monaco 使用配套色彩，代码字体独立设置。主题插件经完整包批准后可注册模板、自动出现在选择器，命名隔离；停用、失败和升级释放注册，缺失时安全回退并保留用户选择，恢复后重新应用。提供主题/语法扩展公开接口、参数校验、生命周期、示例及实际 ZIP 插件桌面验证，不预装示例。"
+    },
+    {
+      "id": "U118",
+      "requirement": "Persist deliberate UI adjustments per user and device; ship reviewed product defaults without developer preferences",
+      "module": "packages/ui-preferences + apps/desktop",
+      "stage": "P0",
+      "acceptance": "Inventory all adjustable nodes and transient exclusions; verify process restart, responsive/display fitting, migration, revisions, actual approved plugin lifecycle, and clean fresh profiles. Enforce alongside the plugin API gate in AGENTS.md; final installer/update packaging remains a separate acceptance."
+    },
+    {
+      "id": "U119",
+      "requirement": "常规设置提供排队与引导，Ctrl+Enter 反向处理，运行中补充输入可见且可靠保存",
+      "module": "session-core/follow-ups + desktop host/renderer + native providers",
+      "stage": "P0",
+      "acceptance": "常规设置以现有文学风格的排队/引导文字标签选择；引导进入普通消息时间线，只有排队消息在输入框上沿以紧凑单行显示、操作使用图标和按需菜单。沿用引导默认值，偏好保存在当前用户本机；Enter 按所选方式处理，Ctrl+Enter 仅对本条反向，Shift+Enter 换行且 IME 不发送。原生回合内的用户输入按时间位置保留，提交与接收状态明确。队列逐条等待成功完成，停止、失败、重启及未知回执暂停，不自动重发。核实本机 Claude Code stream-json 的工具边界接收与回复后接收，不承诺立即打断；不支持引导的适配器明确排队。提供具名可注册模式、真实执行服务及 UI surface，验证批准插件、禁用恢复、预览冻结、并发/损坏存储、重启及隐藏桌面；与真实模型和远端部署证据分开。"
+    },
+    {
+      "id": "U120",
+      "requirement": "模型回复内支持可交互的方案比较、图表和可视化展示",
+      "module": "packages/visualizations + message-markdown + desktop host/renderer",
+      "stage": "P1",
+      "acceptance": "完整展示引用进入实际主回复、译文与子会话；HTML脚本使用隔离页面，原文复制、代码示例和翻译保护保持；控件通过有界JSON状态桥保存明确选择并在完整退出后恢复。提供具名插件调用、渲染器注册/替换、全部动态实例、停用恢复和状态持久化接口，运行时收到英文展示协议。真实批准合成插件、隐藏桌面和原生协议证据分别记录；不操作活动客户端、不自动部署或把源代码称为已安装。"
+    }
+  ],
+  "implementationTurnAdditions": [
+    {
+      "id": "U95",
+      "requirement": "创建聊天分支，并从指定消息继续另一条独立对话",
+      "module": "session-core/fork + host/controller + renderer/Sidebar/Workspace + runtime-codex + vps-account-broker/runtime",
+      "stage": "P0/P1",
+      "acceptance": "侧栏右键分支子菜单创建完整聊天分支；回复旁按钮保留到该完整回合；用户消息旁不显示分支入口，保留编辑重发。旧版显式 before-turn API 和已保存草稿兼容。保留项目、目录、运行时、账号、模型、权限及双语历史，独立保存、续聊、重启；源聊天删除不破坏分支。分支来源可返回原消息，深浅主题、窄窗口和键盘可用。Codex 持久化精确原生回合边界，首次继续时调用原生 thread/fork 创建独立线程并禁止自动目标续跑，不重放原请求、不截改源线程或回退工作文件；账号服务复核来源归属，断线回执不明不重复创建。Claude 本机模型 API 连接核对完整助手消息 UUID 后支持原生分支，并以真实模型验证工具历史、精确边界和独立续聊；SSH Claude 原生 H 未验收路径保留明确阻断；隔离 UI/协议/原生无模型验证分别记录，不冒称真实 VPS 或模型验收。"
+    },
+    {
+      "id": "U94",
+      "requirement": "工作空间删除须实际释放用户目录并删除系统成员与 SSH；本次旧三个身份仅保留为 sing-box 使用且公钥由 root 集中管理",
+      "module": "workspace-control/destruction + renderer/StudioPanel + host/discovery + SSH-only retirement",
+      "stage": "P0/P1",
+      "acceptance": "删除计划绑定用户名、UID、整个 HOME、工作目录和 inode/device，显示占用并要求输入用户名；拒绝系统身份、外部目录、链接替换、挂载和保留的 SSH 身份。应用先发布拒绝策略与不可重放日志，再过期锁定用户、停止该 UID 的进程、隔离删除整个 HOME 并删除系统用户，成功需 purged 回执，失败保持待恢复而不伪报成功。重建使用 create，数据、设备密钥和账号授权从空开始；集中账号和共享 CLI 保留。一次性实际删除 member-a/member-b/member-c 的旧空间数据和 HOME，保留其用户名/UID/原设备密钥；三份公钥移到 /etc/ssh/authorized_keys.d/ 由 root 管理，验证 sshd 配置、root 与 PC1 原密钥新连接和 SSH 转发，PC2/3 仅验证公钥一致和有效配置。保留身份从工作空间发现与本机连接列表剔除，禁止被新建/纳入/删除。每家 CLI 共享安装、每个账号一处原生登录设计不变，本轮不安装统一账号服务或登录模型。"
+    },
+    {
+      "id": "U93",
+      "requirement": "修复管理员空间自动加载、数字用户名目录提示、未纳管空间删除，以及 CLI 检测和一键配置",
+      "module": "renderer/StudioPanel + workspace-control + remote-account-catalog/setup + vps-account-broker/native_install",
+      "stage": "P0/P1",
+      "acceptance": "管理员页打开即只读加载受管及已发现空间，保留刷新和失败重试；按路径安全用户名预填两个目录，成员用户名不合规则即时说明并阻止提交，不静默改名或覆盖自定义目录。受管和未纳管空间行均有垃圾桶；未纳管空间直接生成删除状态，确认前不写入、不先授予权限，核对 UID/目录与计划版本，刷新不重新出现，可保留身份文件重建；成功删除后移除对应本机连接描述，保留历史和密钥。CLI 区分未找到、root 私有安装、版本和路径权限问题；检查保持只读，明确确认后可从固定官方源下载带固定 SHA256 的适配版本到独立共享目录，再准备统一服务，保留现有 CLI/凭据和成员。下载失败/校验失败/未知回执不执行未验证文件、不覆盖原安装、不自动重试。最小窗口确认按钮可见。真实 VPS 只读诊断和本地真实官方二进制安装自检分别记录；不自动部署、登录或调用模型。"
+    },
+    {
+      "id": "U92",
+      "requirement": "兑现一处原生认证、多空间使用权的统一账号入口，修复旧账号消失和逐空间登录回退",
+      "module": "remote-account-catalog/setup + vps-account-broker/setup + renderer/ProviderAccounts/AccountSetup",
+      "stage": "P0/P1",
+      "acceptance": "正常目录始终以 native-owner 为认证与执行来源；旧 broker 只读公开元数据单独列为待接入，不能使新服务就绪或用于登录、执行、额度与授权回退。Claude 不再从空间发现列表构造账号页或提示逐空间登录。管理员在账号页只读检查后明确确认安装同一账号服务，计划绑定完整 SSH 身份、有效期、部署快照和代码包；复用工作空间策略，不覆盖外来部署、复制凭据、改成员用户或替换 CLI。原账号自动读取邮箱与标识，明确确认后沿用原 ID/代次幂等接入，再在一处完成官方登录；成员无准备或登录管理权限。三种真实 Linux 成员 UID 共享同一私有 profile，保持线程与文件隔离。缺失服务、旧元数据保留、取消、失败、身份变化、窄窗和深浅主题均验证。只完成本地代码及隔离验证，不自动部署真实 VPS 或宣称 Claude 本机工具链已接通。"
+    },
+    {
+      "id": "U89",
+      "requirement": "创建工作空间时按成员用户名自动填写空间目录和默认工作目录，并明确已有空间的身份修改边界",
+      "module": "renderer/StudioPanel + studio-directories + workspace-control",
+      "stage": "P0",
+      "acceptance": "有效普通用户名默认生成 /home/<username>/workspaces；两个字段独立跟随用户名，自定义值各自保留，清空或非法用户名不生成 /home//workspaces；默认目录仍跟随空间目录时可同步更新。已有空间的用户名和空间目录只读，改显示名称或默认工作目录不改系统身份、不移动文件；服务端继续拒绝直接更新 username/root/uid。"
+    },
+    {
+      "id": "U90",
+      "requirement": "提供明确的删除工作空间和重新创建入口",
+      "module": "renderer/StudioPanel + workspace-control lifecycle",
+      "stage": "P0",
+      "acceptance": "删除按钮直接显示，预览列出具体空间、成员、保留目录和授权影响，确认前不执行。删除撤销此空间的账号权限、管理服务设备公钥及未使用邀请，保留系统成员、文件、其他 SSH 授权和已建立连接。已删除列表可重新创建，按纳入流程重新核实原 UID/目录，生成新 ID/代次；不重复创建系统成员，不恢复旧设备/邀请，账号和配给需重新选择；成功后选择新空间。"
+    },
+    {
+      "id": "U91",
+      "requirement": "工作空间账号信息自动识别，取消手动填写账号 ID",
+      "module": "renderer/StudioPanel + StudioAccountQuotas + trusted public account catalog",
+      "stage": "P0",
+      "acceptance": "打开新建、纳入、配置和重新创建表单即通过已有公开目录读取 Codex/Claude 账号，按邮箱/名称、厂商、状态和套餐显示，不依赖账号页缓存、不自动分配；取消手填 ID 输入。加载中禁用账号选择和预览，空目录、读取失败和服务不可用明确区分并可重读；保留草稿、已有缺失账号和配给，允许显式取消分配；取消重开与连接切换隔离迟到响应。目录/代次刷新后重读额度窗口；不扫描凭据、不自动部署服务、不恢复旧 token 中转。"
+    },
+    {
+      "id": "U86",
+      "requirement": "将隐藏侧边栏改为保留项目与会话入口的单字折叠栏",
+      "module": "Sidebar + SidebarRail + TitleBar + desktop-menu",
+      "stage": "P0",
+      "acceptance": "标题栏、视图菜单和 Ctrl+B 统一展开/折叠；会话显示大写首字母或单个中文字，项目使用文件夹形字标并保持层级区别；点击进入会话，右键/Shift+F10 菜单、状态提示、置顶、分组和项目展开分页保留；搜索自动展开；深浅主题和窄窗口通过实际 UI 验证"
+    },
+    {
+      "id": "U87",
+      "requirement": "侧栏以当前正常宽度为最小宽度，可从分界线向右拖动扩展",
+      "module": "SidebarFrame + sidebar-layout",
+      "stage": "P0",
+      "acceptance": "展开最小 240px、折叠 64px；指针捕获拖动，宽度上限为 600px、窗口一半和保留 520px 阅读区的较小值；支持键盘调宽、Escape 取消拖动和双击恢复最小宽度；折叠恢复原宽，窗口缩小时仅限制显示宽度；独立 Electron 进程重启后保留折叠状态和偏好宽度，当前会话草稿不因布局变化丢失"
+    },
+    {
+      "id": "U88",
+      "requirement": "修复最近会话打开工作区报错，会话与项目菜单按各自绑定目录定位",
+      "module": "host/controller + Sidebar",
+      "stage": "P0",
+      "acceptance": "会话菜单改为打开会话工作区并只按会话 ID 解析固定执行目录，复制路径同源；项目仍打开项目主文件夹，后续修改或移除项目不改会话目录；原生支持的新 Codex 会话在创建时准备自动目录，旧未运行会话只可补建宿主认定的自动目录；工作区浏览共用处理；缺失的已用目录或用户项目目录明确报错，不自动创建空替代目录，不启动模型/SSH"
+    },
+    {
+      "id": "U83",
+      "requirement": "项目会话中的文件浏览器可切换项目关联的多个文件夹，保留文学阅读风格",
+      "module": "FileBrowser + ProjectFileTree",
+      "stage": "P0",
+      "acceptance": "根目录选择与会话工作目录分离；按需展开目录；保留文件标签、编辑器视图与草稿；深浅主题及窄窗口实机 UI 检查"
+    },
+    {
+      "id": "U84",
+      "requirement": "按参考截图补齐顶部文件操作和会话超链接菜单",
+      "module": "MessageText + FileActionService + desktop IPC",
+      "stage": "P0",
+      "acceptance": "预览、默认应用、受支持打开方式、另存为、复制路径／文件内容和资源管理器定位真实接通；缺失应用明确不可用；安全宿主参数、菜单边界与鼠标／键盘二级导航经过验证"
+    },
+    {
+      "id": "U85",
+      "requirement": "会话提供本轮修改文件卡片，显示文件与增删统计并可审阅",
+      "module": "native observation + file-changes + FileChangeCard",
+      "stage": "P0",
+      "acceptance": "仅成功原生文件事件；按回合分组、重放去重、独立持久化；前三项与展开、逐文件差异、上下文菜单；正确区分新增删除全文与更新补丁，未知和截断不伪造，累计行数不冒称 Git 净差异"
+    },
+    {
+      "id": "U20",
+      "requirement": "保留认可的暖灰亮色；明确选Codex侧栏与项目/会话逻辑，不照搬Cursor模板",
+      "module": "apps/desktop/renderer/Sidebar.tsx",
+      "acceptance": "紧凑项目/会话行、搜索、折叠、固定、归档、分组、真实右键菜单"
+    },
+    {
+      "id": "U21",
+      "requirement": "一个项目关联多个文件夹，复制可打开的深度链接",
+      "module": "packages/navigation + apps/desktop/host",
+      "acceptance": "会话固定所选cwd；project修改不漂移旧会话；native deep-link启动按稳定ID导航，不自动发消息"
+    },
+    {
+      "id": "U22",
+      "requirement": "Claude/Codex共用框架级Codex风格memory和skills，不切换存储系统",
+      "module": "packages/memory-core + packages/skills-core + packages/session-core/shared-context.ts",
+      "acceptance": "全局启用、共享notes/SKILL.md、同源快照；不冒称已实现官方后台自动记忆引擎"
+    },
+    {
+      "id": "U23",
+      "requirement": "整个窗口左实际请求与原生输出、右本地中文，不能每条回复做双格卡片",
+      "module": "apps/desktop/renderer/Workspace.tsx",
+      "acceptance": "可拖动分隔条；用户消息和助手回复都在左右对应；原文不可被译文改写"
+    },
+    {
+      "id": "U24",
+      "requirement": "点击任一侧文本块，另一侧平滑追踪；悬停双边呼应，不用滚动联动勾选项",
+      "module": "apps/desktop/renderer/Workspace.tsx",
+      "acceptance": "来源messageId与有效段落映射；无持续强制滚动；保留安静暖纸色与阅读行距。仅左右对照实际显示时启用追踪；消息下方、右侧阅读器占用、隐藏译文及窄窗口单面板时停用悬停/焦点/点击/键盘命中并清除旧高亮，恢复右侧中文后恢复。正文选择、复制、链接与来源定位保留。"
+    },
+    {
+      "id": "U25",
+      "requirement": "发送预览允许补充/修改遗漏要求",
+      "module": "packages/translation/gate.ts + apps/desktop/renderer/Workspace.tsx",
+      "acceptance": "编辑使旧预览失效，保留原稿，全文重新翻译和确认；旧版本不能被提交"
+    },
+    {
+      "id": "U26",
+      "requirement": "深色版去掉墨绿色，改为中性暖炭灰",
+      "module": "apps/desktop/renderer/styles.css",
+      "acceptance": "侧栏/表面/选中行无绿色偏色，少量陶土强调；亮色保持不变"
+    },
+    {
+      "id": "U27",
+      "requirement": "Enter/发送进入双语预览弹窗，可与翻译模型补充整合、回原稿编辑；拨动开关默认关闭，开启才翻译后直发；Stop后可编辑重发",
+      "module": "packages/translation + apps/desktop/renderer/Workspace.tsx + apps/desktop/host/controller.ts",
+      "acceptance": "IME不误发/Shift Enter换行；补充使旧确认失效；两次模型调用只处理当前草稿与补充；直发边界重验开关；停止不伪造回滚，不删除历史；真实远端Stop仍须原生链联验"
+    },
+    {
+      "id": "U28",
+      "requirement": "新建会话直接进入空白输入区，可以不关联项目；项目/目录/运行时在输入框附近选择，不弹新建会话表单",
+      "module": "apps/desktop/renderer + apps/desktop/host",
+      "acceptance": "点击新建不保存空记录；首次发送单次创建，连续Enter不重复创建；projectId为null可持久化/导航/归档；精确迁移旧welcome占位且保留历史；翻译发送前预览弹窗继续保留"
+    },
+    {
+      "id": "U29",
+      "requirement": "Skills全局共用，所有会话默认可发现，不再每次新建勾选技能",
+      "module": "packages/skills-core + packages/session-core + apps/desktop/host",
+      "acceptance": "目录只含metadata，正文按id/hash按需读；相同共享内容跨runtime同源；旧目录不能偷偷读新版本；不把全部技能正文灌入首轮，不冒称原生工具调度已验收"
+    },
+    {
+      "id": "U30",
+      "requirement": "项目选择、新建项目与临时工作文件夹整合为输入区同一个按钮下的操作，不再拆成两个位置选择控件",
+      "module": "apps/desktop/renderer/ProjectPicker.tsx",
+      "acceptance": "搜索/选择项目、同一弹层切换多目录、新建后立即选中、临时目录与无项目可切换；全程不丢输入草稿，不创建空会话；键盘和取消均可用"
+    },
+    {
+      "id": "U31",
+      "requirement": "在输入框内部左下角提供跟随 Codex/Claude 的权限选择器，选项接通保存和原生协议",
+      "module": "apps/desktop/renderer/PermissionSelector.tsx + apps/desktop/host + packages/runtime-*",
+      "acceptance": "历史基线：权限入口在输入框左下，模式按运行时持久化并映射原生参数；U54 覆盖原先的运行中锁定要求，允许保存下一回合设置。"
+    },
+    {
+      "id": "U32",
+      "requirement": "接入用户既有 VPS 管理员 SSH 私钥路径后只读识别已有工作空间、独立SSH授权及各自Codex/Claude配置与账号状态",
+      "module": "services/host-control + apps/desktop/renderer/Connections",
+      "acceptance": "验证远端实际UID；从可信旧设备登记与用户目录元数据识别空间，不写死数量；私钥仅存本地路径引用，不复制或导出内容；公钥授权与本机身份关联分开；CLI与旧账号目录来源分开、配置字段允许列表、无token/聊天读取，不自动新增账号或改变VPS；实际连接与原生模型验收分别记录"
+    },
+    {
+      "id": "U33",
+      "requirement": "先实现工作台辅助远端 Codex 设备代码登录；Claude 以后由用户手动登录，当前只读取账号详情",
+      "module": "services/vps-account-broker + packages/remote-account-catalog + apps/desktop/renderer/CodexLogin",
+      "acceptance": "Codex须显式添加账号后由VPS独立非root凭据身份启动原生设备授权；管理员和成员只是申请者；完成一次后登记到共享目录，不覆盖旧配置或搬运旧登录态；只回传官方URL/设备码/允许账号字段；取消/过期/退出清理等待进程，过期与断网不伪报成功；Claude没有登录或实时画面实现，不动当前浏览器账号；真实授权、共享运行时执行与合成验证分别记录"
+    },
+    {
+      "id": "U34",
+      "requirement": "继续直接对照本机 Codex 桌面端打磨侧栏：紧凑项目/会话、真实右键分组菜单、行内置顶/归档、悬停详情卡",
+      "module": "apps/desktop/renderer/Sidebar + apps/desktop/host",
+      "acceptance": "以用户参考和新开原生窗口实测校准侧栏宽度/行高/字号/悬停态；真实元数据驱动标题、项目、时间与状态，不填充假会话；复制工作目录/深链/Markdown、未读、项目置顶与批量归档、移除项目/删除会话均接真实本地操作和必要确认；移除项目保留会话cwd及磁盘文件；保留原有发送/权限/SSH流程；不塞入尚未实现的PR/插件/定时任务入口"
+    },
+    {
+      "id": "U35",
+      "requirement": "同一VPS账号授权一次、目录对被授权工作空间共同可见；各空间独立选择账号，避免反复授权",
+      "module": "services/vps-account-broker + packages/account-selection + apps/desktop",
+      "acceptance": "账号目录以服务authority/generation为范围，成员权限由远端peer身份映射；工作空间默认选择逐空间CAS持久化且互不改动；已有会话固定具体accountRef，新选择仅影响新会话；共享授权不等于共用整个CODEX_HOME，配置/历史/会话保持隔离；未知状态不触发登录，服务缺失不回退私有重复授权；真实跨UID认证仍需远端runtime桥接联验，不能用共享列表代替证据"
+    },
+    {
+      "id": "U36",
+      "requirement": "点窗口X收进托盘，恢复同一窗口；托盘退出才真正清理并关闭",
+      "module": "apps/desktop/host/tray.ts + main.ts",
+      "acceptance": "隐藏后草稿/窗口/授权轮询保留；恢复和第二实例show原窗口；退出首先阻止新请求、等待在途登录及补偿取消且只清理一次；托盘失败正常关窗退出；不把本机结束等同远端清理已确认"
+    },
+    {
+      "id": "U37",
+      "requirement": "管理员SSH作为VPS父入口管理多个成员工作空间，配置运行策略、允许账号和按账号额度配给",
+      "module": "services/vps-workspace-control + packages/workspace-control + apps/desktop/renderer/StudioPanel",
+      "acceptance": "先发现并复用已有空间；真实UID0鉴权；新增/接管/编辑/停用/移除均绑定版本、摘要、有效期的计划确认；移除保留系统用户及文件；成员仅可查看选择获准账号；不自动部署或修改真实VPS"
+    },
+    {
+      "id": "U38",
+      "requirement": "导出工作空间邀请文件，其他设备导入后自动配置连接和独立设备密钥，不用手填私钥",
+      "module": "packages/workspace-control/enrollment + services/vps-workspace-control",
+      "acceptance": "一次性限时邀请、HTTPS登记、导入目标确认、本机生成Ed25519密钥只提交公钥；严格主机公钥和身份回执绑定；同邀请同公钥幂等恢复、逐设备可撤销；不含管理员私钥/原生token；代码与真实跨设备部署验收分开"
+    },
+    {
+      "id": "U39",
+      "requirement": "管理员空间不可直接在agent框架中工作，本机也须选择其下一个成员工作空间",
+      "module": "apps/desktop/renderer/Workspace + apps/desktop/host/controller",
+      "acceptance": "输入区只列成员连接，主进程拒绝管理员及误标的root工作身份；管理入口仅配置，不自动选管理员创建会话；空间独立账号默认与旧会话固定身份继续有效"
+    },
+    {
+      "id": "U40",
+      "requirement": "支持按工作空间、账号分别配置周额度与5小时额度的百分比，明确原生额度与估算账本边界",
+      "module": "services/vps-workspace-control + apps/desktop/renderer/StudioPanel",
+      "acceptance": "配给以各账号完整窗口的百分比为单位，规则以U73最新要求为准；保留原生额度未知状态；不把估算配给说成厂商额度转移或全客户端硬限制"
+    },
+    {
+      "id": "U41",
+      "requirement": "翻译接第三方URL和独立API key，自动读取上游模型目录并可选择/手填，提供思考方式和档位",
+      "module": "packages/translation + renderer/TranslationSettings",
+      "acceptance": "三协议独立映射、URL规范化、实际GET目录和Anthropic分页；非默认思考参数显式确认，requested与effective分离；不由模型名猜能力，不自动付费探测、失败重试或换供应商；key系统加密不回显"
+    },
+    {
+      "id": "U42",
+      "requirement": "当前只有翻译作为默认开启且可关闭的附加模块，其余SSH/会话/权限/记忆技能/协作属于基座",
+      "module": "packages/translation/module + host/controller + renderer/Workspace",
+      "acceptance": "开关独立保存，关闭停止目录和翻译请求且不读key，原文发送仍工作；取消旧预览/队列与迟到结果，保留原文/历史译文/配置；重新开启不复活旧预览，重启保持状态，无空泛插件管理页"
+    },
+    {
+      "id": "U43",
+      "requirement": "中文UI但工作台生成的所有模型可见信息使用英文；用户AGENTS.md和记忆正文保留原文",
+      "module": "runtime-* + session-core + model-facing interfaces",
+      "acceptance": "工具schema/说明、系统提示、环境/协作封装、状态/错误不复用中文UI文案；不篡改用户正文/原生数据、路径、签名、BOM和CRLF；边界有单独回归"
+    },
+    {
+      "id": "U44",
+      "requirement": "翻译完成后实现基座子Agent与跨会话通信，核对并优先复用Codex/Claude官方框架能力",
+      "module": "collaboration core + runtime-* + apps/desktop",
+      "acceptance": "区分原生子Agent、独立会话消息和跨runtime协调；按固定版本核对生命周期，子Agent模型/并发/深度由原生核心管理，不能以current docs替代固定版本契约；消息有来源和独立权限边界；无SDK登录或自研Agent loop替代；真实模型执行与协议/桌面验收分开"
+    },
+    {
+      "id": "U47",
+      "requirement": "增加类似Codex的轻量运行动态：命令、文件编辑、消息和子Agent完成",
+      "module": "collaboration-core/activity + runtime-* + renderer/RuntimeActivity",
+      "acceptance": "真实事件驱动摘要和可展开明细；开始不等于完成，后台命令等待独立完成通知；消息入箱不冒称送达，子Agent完成不结束父回合；隐藏推理/签名/工具参数不复制到动态；断线或重启未完项显示待确认，支持减少动画"
+    },
+    {
+      "id": "U45",
+      "requirement": "亮色去除淡绿色，打磨暖白、米灰和墨色层次；深色已获认可，保持现有风格",
+      "module": "apps/desktop/renderer/LightTheme + styles + Sidebar",
+      "acceptance": "仅亮色调整背景、文字、边框、悬停、状态色和主题预览；深色主题变量与主要工作区计算颜色对照原基线不变；正文和辅助文字在阅读区、白底及侧栏对比度至少4.5:1；本轮按用户要求不读取图片、不截图"
+    },
+    {
+      "id": "U46",
+      "requirement": "SSH管理界面简化，减少技术字段、重复说明与同时展开的操作",
+      "module": "renderer/Pages + Connections + ConnectionTree + StudioPanel + CodexLogin",
+      "acceptance": "左侧紧凑VPS/成员列表，右侧工作空间、共享账号、连接详情分开；成员无管理员页签；账号详情、环境、设备与更多操作按需展开；保留计划确认、授权归属和预算未执行说明；切页签不新增网络操作、不丢在途管理状态，最小窗口无横向溢出"
+    },
+    {
+      "id": "U48",
+      "requirement": "接入已登录的远端Codex目录，root能查看并分配给成员工作空间",
+      "module": "packages/remote-account-catalog + renderer/ExistingAccountGrants",
+      "acceptance": "复用既有broker公开list/select接口，不重新登录或读取token；root核实实际UID并读取全部公开目录，成员只显示获分配条目；策略版本冲突拒绝，保持原客户端的授权边界说明；pc1允许低频验证，不轮询模型"
+    },
+    {
+      "id": "U49",
+      "requirement": "导出入口与导入入口并列，直接把已有成员工作空间分发给其它设备",
+      "module": "packages/workspace-control/portable + renderer/WorkspaceExport",
+      "acceptance": "管理员确认成员并保存awworkspace；复用SSH而不依赖未部署的HTTPS控制服务；限时单设备登记权只运行固定注册命令，接收端生成独立密钥；严格主机公钥和实际UID核实，同设备恢复、跨设备重放拒绝；不携带管理员或现有设备私钥及模型token"
+    },
+    {
+      "id": "U50",
+      "requirement": "将工作空间选择统一移至SSH界面，选定后自动准备远端环境和公开账号目录",
+      "module": "host/controller + renderer/Pages + renderer/Workspace",
+      "acceptance": "成员设为本机工作空间并持久化；管理员不可选；新任务使用当前选择，旧会话身份不漂移；对话只显示空间名称，保留该空间账号选择；环境只读采集带过期和身份校验，不自动运行模型"
+    },
+    {
+      "id": "U51",
+      "requirement": "核查Claude云部署与SSH用法后采用保留本机工具的方案2，参考Paseo但不据此保证免风控",
+      "module": "services/environment-profile + docs/23-paseo-remote-comparison",
+      "acceptance": "自动投影允许的VPS信息，不补扫本机；本机工具结果真实，不承诺任意脚本只能看见VPS设备信息；明确Paseo远程界面与跨设备工具委派差别；引用官方认证边界，不伪造设备、客户端来源或风控通过证据"
+    },
+    {
+      "id": "U52",
+      "requirement": "继续真实功能，将已登录并分配给pc1的远端Codex接入桌面发送，低频测试",
+      "module": "services/codex-bridge + host/native-codex + renderer/Workspace",
+      "acceptance": "VPS官方app-server和本机官方exec-server固定版本；不搬运token、不抢占旧隧道、不改SSH配置；账号/主机/执行器哈希验收绑定；原生流式回复/审批/文件/命令/停止/恢复接真实协议；停止须清理执行器树并验证无延迟写入，不能仅依赖interrupt回执；冷恢复保留已验证绑定，每回合强制本机环境；未知回执不自动重发；记录模型调用次数和失败证据"
+    },
+    {
+      "id": "U53",
+      "requirement": "首次翻译设置可保存并读取模型，附加模块界面缩小并简化",
+      "module": "translation/module + provider + renderer/TranslationSettings",
+      "acceptance": "显式读取目录仅发送认证GET，不依赖或自动授予正文外发确认；实际翻译仍检查授权，关闭模块仍阻止请求；开关合并为一行，参数与预算按需展开，确认紧邻模型配置；保留已保存配置及会话，不调用真实模型进行此项回归"
+    },
+    {
+      "id": "U54",
+      "requirement": "权限可在准备和运行中选择，保存后用于下一次原生提交",
+      "module": "renderer/PermissionSelector + host/controller + native runtime",
+      "stage": "P0",
+      "acceptance": "保存不改变在途 native 权限；重叠保存与提交冲突拒绝；真实 native 参数保持当前回合快照，后续提交读取新值。"
+    },
+    {
+      "id": "U55",
+      "requirement": "原生消息中的本机路径和 HTTP(S) 链接可点击；文件预览、目录浏览、复制、资源管理器定位和键盘右键菜单属于基座",
+      "module": "packages/navigation + renderer/MessageText/FileBrowser + host/controller",
+      "stage": "P0",
+      "acceptance": "仅显式本机路径和安全 HTTP(S)；不执行文件、不打开凭据自定义 scheme；文本/二进制/大目录状态诚实展示。"
+    },
+    {
+      "id": "U56",
+      "requirement": "Claude Code 风格简约输入框；已有会话顶部运行时/账号切换保留草稿并创建新身份任务；编辑重发可取消",
+      "module": "renderer/Workspace",
+      "stage": "P0",
+      "acceptance": "输入框内仅权限、上下文、模型/思考和发送；下方保留原有翻译后直接发送开关；新会话项目选择在输入框正上方；上下文圆环使用紧凑悬浮卡，其余控件不增加重复提示；切换不改旧任务身份，不丢草稿；取消/Escape 恢复编辑前草稿，历史不删除。"
+    },
+    {
+      "id": "U57",
+      "requirement": "输入区采用 Claude Code 风格紧凑模型/思考/上下文控件，模型目录和用量来自原生协议",
+      "module": "runtime-codex/models + renderer/ModelControls",
+      "stage": "P0",
+      "acceptance": "model/list 与原生 config/read/线程回执共同提供模型、effort和Fast默认；进入已绑定会话即展示，不需先开弹层；thread/tokenUsage/updated圆环，未知不估算；切换模型/运行时保留各自上下文回执，缺失时只从同一原生线程与模型最近完整请求恢复，不用累计量替代；缓存仅显示上游实际报告项，未命中不当作缓存写入；264px模型菜单与细轨离散滑块、独立Fast；上下文224px悬浮卡不抢焦点，运行中设置下一回合生效。"
+    },
+    {
+      "id": "U58",
+      "requirement": "按用户提供的真实 Codex 和 Claude 参考修复统一交互样式，区分新建和已有会话",
+      "module": "renderer/Workspace + ProjectPicker + SelectMenu + ModelControls",
+      "stage": "P0",
+      "acceptance": "新会话项目选择器贴在输入框正上方；已有会话顶部放运行时/账号；主题感知菜单替代会话区域原生 select；暖白和中性炭灰统一间距/字体/边框/圆角；思考深度采用带离散刻度的细轨滑块；860px 不溢出。"
+    },
+    {
+      "id": "U59",
+      "requirement": "恢复输入框下方可见的翻译后直接发送开关，不能改成隐藏在翻译按钮后的选项",
+      "module": "renderer/Workspace + translation-flow",
+      "stage": "P0",
+      "acceptance": "关闭先预览确认，开启翻译后直接发送；值持久化；模块关闭后显示开启翻译入口；切换和编辑不复用失效预览，IME/Shift+Enter 保持原行为。"
+    },
+    {
+      "id": "U60",
+      "requirement": "文件浏览器采用 Codex 式右侧可调整面板，代码使用真实编辑器视图而不是纯文本",
+      "module": "renderer/FileBrowser + CodePreview",
+      "stage": "P0",
+      "acceptance": "非 Modal；面板顶边对齐工作区顶边，不在会话标题下留空；浏览时输入区可编辑；文件标签页、语法高亮、行号、折叠、搜索、默认开启自动换行和精确行定位；切换文件/目录保留视图；深浅主题一致；关闭恢复双语布局；本地只读，不执行代码。"
+    },
+    {
+      "id": "U61",
+      "requirement": "项目与工作文件夹分开，新会话项目选择器只选项目，默认工作目录为主文件夹",
+      "module": "renderer/ProjectPicker + Workspace + App",
+      "stage": "P0",
+      "acceptance": "输入框上沿仅显示和搜索项目名称，不显示子文件夹或路径，不提供打开文件夹；保留不关联项目和新建项目；创建/选择项目保留草稿；更换主文件夹更新待发送新草稿，已有会话的工作目录不变。"
+    },
+    {
+      "id": "U62",
+      "requirement": "创建/编辑项目参照真实 Codex 源文件夹列表；主要标记紧凑，设为主要只在对应行悬停时出现",
+      "module": "renderer/ProjectDialog + App",
+      "stage": "P0",
+      "acceptance": "统一深浅主题，项目名称与源文件夹列表、添加文件夹、取消/保存；主要标记约46×27px，不被 flex 拉伸；非主文件夹的设为主要仅对应行 hover 或键盘 focus-visible 可见，移开隐藏；路径悬停可读；新项目必须有名称和源文件夹；原有分组保存不丢失，移除项目仍有确认且不删磁盘文件。"
+    },
+    {
+      "requirement": "移除左上角工作台展开菜单，将连接与环境、能力验收和归档会话统一收进有分类导航的设置页；左下角展开区域保留设置和皮肤切换",
+      "module": "renderer/SettingsLayout + Pages + Sidebar + App",
+      "stage": "P0",
+      "acceptance": "左上角品牌无展开菜单；设置为可搜索的分组侧栏；连接与归档有真实入口，归档可搜索、打开、恢复和删除确认；切页不丢当前工作台草稿；左下角仅设置及浅深主题切换。",
+      "id": "U63"
+    },
+    {
+      "requirement": "顶部栏参考本机 Codex 文件、编辑、视图、帮助菜单，亮色与暖白主色调一致，深色与左侧列表同色并增加竖向比例",
+      "module": "host/desktop-menu + main + preload + renderer/TitleBar + App",
+      "stage": "P0",
+      "acceptance": "46px 自绘拖动区配原生窗口按钮，亮色 #efede8、深色跟随侧栏 --side（#1e1e1e），原生窗口按钮区域同色；移除菜单右侧Agent Workbench文字；实际原生菜单与键盘快捷键调用工作台新建、搜索、设置、导航、原生剪贴板编辑、缩放和全屏；最小窗口860×640无横向溢出。",
+      "id": "U64"
+    },
+    {
+      "requirement": "最近会话仅在侧栏作为内置项目，具有普通项目的折叠、更多、新建小图标及完整项目操作；项目选择器保留不关联项目",
+      "module": "session-core/projects + host/controller + renderer/Sidebar + ProjectDialog + App",
+      "stage": "P0",
+      "acceptance": "即使没有会话也显示项目头；五条分页、折叠、置顶、编辑名称与主文件夹、打开主目录、批量归档、移除与恢复均有实际行为；会话有快捷置顶和归档；历史 projectId 和工作目录不迁移；仅最近会话侧栏入口新建时使用其主目录，普通无项目选择不注入最近目录；项目选择器仍显示选择项目／不关联项目；批量归档原子拒绝在途任务。",
+      "id": "U65"
+    },
+    {
+      "id": "U66",
+      "requirement": "协作是Agent工具，不暴露人工协作按钮和设置；工作台不限制原生子Agent数量、深度或模型",
+      "module": "collaboration-core + runtime-* + codex-bridge + renderer/Workspace/SettingsLayout",
+      "stage": "P0",
+      "acceptance": "移除协作弹窗、容量表单和renderer手工发送/设置路由；原生list/send/read/wait工具可用，身份绑定与回执保留；所有启动路径不注入子Agent覆盖，旧设置迁移为native；可信原生子线程可使用协作工具，外来线程不能伪造来源。"
+    },
+    {
+      "id": "U67",
+      "requirement": "模型的公开工具动作实时穿插在对应正文之间，保持对齐并可查看具体输入输出",
+      "module": "collaboration-core/activity + native-observation + renderer/RuntimeTimeline",
+      "stage": "P0",
+      "acceptance": "首次时间与同刻事件顺序排序，完成不移动；命令/目录/退出码/文件diff/工具输入与输出可展开；delta更新不等待回合结束；只展示公开字段，不展示隐藏推理/签名，截断明确，旧缺失内容不虚构；用户阅读旧记录时不强制滚到底。"
+    },
+    {
+      "id": "U68",
+      "requirement": "修复侧栏二级悬浮菜单，重做默认模型与思考滑块、上下文悬浮窗",
+      "module": "renderer/Sidebar + ModelControls + runtime-codex/models + codex-bridge",
+      "stage": "P0",
+      "acceptance": "鼠标可跨间隙斜向移入子菜单，原键盘导航与边缘翻转正常；右键菜单深浅皮肤均参考用户Codex截图，以纯灰整行高亮加强命中，禁止棕色底和强调色竖条，鼠标悬停不描边；按下使用另一灰阶，键盘焦点细灰线，切回鼠标不残留旧焦点高亮，禁用项不亮，警告/删除只保留图标提示色；模型/effort/Fast优先展示原生公开有效设置，目录读取不运行模型；细轨离散滑块拖动完成保存；context hover卡紧凑且不抢焦点；深浅色和860px窗口无横向溢出。"
+    },
+    {
+      "id": "U69",
+      "requirement": "新会话沿用最后主动选择的运行时，退出并重启软件后仍保留",
+      "module": "contracts/AppState + host/store/controller + renderer/App/Workspace",
+      "stage": "P0",
+      "acceptance": "Claude、Codex、离线示例显式选择即持久化；全局、项目、最近会话、文件菜单和快捷键的新建入口统一沿用；打开历史会话不覆盖偏好，也不改既有会话绑定；快速切换后立即新建仍用最后选择；实际Electron进程重启后首个空白会话恢复偏好；旧版或非法保存值安全回退原默认。"
+    },
+    {
+      "id": "U70",
+      "requirement": "工作空间管理通过已有管理员 SSH 直接可用，支持纳入、新建、配置、暂停、移除、邀请与本机连接",
+      "module": "workspace-control + host/workspace-management + renderer/StudioPanel",
+      "stage": "P0",
+      "acceptance": "未安装常驻服务时按需执行内置管理代码；首次列表严格只读，变更需版本绑定计划与确认，失败保留一次执行回执；复用既有用户优先，移除保留系统用户和文件。SSH邀请设备保留其独立登记边界。"
+    },
+    {
+      "id": "U71",
+      "requirement": "重做空间账号使用权与 Claude 管理界面",
+      "module": "renderer/ProviderAccounts + ExistingAccountGrants + AccountManagement",
+      "stage": "P0",
+      "acceptance": "Codex/Claude 独立页签，空间账号使用权以紧凑行和小型选择控件配置，不使用巨型原生复选框或下拉表单；Claude 无登录账号时仍可读原生状态和查看登录说明，不复制凭据或虚构共享登录。"
+    },
+    {
+      "id": "U72",
+      "requirement": "原生额度、重置卡明细与明确确认兑换",
+      "module": "account-usage + host/controller + renderer/AccountUsage",
+      "stage": "P0",
+      "acceptance": "Codex account/rateLimits/read 的窗口、额度和 rateLimitResetCredits 分别验证；null 与零张区别显示；兑换使用 account/rateLimitResetCredit/consume、creditId、持久化 idempotencyKey，断线恢复原请求，不自动消费、购买或切账号；四种结果准确显示。"
+    },
+    {
+      "id": "U73",
+      "requirement": "按账号管理周额度、5小时配给与跨空间借还，移除环境读取和重复发现入口",
+      "module": "renderer/WorkspaceQuotas/StudioAccountQuotas + host/quota-accounting + vps-workspace-control/quota_accounting",
+      "stage": "P0",
+      "acceptance": "每个可用账号旁填写周额度百分比，仅实际具有5小时窗口的账号另列5小时比例；按账号/窗口独立验证合计不超过100%，暂停保留份额、删除释放。每个账号默认允许超限，优先借余额最多的其他空间，逐笔保留原出借方，下个已确认刷新周期从借方新配给偿还，不足结转；禁止跨账号或窗口抵销。参考CodexQuotaGuard进行数值采样标定，未知不伪造固定token换算；VPS共享Unix socket以真实UID记账，数值重试幂等，下一回合检查配给。VPS源码/注释/固定提示与日志全英文，桌面负责中文展示。不冒充厂商配给或所有客户端防旁路硬限额；不自动部署真实VPS。配置保留CAS预览确认。发现整合在管理列表刷新；移除host/probe和独立读取环境，原生模型不再收到VPS环境投影。"
+    },
+    {
+      "id": "U81",
+      "requirement": "原生账号运行入口、旧会话保留与不过度限制的风险防护",
+      "module": "vps-account-broker/runtime + codex-bridge + native-codex + NativeClaudeAccounts",
+      "stage": "P0/P1",
+      "acceptance": "受保护CLI共享安装，原生非root身份持有账号私有登录，成员只获得独立会话使用权；账号/工作空间/设备/目录/原生线程固定，下一回合重验授权，含旧会话继续。原生子Agent数量、层级、模型和retry保持原生，无模拟人工随机延迟、重复登录或风控绕过。只持久化明确原生额度/认证失败，健康回合不因其他会话错误被终止，成员主动核实已恢复状态可解除对应限制。明确尚未提交给模型与断线结果未知分开；恢复原线程/回合，不重发旧请求，不用更早完成回合核销后来未知提交。旧入口保留源与原账号，不静默迁移或借用H验收；如旧默认账号已切换明确提示，不能宣称其凭据中转已消除。Claude原生登录与管理可先接入，本机工具链、额度和重置卡未知保持明确。测试账号和界面验收显式标注合成数据。仅本地实现及隔离验证，不自动部署真实VPS。"
+    },
+    {
+      "id": "U80",
+      "requirement": "保留原生 Agent 协作，在工作台可控范围内减少订阅误用、无关唤醒和失败后重复提交风险",
+      "module": "runtime-claude + collaboration-core + translation + host/SecretStore",
+      "stage": "P0/P1",
+      "acceptance": "已知 Claude 登录令牌/Cookie/认证文件在翻译保存与外发前拒绝；网页登录端点不可作推理 API；协作 read/wait 按参与会话版本，重复投递不制造唤醒，等待结束重验身份；保留原生子 Agent 容量/层级/模型与 native retry；Claude 最终失败后阻止当前传输后续提交，空白任务不得靠 peer inbox 发起回合；不新增自动续跑、账号轮换或令牌中转；真实 Claude H 门禁不因合成测试开放，跨进程账号冷却/上游身份仍不冒称已验证。"
+    },
+    {
+      "id": "U101",
+      "requirement": "多个第三方模型 API 来源、统一模型选择与跨来源子 Agent",
+      "module": "model-api/native-gateway + host/native-provider/model-connections + renderer/ModelApiSettings/ModelTargetPicker",
+      "stage": "P0/P1",
+      "acceptance": "模型 API 配置位于连接与运行中的连接与环境之前，支持多个独立来源、模型目录与手动映射、来源总开关、全选及取消全选，勾选不移动目录行。第三方 API 作为所选 Codex 或 Claude Code 的 provider，经每进程配置及会话网关使用真实原生 CLI，不以独立通用 Agent 执行器替代。顶部仅选运行时；底部统一列出对应运行时的 SSH/API 模型，SSH 置顶，列表内区分来源。上游实报的推理等级范围驱动离散滑块，未知保持服务默认；上下文窗口来自上游，压缩属于原生运行时。不额外添加工具、子 Agent、输出预算或无密钥表单。新会话及重启沿用上次明确选择的运行时、模型和思考档位；失效来源提示重新选择，不静默切换。会话可切来源并维护各自原生线程及公开历史。明确用户委派时可选择任何启用、已具备执行条件的 API/SSH 目标创建幂等子任务；原生子 Agent 策略不强制开启或覆盖，不能把 Ultra 当成两家 CLI 的通用权限开关。保留真实 CLI/SSH/H、凭据和订阅边界，不声称跨厂商无损迁移或任意私有协议均已验收。"
+    },
+    {
+      "id": "U103",
+      "requirement": "新手 SSH 连接、一次性空间导出与可清理的成员设备界面",
+      "module": "ssh-onboarding + workspace-control + renderer/Connections/StudioPanel",
+      "stage": "P0",
+      "acceptance": "默认管理员/root，同一入口点击选择或拖入密钥/字面 SSH 配置，移除独立配置导入按钮；拖入仅选择，确认时按原字节复制到本机 .ssh/agent-workbench；当前用户完整控制副本，不改变远端登录权限。支持安全字面 SSH 配置自动填写与显式主机指纹核对。known_hosts 标明可选、通常无需设置；首次核对后自动保存，已有可信记录可复用但不能代替登录密钥。整张连接卡片可命中，小眼睛独立遮盖 IP，地址不可选择复制。远端空间显示于左树，可折叠，启用复用技能开关。连接或导入即用于新任务，仍可由管理员导出。每份空间文件只成功授权一次，复制件与重启后重放提示已失效；只恢复未确认登记的原密钥。管理员查看设备名并可踢出；停用保留授权，启用恢复原设备，踢出或删除重建需要新授权。管理员和成员连接可本地移除；远端删除成功直接消失，不显示删除列表、重建入口或常驻成功卡。保留浅色暖白、深色暖灰和克制文字层次。无真实 VPS 部署或用户客户端自动操作。"
+    },
+    {
+      "id": "U106",
+      "requirement": "子 Agent 会话阅读、逐条翻译与可记忆的译文位置",
+      "module": "collaboration-core + host/native-observation/controller + renderer/NativeChildConversation/Workspace/PluginSettings",
+      "stage": "P0/P1",
+      "acceptance": "主消息时间线显示原生及跨来源子任务的标题、来源、真实状态和公开进度摘要，点击在右侧阅读区查看已收到的公开消息及工具记录，支持嵌套返回、关闭和 Esc；不伪造未收到的完整原生历史或隐藏思考。任务已启动不等于完成；原生异步任务按实际完成通知处理，父回复结束不能提前终止已观测的后台子任务。子 Agent 的任务输入与回复默认不自动翻译，消息下方图标仅对所选完成消息调用独立翻译，译文单独保存；重复点击合并、内容变化与配置撤销阻止旧结果覆盖，不发送整个子会话或工具日志。插件内双语工作流提供右侧对照和消息下方两种样式，默认右侧对照；文件、子会话等占用右侧时，主会话已有及后续译文转到对应消息下方，关闭后恢复，原文与已存译文保持。选择消息下方则始终按消息呈现。偏好和手动译文重启恢复，无附加模型回合。保持文学风格、浅深主题、键盘可达和窄窗口可读。"
+    },
+    {
+      "id": "U105",
+      "requirement": "远端 CLI 版本维护、账号移除与使用指定远端浏览器用户登录 Claude",
+      "module": "remote-account-catalog + vps-account-broker + vps-browser + renderer/RemoteCliManager/RemoteBrowserManager",
+      "stage": "P0/P1",
+      "acceptance": "管理员 SSH 提供远端 CLI 与浏览器用户选项卡。缺少 CLI 时预览官方原生安装器的当前最新版，更新/卸载核验原渠道及程序身份；两运行时独立维护互斥，保留账号、配置、记忆和工作空间，未知回执不自动重试。账号可新增并通过官方 logout 明确移除，成功后列表不留删除记录。Codex 保留远端设备码、官方授权地址、复制和打开入口。Claude 原生登录及网页授权均在 VPS，复用 <private-reference>/remote-browser 的既有安装与用户配置，显式选择浏览器用户，支持增删改名；不存在环境时先预览新增依赖和许可证，再明确安装轻量 Chrome/显示/noVNC 服务，不升级或移除已有系统包。目前自动配置限 DNF Linux x86_64。工作台仅打开经 SSH 回环隧道的远端画面，OAuth 地址不传桌面；原生回调优先，仅原生提示需要时提供临时授权码入口，不把它当 API Key、不保存或翻译。登录成功须原生状态回读，本次进程清理后保留用户配置；原有浏览器不可接管，不明清理不得重试授权。用户绝对禁止测试使用真实浏览器的 Claude 登录状态、Cookie 或配置，禁止真实 Claude 授权；只准假 CLI、临时用户数据、模拟回调与拦截外网的隐藏独立 UI。模拟、源码、真实 VPS 部署和 Claude H 验收分开记录。"
+    },
+    {
+      "id": "U107",
+      "requirement": "逐项核对并接回两家原生人机交互，紧凑展示问答，并仅在翻译模块启用时提供问答翻译",
+      "module": "native-interactions + runtime-codex + host/native-provider/native-codex/interaction-flow + translation + renderer/NativeInteractions",
+      "stage": "P0/P1",
+      "acceptance": "异步问答也必须在卡片内显式发送，不填入主编辑框；回合结束默认收进待回答，稍后回应可收起与恢复，忽略问题对异步消息仅关闭展示、对原生等待请求回传拒绝；翻译预览沿用现有模块与自动发送设置。原生提问按原始问题标识回复现有请求，多选允许组合其他回答，不默认选项或自动回答；问答输入普通 Enter 到下一题，最后一题校验后发送，Shift+Enter 换行，IME 确认与重复键不发送，翻译预览仍先确认；拒绝、过期、停止、断线、重复点击、复用ID与旧预览明确隔离。普通审批、计划、MCP及权限请求逐项记录真实已支持与未支持格式，不把官方运行时等同于自动获得全部客户端交互。提问和选项采用紧凑会话样式，译文位于各自原文下方；中文自由回答沿用左下角翻译后直接发送开关，关闭先预览确认，开启翻译后直接回复。翻译模块关闭时零问答翻译调用、不弹翻译预览、原文发送；处理中关闭须取消旧结果并保留草稿，不自动续发。隐私回答不送独立翻译或保存到工作台问答记录。官方更新按实际能力/schema及隔离验证接入，不默许未知请求或绕过原生H门禁。"
+    },
+    {
+      "id": "U108",
+      "requirement": "紧凑双语阅读、子Agent状态胶囊、原生运行事件与完成回合折叠",
+      "module": "collaboration-core + runtime adapters + native-provider + renderer/ConversationReading/RuntimeTimeline",
+      "stage": "P0/P1",
+      "acceptance": "主/子会话统一原文、细分隔线、译文、消息操作顺序；不改变实际提交文本。子Agent采用可点击开始/完成胶囊，保留右侧公开会话与逐条翻译。逐项对照已安装原生协议，接入压缩、重连、搜索、读文件、图像、Hook、工具进度及公开统计，隐藏思考和签名不展示或翻译。已结束回合默认折叠过程并保留用户输入及最终答复，异常/后台任务可见且可展开，不删除历史。根回合准入与后台子任务进程生命周期分离，下一次明确提交可复用同一原生进程/线程；保留原生前台等待、维护互斥、停止/断线未知状态，不添加外层续投。真实CLI合成测试、隐藏UI、真实上游和远端部署须分别记录。 2026-09-28 修订：子 Agent 详情右上角显示模型、思考档位与 Fast，逐字段区分调用请求、原生配置回传与本次 API 映射。未知不能从主会话或模型自述反推，旧记录与临时子 ID 合并保留兼容。 2026-09-30 修订：命令、读取、搜索、编辑及普通工具从首条事件起默认折叠成稳定批次，运行中单行显示当前动作与并行数量，结束后汇总命令数量和文件编辑；失败、取消及结果未确认在摘要可见。状态和输出更新不重建批次、不覆盖手动展开，实时回合结束不整体自动折叠，重新打开历史回合仍默认折叠。"
+    },
+    {
+      "id": "U109",
+      "requirement": "模型可检索工作台聊天、读取公开历史，跨会话消息显示可信来源",
+      "module": "collaboration-core/session-directory + peer tools + native transports + renderer/PeerMessageCard",
+      "stage": "P0/P1",
+      "acceptance": "同一所有者的聊天目录返回真实标题、模型、运行时、执行位置、项目和状态，支持分页搜索、当前与归档筛选；公开历史分页且长度有界，不访问原生私有数据库或暴露隐藏状态。Codex动态工具与Claude MCP共用来源绑定，查询不启动回合；发送来源由宿主盖章，标题快照不可通过模型参数伪造，改名或删除后仍可识别。收到消息与用户输入区分，紧凑显示来源、展开正文、精确跳转与真实回执，空聊天也能显示且不自动开任务。插件公开查询接口与调用示例同步维护，两家CLI隔离合成调用和隐藏UI分别验证。 2026-09-28 修订：模型可列出含空项目的目录，并在最新直接用户明确要求下创建独立侧栏会话、提交首条任务；不要求用户将新聊天称为子 Agent。当前模型与思考档位仅为默认值，用户明确指定时以用户为准；指定值不可用时报错，不静默回落。保留同 owner、同执行位置、权限、操作去重与失败不续投；普通 peer 留言仍不自动开启模型回合。"
+    },
+    {
+      "id": "U111",
+      "requirement": "工作台全部功能开放开发接口，允许插件新增、包装和替换实现；同步维护公开插件文档与脱敏规范",
+      "module": "plugins-core + desktop host/renderer + docs + AGENTS.md",
+      "stage": "P0",
+      "acceptance": "所有宿主命名空间进入可扩展分发，不再排除原生资源、CLI 或插件管理；插件可注册新方法/服务，包装或替换实际实例与原生工具引导，使用自定义事件、局部界面及完整界面替换。批准、失效、停用、覆盖层恢复及失败清理有独立验证；不把完整本机代码权限称为安全沙箱，不自动扩大设备或租户权限。所有后续功能变更在同一逻辑变更提供接口并更新 docs/36-workbench-plugin-api.md；docs/AGENTS 公开化、历史状态分类和脱敏检查保持持续维护。当前文件脱敏不冒称 Git 历史已经清理，不自动推送或部署。 后续修订：提供正式动态运行时注册契约，接入内置选择器、模型、权限、消息、交互和会话生命周期；支持任意界面样式、包内背景/字体、局部及完整主界面重构，并验收停用恢复。示例仅用于开发文档和源码参考，不预装或安装进实际用户环境。 再次审计修订：支持任意选择器的全部动态 UI 实例、原生设置页注册及叠层替换、host/renderer 共享的独立非敏感配置与修订比较；验证动态节点、异步完成、并发冲突、重启和停用恢复，代码 ZIP 导出不夹带用户配置。"
+    }
+  ],
+  "nonNegotiables": [
+    "不把翻译或环境投影承诺成免封/绝对不可识别。",
+    "工作台业务代码不读取、复制或转发两家 CLI 凭据；远端凭据由 VPS 原生 CLI 保管，U115 明确授权的本机账号由本机官方 CLI 在独立原生目录保管。不共享管理员私钥。",
+    "不自动修改已有 VPS、代理、SSH、账户、旧插件或原生二进制。",
+    "不把协议 mock、真实模型、桌面视觉、隔离、出口证据互相替代。",
+    "原文、代码、路径、审批、签名、工具结果保持真实；中文产物要求不能被英文叙述偏好覆盖。"
+  ]
+}

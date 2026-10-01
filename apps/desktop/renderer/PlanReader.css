@@ -1,0 +1,10 @@
+.plan-reader{flex:0 0 clamp(260px,var(--file-pane-width,420px),calc(100% - 345px));min-width:0;flex-shrink:0;display:flex;flex-direction:column;overflow:hidden;background:var(--bg);border-left:1px solid var(--line);outline:none}
+.plan-reader>header{display:flex;align-items:center;gap:12px;padding:18px 16px;border-bottom:1px solid var(--line);font-size:1rem}
+.plan-reader>header>span{flex:1;color:var(--muted);font-size:0.846154rem}
+.plan-reader-body{overflow:auto;padding:14px 18px;min-height:0;overflow-wrap:anywhere}
+.plan-reader .message-text{font-family:var(--font-content,Georgia,"Noto Serif CJK SC","Microsoft YaHei",serif);font-size:1.076923rem;line-height:1.8}
+.plan-block+.plan-block{margin-top:14px}
+.plan-block-actions{display:flex;align-items:center;margin-top:4px}
+.codex-plan-review{display:flex;align-items:center;flex-wrap:wrap;gap:10px;margin:14px 0}
+.codex-plan-review>p{flex-basis:100%;color:var(--danger)}
+@media(max-width:760px){.plan-reader{flex-basis:48%;min-width:200px}}

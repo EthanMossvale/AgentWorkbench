@@ -1,0 +1,54 @@
+.connections-page .page-heading{align-items:center;margin-bottom:26px}
+.connections-page .page-heading h1{font-size:1.846154rem}
+.connections-page .connection-layout{grid-template-columns:minmax(155px,220px) minmax(0,1fr);gap:22px;align-items:start}
+.connections-page .host-detail{padding:0 0 0 22px;background:transparent;border:0;border-left:1px solid var(--line);border-radius:0}
+.connections-page .host-detail>.section-heading{margin-bottom:12px}
+.connections-page .host-detail>.section-heading h2{font-size:1.307692rem;overflow-wrap:anywhere}
+.connection-host-tree .host-card{border:0;background:transparent;border-radius:7px;padding:10px 9px;box-shadow:none}
+.connection-host-tree .host-card:hover,.connection-host-tree .host-card.selected{background:var(--hover)}
+.connection-host-tree .host-card strong{font-size:0.923077rem;font-weight:500}
+.connection-host-tree .host-card p{margin:5px 0 0 24px;font-size:0.769231rem}
+.connection-host-tree .host-children{gap:2px;margin-left:10px;padding-left:7px}
+.connection-host-tree .host-children-label{font-size:0.846154rem;margin-bottom:4px}
+.connection-tabs{display:flex;gap:18px;border-bottom:1px solid var(--line);margin:17px 0 18px}
+.connection-tabs button{border:0;border-bottom:2px solid transparent;background:transparent;padding:8px 0 10px;color:var(--muted);font-size:0.923077rem;white-space:nowrap}
+.connection-tabs button[aria-selected=true]{color:var(--text);border-bottom-color:var(--accent)}
+.connection-tabs button:hover{color:var(--text)}
+.connection-details-heading{display:flex;align-items:center;justify-content:space-between;gap:12px;margin-bottom:12px}
+.connection-details-heading h3{font-size:1rem;font-weight:500;margin:0}
+.connection-environment{margin-top:18px;border-top:1px solid var(--line);padding-top:14px}
+.connection-environment>summary{font-size:0.923077rem;color:var(--muted);cursor:pointer}
+.connection-environment .environment-profile{margin-top:12px;padding-top:0;border:0}
+.connections-page .studio-panel,.connections-page .codex-login{border-top:0;margin-top:0;padding-top:0}
+.connections-page .studio-panel>.section-heading h3,.connections-page .codex-login>.section-heading h3{font-size:1rem;font-weight:500}
+.connections-page .studio-workspace-detail{background:transparent;border:0;border-top:1px solid var(--line);border-radius:0;padding:17px 0 0}
+.studio-environment-summary>summary,.studio-account-ids>summary,.codex-account-metadata>summary{cursor:pointer;color:var(--muted);font-size:0.846154rem;line-height:1.8}
+.studio-account-ids{margin:8px 0 12px}
+.studio-account-ids[open]>summary{margin-bottom:10px}
+.studio-policy-note{color:var(--muted)}
+.codex-account-metadata{margin-top:7px}
+@media(max-width:1000px){.connections-page .connection-layout{grid-template-columns:minmax(130px,170px) minmax(0,1fr);gap:14px}.connections-page .host-detail{padding-left:14px}.connection-tabs{gap:13px}.connection-tabs button{font-size:0.846154rem}.connections-page .page-heading{align-items:flex-start;gap:16px}.connections-page .page-heading h1{font-size:1.615385rem}}
+
+/* SSH page: restrained typography, generous rhythm, and a visible hierarchy. */
+.connections-page{max-width:1220px;margin:0 auto;padding-top:34px}
+.connections-page .page-heading{align-items:flex-end;padding-bottom:27px;border-bottom:1px solid var(--line);margin-bottom:32px}
+.connection-kicker{font-size:0.846154rem;letter-spacing:2px;color:var(--accent)}
+.connections-page .page-heading h1{font-family:var(--font-ui,Georgia,"Noto Serif SC","Songti SC",SimSun,serif);font-size:1.846154rem;font-weight:400;line-height:1.4;letter-spacing:1px;margin:0}
+.connections-page .page-heading p{font-size:1rem;margin-top:10px}
+.connections-page .connection-layout{grid-template-columns:215px minmax(0,1fr);gap:32px}
+.connections-page .host-detail{padding-left:32px;min-height:450px}
+.connections-page .host-detail>.section-heading h2{font-family:var(--font-ui,Georgia,"Noto Serif SC","Songti SC",SimSun,serif);font-size:1.769231rem;font-weight:500;margin-bottom:8px}
+.connection-address{display:inline-flex;align-items:center;gap:5px;min-width:0;max-width:100%;vertical-align:middle}
+.connection-address>.mono{font-size:0.846154rem;line-height:1.6;color:var(--muted);overflow-wrap:anywhere}
+.connection-address .address-eye{flex:0 0 24px;width:24px;height:24px;color:var(--muted)}
+.connection-address .address-eye:hover{color:var(--text)}
+.connection-tabs{gap:0 22px;flex-wrap:wrap;margin:23px 0 28px}.connection-tabs button{font-size:1rem;padding-bottom:13px}
+.connections-page .host-detail>.admin-host-note{font-size:0.923077rem;margin:2px 0 0}
+.connections-page .studio-panel>.section-heading h3{font-size:1.230769rem;font-weight:500}.connections-page .studio-panel>.section-heading p{font-size:0.923077rem}
+.connection-remove-row{display:flex;align-items:center;justify-content:space-between;border-top:1px solid var(--line);padding:16px 0;margin-top:24px;font-size:0.923077rem;color:var(--muted)}
+.connection-remove-row button:hover{color:var(--danger)}
+.connections-page .connection-page-actions{gap:8px}.connections-page .connection-page-actions .button{min-height:35px;font-size:0.923077rem}
+@media(max-width:1000px){.connections-page .connection-layout{grid-template-columns:175px minmax(0,1fr);gap:22px}.connections-page .host-detail{padding-left:22px}.connections-page .page-heading{align-items:flex-start;flex-direction:column;gap:20px}.connections-page .page-heading h1{font-size:1.615385rem}}
+@media(max-width:650px){.connections-page .connection-layout{grid-template-columns:1fr}.connections-page .host-detail{padding:24px 0 0;border-left:0;border-top:1px solid var(--line)}.connections-page .connection-host-tree{max-height:250px;overflow:auto}.connection-tabs{gap:20px}}
+
+.connection-address{user-select:none}.workspace-default-note{display:flex;align-items:center;gap:8px;color:var(--accent);font-size:0.923077rem;padding:8px 0}

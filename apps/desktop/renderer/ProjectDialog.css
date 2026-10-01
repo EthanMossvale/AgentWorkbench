@@ -1,0 +1,33 @@
+.modal-backdrop:has(.project-dialog){backdrop-filter:blur(1px);background:#0005}
+.modal.project-dialog{width:520px;max-width:calc(100vw - 40px);padding:22px 20px 20px;border-radius:18px;background:var(--bg);box-shadow:0 12px 36px #0002}
+.project-dialog .modal-header{margin-bottom:16px;align-items:center}
+.project-dialog .modal-header h2{font-size:1.538462rem;font-weight:550;letter-spacing:-.4px}
+.project-name-field{display:flex;align-items:center;gap:12px;min-height:42px;border:1px solid var(--line);border-radius:11px;padding:0 13px;background:var(--surface)}
+.project-name-field:focus-within{border-color:var(--accent);box-shadow:0 0 0 1px color-mix(in srgb,var(--accent) 18%,transparent)}
+.project-name-field>svg{color:var(--muted);flex-shrink:0}
+.project-name-field input{padding:8px 0;min-height:40px;border:0;border-radius:0;background:none;box-shadow:none;outline:none;font-size:1.076923rem;min-width:0}
+.project-dialog .project-name-field input:focus-visible{outline:none;box-shadow:none}
+.project-sources-label{font-size:0.923077rem;font-weight:500;margin:15px 0 9px}
+.project-sources{border:1px solid var(--line);border-radius:12px;overflow:hidden}
+.project-sources-list{max-height:260px;overflow:auto}
+.project-dialog .project-folder-row{display:flex;align-items:center;gap:10px;margin:0;padding:10px 12px;min-height:48px;border:0;border-bottom:1px solid var(--line);border-radius:0;background:transparent}
+.project-folder-row>svg{flex-shrink:0;color:var(--muted)}
+.project-folder-name{flex:1;min-width:0;line-height:1.5}
+.project-folder-name>span{display:block;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.project-folder-name>span{font-size:1rem;color:var(--text)}
+.project-primary-badge,.project-make-primary{border:1px solid var(--line);border-radius:8px;padding:4px 9px;white-space:nowrap;font-size:0.846154rem;background:transparent;color:var(--muted)}
+.project-dialog .project-primary-badge{display:inline-flex;align-items:center;justify-content:center;flex:0 0 auto;min-width:46px;height:27px;padding:0 9px;font-size:0.923077rem;line-height:1}
+.project-make-primary{flex:0 0 auto;height:27px;padding:0 9px;border:0;background:var(--hover);color:var(--text);font-size:0.923077rem;line-height:1;opacity:0;pointer-events:none}
+.project-folder-row:hover .project-make-primary,.project-make-primary:focus-visible{opacity:1;pointer-events:auto}
+.project-folder-row .icon-button{padding:4px;color:var(--muted)}
+.project-add-source{display:flex;align-items:center;gap:10px;width:100%;padding:12px;border:0;background:none;text-align:left;font-size:1rem;color:var(--muted)}
+.project-add-source:hover{background:var(--hover);color:var(--text)}
+.project-sources-empty{display:flex;flex-direction:column;align-items:center;justify-content:center;gap:12px;min-height:108px;font-size:1rem;color:var(--muted)}
+.project-sources-empty button{display:flex;align-items:center;gap:5px;background:var(--hover);border:0;border-radius:18px;padding:4px 10px;color:var(--text);font-size:0.923077rem}
+.project-dialog-actions{display:flex;align-items:center;gap:12px;margin-top:24px}
+.project-dialog-actions button{min-height:33px;font-size:1rem;border:0;border-radius:9px;padding:6px 13px}
+.project-cancel{margin-left:auto;background:transparent;color:var(--muted)}
+.project-cancel:hover{background:var(--hover)}
+.project-dialog-actions .project-save{background:var(--text);color:var(--bg)}
+.project-remove{background:color-mix(in srgb,var(--danger) 10%,transparent);color:var(--danger)}
+.project-remove:hover{background:color-mix(in srgb,var(--danger) 17%,transparent)}

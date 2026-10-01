@@ -1,0 +1,7 @@
+.attachment-context-menu{position:fixed;z-index:10100;min-width:210px;max-width:calc(100vw - 16px);max-height:calc(100dvh - 16px);overflow-y:auto;padding:5px;border:1px solid var(--line);border-radius:12px;background:var(--raised);color:var(--text);box-shadow:var(--shadow);-webkit-app-region:no-drag}
+.attachment-context-menu button{display:flex;align-items:center;gap:9px;width:100%;min-height:34px;padding:7px 10px;border:0;border-radius:7px;background:transparent;color:inherit;text-align:left;font:inherit;font-size:.923077rem;white-space:nowrap}
+.attachment-context-menu button>span{flex:1}.attachment-context-menu button:hover:not(:disabled),.attachment-context-menu button:focus-visible{background:var(--hover);outline:none}.attachment-context-menu button:disabled{opacity:.4}
+.attachment-context-menu kbd{font:inherit;font-size:.769231rem;color:var(--muted);padding-left:12px}
+.attachment-context-name{max-width:290px;padding:6px 10px 8px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:.769231rem;color:var(--muted)}
+.attachment-context-separator{height:1px;background:var(--line);margin:4px 5px}
+.attachment-context-actions[hidden]{display:none}

@@ -1,0 +1,9 @@
+import {useEffect,useState} from 'react';
+import type {AccountUsage} from '../../../packages/account-usage/types';
+export function quotaCountdown(seconds:number|undefined,now:number){if(!seconds)return '重置时间未知';const remaining=Math.max(0,seconds*1000-now);if(!remaining)return '等待刷新重置状态';const minutes=Math.ceil(remaining/60000),days=Math.floor(minutes/1440),hours=Math.floor(minutes%1440/60);return (days?days+'天 ':'')+(hours?hours+'小时 ':'')+(minutes%60)+'分钟后重置';}
+export default function AccountQuotaWindows({usage,accountId}:{usage?:AccountUsage;accountId:string}){
+ const [now,setNow]=useState(Date.now());useEffect(()=>{const timer=setInterval(()=>setNow(Date.now()),30000);return()=>clearInterval(timer);},[]);
+ const observed=usage?.pools.flatMap(pool=>[pool.primary,pool.secondary].flatMap(w=>w?[{...w,pool:pool.name}]:[]))??[];
+ const windows=[...observed,...[300,10080].filter(duration=>!observed.some(w=>w.windowMinutes===duration)).map(duration=>({windowMinutes:duration,pool:'',usedPercent:undefined,resetsAt:undefined}))].sort((a,b)=>(a.windowMinutes??0)-(b.windowMinutes??0));
+ return <div className="model-quota-windows" data-workbench-account-quota data-account-id={accountId}>{windows.map((w,i)=>{const label=w.windowMinutes===300?'5h':w.windowMinutes===10080?'Weekly':w.windowMinutes?w.windowMinutes+' min':w.pool,known=typeof w.usedPercent==='number'&&Number.isFinite(w.usedPercent),remaining=known?Math.max(0,Math.min(100,100-w.usedPercent!)):undefined;return <div className="model-quota-window" key={w.pool+':'+w.windowMinutes+':'+i}><div><span>{label}</span><strong>{remaining===undefined?'未读取':Math.round(remaining*10)/10+'%'}</strong><small>{quotaCountdown(w.resetsAt,now)}</small></div>{remaining===undefined?<div className="model-quota-unknown" role="progressbar" aria-label={label+' 剩余额度'} aria-valuetext="尚无有效官方额度回执"/>:<progress aria-label={label+' 剩余额度'} max="100" value={remaining}/>}</div>;})}</div>;
+}

@@ -1,0 +1,2 @@
+.desktop-update{position:fixed;left:14px;bottom:54px;z-index:45;max-width:260px;padding:8px 10px;background:var(--side);color:var(--text);border:1px solid var(--line);border-radius:10px;font-size:12px;box-shadow:0 2px 10px #0001}
+.desktop-update[hidden]{display:none}.desktop-update button,.desktop-update>div{display:flex;align-items:center;gap:8px}.desktop-update button{border:0;background:none;color:inherit;cursor:pointer;padding:2px}.desktop-update [role=alert]{display:block;max-width:230px;margin-top:6px;color:var(--muted)}

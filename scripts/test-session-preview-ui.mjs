@@ -1,0 +1,110 @@
+import { _electron as electron } from 'playwright';
+import electronPath from 'electron';
+import { build as hostBuild } from 'esbuild';
+import { build as rendererBuild } from 'vite';
+import { mkdir, writeFile, cp } from 'node:fs/promises';
+import path from 'node:path';
+import assert from 'node:assert/strict';
+import { fileURLToPath } from 'node:url';
+import { encodeZip } from '../packages/native-resources/archive.ts';
+
+// Synthetic isolated production application; no native client, model or user data.
+const root=path.resolve(fileURLToPath(new URL('..',import.meta.url)));
+const output=path.resolve(process.env.AWB_SESSION_PREVIEW_QA??path.join(root,'build/qa/session-preview-'+Date.now()));
+const appRoot=path.join(output,'app'),dataDir=path.join(output,'data');
+await mkdir(appRoot,{recursive:true});
+await rendererBuild({configFile:path.join(root,'vite.config.ts'),build:{outDir:path.join(appRoot,'renderer'),emptyOutDir:true},logLevel:'warn'});
+for(const entry of ['main','preload'])await hostBuild({entryPoints:[path.join(root,`apps/desktop/host/${entry}.ts`)],outfile:path.join(appRoot,`host/${entry}.cjs`),bundle:true,platform:'node',format:'cjs',target:'node22',external:['electron']});
+for(const [source,target] of [['vps-workspace-control','workspace-control'],['vps-account-broker','account-runtime']])await cp(path.join(root,'services',source),path.join(appRoot,'host',target),{recursive:true});
+await writeFile(path.join(appRoot,'package.json'),JSON.stringify({name:'awb-session-preview-qa',version:'1.0.0',main:'host/main.cjs'}));
+const env={...process.env,AGENT_WORKBENCH_TEST_DATA:dataDir,AGENT_WORKBENCH_TEST_HIDDEN:'1'};delete env.ELECTRON_RUN_AS_NODE;
+let app,page;const checks=[],errors=[];
+const record=name=>{checks.push(name);console.log('PASS '+name);};
+const call=(method,payload={})=>page.evaluate(({method,payload})=>window.workbench.call(method,payload),{method,payload});
+const wait=async predicate=>{for(let n=0;n<200;n++){if(await predicate())return;await new Promise(resolve=>setTimeout(resolve,50));}throw Error('Session preview did not settle');};
+const shot=name=>page.screenshot({path:path.join(output,name+'.png')});
+const toggle=(plugin,enabled)=>call('extensions/toggle',{id:plugin.manifest.id,hash:plugin.hash,enabled,...(enabled?{approveHost:true}:{})});
+const importPlugin=async(id,renderer,main)=>{
+  const manifest={schemaVersion:1,apiVersion:1,id,name:id,description:'Synthetic acceptance only',version:'1.0.0',capabilities:['host'],...(renderer?{renderer:'renderer.mjs'}:{}),...(main?{main:'main.mjs'}:{})};
+  const file=path.join(output,id+'.zip');await writeFile(file,encodeZip([{name:'workbench.plugin.json',data:Buffer.from(JSON.stringify(manifest))},...(renderer?[{name:'renderer.mjs',data:Buffer.from(renderer)}]:[]),...(main?[{name:'main.mjs',data:Buffer.from(main)}]:[])]));
+  await call('extensions/import',{filePath:file});return(await call('extensions/list')).find(item=>item.manifest.id===id);
+};
+try{
+  app=await electron.launch({executablePath:electronPath,args:[appRoot],cwd:appRoot,env,timeout:45000});
+  page=await app.firstWindow();page.setDefaultTimeout(10000);page.on('pageerror',e=>errors.push(e.message));await page.waitForFunction(()=>!!window.workbench);
+  const fixture=await importPlugin('qa.session-fixture',null,`export function activate(api){
+    const state=api.services.get('workbench.state');const presentation=api.services.get('sessions.presentation');
+    globalThis.__sessionQA={runs:0,ctx:null};
+    api.registerMethod('qa/seed',p=>state.update(s=>{s.plugins.translation.enabled=false;const base={projectId:null,pinned:false,archived:false,group:'',status:'idle',titleSource:'fallback',createdAt:'2026-09-29T00:00:00Z',binding:{runtime:'demo',provider:'offline',accountRef:'fixture',executionId:'local-device',egress:'demo'}};s.sessions=p.sessions.map(row=>({...base,...row}));}));
+    api.registerMethod('qa/message',p=>state.update(s=>{const m=s.sessions.find(s=>s.id===p.id).messages[0];Object.assign(m,p.message);}));
+    api.registerMethod('qa/native-title',p=>state.update(s=>{presentation.nativeTitle(s.sessions.find(s=>s.id===p.id),p.title);}));
+    api.runtimes.register({apiVersion:1,id:'plugin:qa.titles',name:'标题验收',description:'Synthetic',permissions:[{value:'default',label:'Default',description:'Synthetic'}]},
+      {async run(ctx,input){globalThis.__sessionQA.runs++;globalThis.__sessionQA.ctx=ctx;if(input.original!=='no title')await ctx.emit({type:'title',title:'Runtime supplied title'});await ctx.emit({type:'message',id:'answer',text:'Synthetic reply',phase:'final'});},async stop(){}});
+  }`);
+  await assert.rejects(call('extensions/toggle',{id:fixture.manifest.id,hash:fixture.hash,enabled:true}),/approval/i);await toggle(fixture,true);
+  const user=(original,translation,translationStatus)=>({id:'first',role:'user',original,submitted:'English submitted task',translation,translationStatus,timestamp:'2026-09-29T00:00:00Z',demo:true});
+  const chinese='这是已保存的中文译文，用于检查悬停预览。\n'.repeat(3000),original='Original English text should remain unchanged.';
+  await call('qa/seed',{sessions:[{id:'translated',title:'Exact English Title',messages:[user(original,chinese,'complete')]},{id:'original',title:'中文实际标题',messages:[user('中文用户原稿，没有新的翻译请求。')]},{id:'empty',title:'Empty conversation',messages:[]}]});
+  const select=id=>page.getByTestId('sidebar-session-'+id).locator('.session-select');
+  const preview=page.getByTestId('sidebar-session-preview');
+  const text=()=>preview.locator('.session-preview-text');
+  const show=async id=>{await select(id).hover();await preview.locator(`[data-workbench-session-preview][data-session-id="${id}"]`).waitFor();await wait(async()=>!['正在读取…',''].includes(await text().innerText()));};
+  const close=async()=>{await page.mouse.move(720,450);await preview.waitFor({state:'detached'});};
+  const keep=()=>preview.hover({position:{x:20,y:12}});
+  await call('theme/set',{theme:'light'});await show('translated');
+  assert.equal(await select('translated').innerText(),'Exact English Title');assert.equal(await preview.locator('strong').innerText(),'Exact English Title');
+  assert.equal([...(await text().innerText())].length,181);assert.match(await text().innerText(),/中文译文/);assert.equal(await preview.locator('.session-preview-body').getAttribute('data-expanded'),'false');
+  await shot('session-preview-collapsed');await keep();await page.waitForTimeout(300);
+  assert.equal(await preview.isVisible(),true);assert.equal([...(await text().innerText())].length,1200);assert.match(await preview.innerText(),/仅显示前 1200 字/);
+  await text().evaluate(el=>el.scrollTop=el.scrollHeight);await page.waitForTimeout(250);assert.equal(await preview.isVisible(),true);await shot('session-preview-expanded');
+  assert.equal((await call('state/get')).sessions.find(s=>s.id==='translated').messages[0].translation,chinese);
+  record('translation-first excerpt expands across the hover gap, caps at 1200 code points and permits internal scrolling without modifying history');
+  await close();await show('original');assert.equal(await text().innerText(),'中文用户原稿，没有新的翻译请求。');assert.equal(await select('original').innerText(),'中文实际标题');
+  await call('qa/message',{id:'original',message:{translation:'Stale translation',translationStatus:'failed'}});await wait(async()=>(await text().innerText())==='中文用户原稿，没有新的翻译请求。');
+  await close();await select('empty').hover();await preview.waitFor();assert.equal(await preview.locator('.session-preview-body').count(),0);await close();
+  record('original-language drafts remain preferred to submitted English; failed translations and empty conversations fall back correctly');
+  await select('translated').focus();await preview.waitFor();await page.keyboard.press('ArrowRight');assert.equal(await preview.evaluate(el=>el===document.activeElement),true);assert.equal(await preview.locator('.session-preview-body').getAttribute('data-expanded'),'true');
+  await page.keyboard.press('Escape');await preview.waitFor({state:'detached'});await page.waitForTimeout(400);assert.equal(await select('translated').evaluate(el=>el===document.activeElement),true);assert.equal(await preview.count(),0);
+  record('keyboard focus, right-arrow expansion and Escape restore the session row without reopening the card');
+  await call('theme/set',{theme:'dark'});await app.evaluate(({BrowserWindow})=>BrowserWindow.getAllWindows()[0].setContentSize(860,640));
+  await show('translated');await keep();await shot('session-preview-dark-narrow');
+  assert.equal(await preview.evaluate(el=>{const r=el.getBoundingClientRect();return r.left<0||r.top<0||r.right>innerWidth||r.bottom>innerHeight||el.scrollWidth>el.clientWidth;}),false);await close();
+  record('expanded dark-mode card stays within a narrow window');
+
+  const runtime=await call('session/create',{runtime:'plugin:qa.titles'});
+  const submit=async(text)=>{const p=await call('draft/prepare',{sessionId:runtime.id,text});await call('draft/submit',{sessionId:runtime.id,id:p.id,sourceHash:p.sourceHash});await wait(async()=>(await call('state/get')).sessions.find(s=>s.id===runtime.id).status==='idle');};
+  await submit('no title');assert.equal((await call('state/get')).sessions.find(s=>s.id===runtime.id).title,'no title');
+  await submit('title supplied');assert.equal((await call('state/get')).sessions.find(s=>s.id===runtime.id).title,'Runtime supplied title');
+  await call('session/update',{id:runtime.id,title:'用户手动标题'});await submit('another supplied title');assert.equal((await call('state/get')).sessions.find(s=>s.id===runtime.id).title,'用户手动标题');
+  assert.equal(await app.evaluate(()=>globalThis.__sessionQA.runs),3);
+  const late=await app.evaluate(async()=>{try{await globalThis.__sessionQA.ctx.emit({type:'title',title:'Late after completion'});return '';}catch(e){return e.message;}});assert.match(late,/EXPIRED/);
+  record('approved registered runtime emits native title metadata through actual sessions; missing metadata keeps fallback, manual rename and expired events are protected');
+
+  const renderer=`export function activate(api){const q=window.__sessionPreviewQA={mounts:0,cleaned:0,aborted:0,late:[],lateCleaned:0};
+    api.observeSurfaces('session-preview','before',async({root})=>{root.dataset.qaSummary='1';root.textContent='插件预览';await new Promise(r=>q.late.push(r));return()=>q.lateCleaned++;});
+    api.observeSurfaces('session-preview-body','replace',async({root,target,signal})=>{q.mounts++;signal.addEventListener('abort',()=>q.aborted++,{once:true});const value=await api.call('session/preview',{sessionId:target.dataset.sessionId});if(!signal.aborted){root.dataset.qaBody='1';root.textContent=value.excerpt;}return()=>q.cleaned++;});}`;
+  const main=`export function activate(api){api.services.intercept('sessions.presentation','preview',(next,session)=>{const p=next(session);return {...p,excerpt:'扩展摘要：'+p.excerpt};});api.services.intercept('sessions.presentation','nativeTitle',(next,session,title)=>next(session,title==='Fixture native title'?'Plugin accepted native title':title));}`;
+  const plugin=await importPlugin('qa.session-preview',renderer,main);
+  await show('original');await keep();await toggle(plugin,true);await preview.locator('[data-qa-body]').waitFor();assert.match(await preview.locator('[data-qa-body]').innerText(),/^扩展摘要：中文用户原稿/);
+  assert.equal(await preview.locator('[data-workbench-session-preview-body]').evaluate(el=>el.hidden),true);
+  await call('qa/native-title',{id:'original',title:'Fixture native title'});await wait(async()=>(await select('original').innerText())==='Plugin accepted native title');
+  record('approved plugin replaces the named message surface and intercepts the real preview and native-title service consumers');
+  await close();await show('translated').catch(async()=>{await select('translated').hover();await preview.locator('[data-qa-body]').waitFor();});await keep();await preview.locator('[data-qa-body]').waitFor();
+  await toggle(plugin,false);await wait(async()=>await page.locator('[data-qa-body]').count()===0);
+  await page.evaluate(()=>window.__sessionPreviewQA.late.splice(0).forEach(r=>r()));await wait(async()=>await page.evaluate(()=>window.__sessionPreviewQA.lateCleaned===2));
+  assert.deepEqual(await page.evaluate(()=>{const q=window.__sessionPreviewQA;return [q.mounts,q.cleaned,q.aborted];}),[2,2,2]);assert.equal(await preview.locator('[data-workbench-session-preview-body]').isVisible(),true);await wait(async()=>!(await text().innerText()).startsWith('扩展摘要：'));
+  await close();await show('original');assert.equal(await text().innerText(),'中文用户原稿，没有新的翻译请求。');await call('qa/native-title',{id:'original',title:'Fixture native title'});await wait(async()=>(await select('original').innerText())==='Fixture native title');
+  record('later card instances, removal and asynchronous cleanup release independently; disabling restores core preview and title handling');
+  await keep();await toggle(plugin,true);await preview.locator('[data-qa-body]').waitFor();
+  const overlay=await importPlugin('qa.session-overlay',`export function activate(api){api.observeSurfaces('session-preview-body','replace',({root})=>{root.dataset.qaOverlay='1';root.textContent='Second plugin';});}`);
+  await toggle(overlay,true);await preview.locator('[data-qa-overlay]').waitFor();assert.equal(await preview.locator('[data-qa-body]').isVisible(),false);
+  await toggle(overlay,false);await preview.locator('[data-qa-body]').waitFor({state:'visible'});
+  const broken=await importPlugin('qa.session-broken',`export function activate(api){api.observeSurfaces('session-preview-body','replace',()=>{throw Error('Synthetic mount failure');});}`);
+  await toggle(broken,true);await wait(async()=>!(await call('extensions/list')).find(p=>p.manifest.id===broken.manifest.id).enabled);await preview.locator('[data-qa-body]').waitFor({state:'visible'});
+  await toggle(plugin,false);await page.evaluate(()=>window.__sessionPreviewQA.late.splice(0).forEach(r=>r()));await wait(async()=>await page.locator('[data-qa-body]').count()===0);
+  await toggle(fixture,false);const closed=await app.evaluate(async()=>{try{await globalThis.__sessionQA.ctx.emit({type:'title',title:'After disable'});return '';}catch(e){return e.message;}});assert.match(closed,/EXPIRED/);
+  record('re-enable, layered replacements, failed mount rollback and runtime disable preserve surviving implementations and reject late title events');
+  assert.deepEqual(errors,[]);
+  await writeFile(path.join(output,'result.json'),JSON.stringify({passed:true,checks,rendererErrors:errors,scope:'Isolated hidden Electron, approved synthetic runtime and renderer plugins, no model calls, no real user data or remote operations.'},null,2));console.log(JSON.stringify({passed:true,checks:checks.length,output}));
+}catch(error){await shot('failure').catch(()=>{});await writeFile(path.join(output,'result.json'),JSON.stringify({passed:false,checks,rendererErrors:errors,error:String(error)},null,2));throw error;}
+finally{await app?.close();}

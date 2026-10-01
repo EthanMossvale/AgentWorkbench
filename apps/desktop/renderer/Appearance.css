@@ -1,0 +1,80 @@
+/* Typography tokens are local preferences; plugin styles may override them. */
+@font-face { font-family:"AWB Claude Serif"; src:local("Anthropic Serif Variable Text"),local("Anthropic Serif"),url("awb-font://claude/serif") format("woff2"); font-style:normal; font-weight:300 800; font-display:swap; }
+@font-face { font-family:"AWB Claude Serif"; src:url("awb-font://claude/serif-italic") format("woff2"); font-style:italic; font-weight:300 800; font-display:swap; }
+:root { --font-ui:"Segoe UI Variable","Segoe UI","Microsoft YaHei UI",system-ui,sans-serif; --font-content:Georgia,"Noto Serif CJK SC","Source Han Serif SC","Songti SC",SimSun,serif; --font-mono:"Cascadia Code",Consolas,"SFMono-Regular",monospace; --font-numeric:"Segoe UI Variable","Segoe UI",sans-serif; --ui-font-size:13px; --content-font-size:15px; --code-font-size:13px; font-size:var(--ui-font-size); }
+:root[data-appearance] { font-family:var(--font-ui); font-size:var(--ui-font-size); }
+:root[data-appearance] .original-messages .message-text,:root[data-appearance] .translation-pane .message-text,:root[data-appearance] .child-conversation-dock .message-text,:root[data-appearance] .mapped-block>pre,:root[data-appearance] .plan-reader .message-text { font-family:var(--font-content); font-size:var(--content-font-size); }
+:root[data-appearance] .message-markdown .markdown-inline-code,:root[data-appearance] .message-markdown .markdown-code-block,:root[data-appearance] .message-markdown .markdown-code-block>pre,:root[data-appearance] .markdown-code-block code,:root[data-appearance] .file-dock .file-text,:root[data-appearance] .file-dock .file-text code,:root[data-appearance] .remote-file-editor,:root[data-appearance] .native-memory-modal .memory-editor { font-family:var(--font-mono); font-size:var(--code-font-size); }
+:root[data-appearance] .model-usage-total strong,:root[data-appearance] .quota-window strong,:root[data-appearance] .reset-card-count,:root[data-appearance] .session-metrics-counts dd,:root[data-appearance] .session-metrics-rates dd { font-family:var(--font-numeric); font-variant-numeric:var(--numeric-variant,lining-nums tabular-nums); }
+.settings-preferences .appearance-settings { max-width:760px; padding:0 0 30px; border:0; border-radius:0; background:none; }
+.appearance-settings>h2 { font-size:1rem; font-weight:500; margin:28px 0 14px; }
+.appearance-settings>h2:first-child { margin-top:0; }
+.appearance-card { padding:0 16px; border:1px solid var(--line); border-radius:14px; margin-bottom:14px; }
+.appearance-row { display:flex; align-items:center; justify-content:space-between; gap:20px; min-height:56px; padding:10px 0; }
+.appearance-row+.appearance-row,.appearance-card>.toggle-row { border-top:1px solid var(--line); }
+.appearance-row>span { min-width:100px; }
+.appearance-row strong { font-size:1rem; font-weight:500; }
+.appearance-row small { display:block; font-size:.85rem; line-height:1.6; margin-top:5px; }
+.appearance-modes { display:flex; gap:12px; }
+.appearance-modes .theme-option { width:83px; padding:5px; border:1px solid transparent; border-radius:9px; background:none; }
+.appearance-modes .theme-option[aria-pressed=true] { border-color:var(--accent); }
+.appearance-modes .theme-preview { height:42px; border-radius:5px; margin:0 0 4px; display:flex; }
+.appearance-modes .theme-option>span { font-size:.8rem; }
+.appearance-modes .theme-preview>i { width:25%; }
+.appearance-modes .theme-preview>div { padding:8px; flex:1; }
+.appearance-modes .theme-preview span { height:2px; margin-bottom:5px; }
+.appearance-modes .theme-option.light .theme-preview { background:#faf9f6; border-color:#e3dfd8; }
+.appearance-modes .theme-option.light .theme-preview>i { background:#efede8; border-color:#e3dfd8; }
+.appearance-modes .theme-option.light .theme-preview span { background:#d8d5ce; }
+.appearance-modes .theme-option.dark .theme-preview { background:#242424; border-color:#45413e; }
+.appearance-modes .theme-option.dark .theme-preview>i { background:#1e1e1e; border-color:#45413e; }
+.appearance-modes .theme-option.dark .theme-preview span { background:#635f5b; }
+.appearance-modes .theme-option.system .theme-preview { background:linear-gradient(110deg,#faf9f6 50%,#242424 50%); border-color:#b0aaa2; }
+.appearance-modes .theme-option.system .theme-preview>i { background:#efede8; border-color:#e3dfd8; }
+.appearance-modes .theme-option .theme-preview span:first-child { background:#b46e53; }
+.appearance-accent,.appearance-accent label { display:flex; align-items:center; gap:9px; font-size:.9rem; }
+.appearance-accent input[type=color] { width:26px; height:26px; min-height:0; padding:2px; border:1px solid var(--line); border-radius:50%; background:none; cursor:pointer; }
+.appearance-font-control { display:flex; align-items:center; gap:8px; min-width:0; }
+.compact-menu-search { position:sticky; top:0; z-index:1; width:calc(100% - 12px); margin:0 6px 6px; min-height:32px; font-size:.9rem; }
+.compact-menu-empty { padding:12px; color:var(--muted); font-size:.9rem; }
+.appearance-font-control>input { width:126px; min-height:30px; padding:5px 8px; font-size:.85rem; }
+.appearance-font-control .compact-select-trigger { min-width:174px; max-width:235px; justify-content:space-between; }
+.appearance-font-control .compact-select-trigger>span { overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+.appearance-font-status,.appearance-footer { display:flex; align-items:center; justify-content:space-between; gap:12px; font-size:.85rem; }
+.appearance-size { display:flex; align-items:center; gap:8px; color:var(--muted); }
+.appearance-size input { width:65px; min-height:30px; padding:5px 8px; font-variant-numeric:var(--numeric-variant,lining-nums tabular-nums); }
+.appearance-preview { margin:22px 0; border:1px solid var(--line); border-radius:14px; padding:20px; overflow-wrap:anywhere; }
+.appearance-preview>small { font-size:.85rem; }
+.appearance-preview-ui { font-family:var(--font-ui); font-size:1.1rem; margin-top:12px; }
+.appearance-preview-content { font-family:var(--font-content); font-size:var(--content-font-size); line-height:1.9; margin:14px 0; }
+.appearance-preview-code { font-family:var(--font-mono); font-size:var(--code-font-size); line-height:1.7; padding:12px; border-radius:7px; background:var(--hover); }
+.appearance-preview-numbers { font-family:var(--font-numeric); font-variant-numeric:var(--numeric-variant,lining-nums tabular-nums); font-size:1.45rem; margin-top:16px; display:flex; flex-wrap:wrap; gap:8px 18px; align-items:baseline; }
+.appearance-preview-numbers small { font-size:.8rem; margin-left:-12px; }
+.appearance-reset { padding:12px 0; display:flex; flex-wrap:wrap; gap:12px; font-size:.9rem; line-height:1.7; }
+@media(max-width:1000px) { .appearance-font-control { flex-wrap:wrap; justify-content:flex-end; } .appearance-font-control>input { width:174px; } .appearance-row { gap:12px; } }
+@media(max-width:800px) { .appearance-row { flex-wrap:wrap; } .appearance-row>span { flex:1; } .appearance-font-control { max-width:100%; } .appearance-modes { gap:6px; } .appearance-card { padding:0 12px; } }
+
+.appearance-color-hex { width:85px; min-height:30px; padding:5px 8px; font-size:.85rem; font-family:var(--font-mono); }
+
+:root[data-appearance] .change-patches pre,:root[data-appearance] .approval-card .approval-command,:root[data-appearance] .approval-raw>pre,:root[data-appearance] .activity-content pre { font-family:var(--font-mono); font-size:var(--code-font-size); }
+/* The picker stays one row tall; contributed presets live in its popup. */
+.appearance-theme-trigger { min-width:174px; max-width:235px; border:1px solid var(--line); border-radius:20px; padding:4px 9px 4px 5px; gap:7px; }
+.appearance-theme-trigger>span:not(.appearance-theme-badge) { flex:1; min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; text-align:left; }
+.appearance-theme-badge { display:inline-flex; flex:0 0 23px; width:23px; height:23px; align-items:center; justify-content:center; border:1px solid; border-radius:50%; font-family:Georgia,serif; font-size:13px; line-height:1; }
+.appearance-theme-menu,.appearance-theme-submenu { position:fixed; z-index:1000; padding:5px; overflow:auto; overscroll-behavior:contain; }
+.appearance-theme-menu>button,.appearance-theme-submenu>button { gap:8px; min-height:34px; }
+.appearance-theme-menu>button>span:not(.appearance-theme-badge),.appearance-theme-submenu>button>span:not(.appearance-theme-badge) { flex:1; min-width:0; overflow:hidden; text-overflow:ellipsis; }
+.appearance-theme-submenu small { overflow:hidden; text-overflow:ellipsis; white-space:nowrap; max-width:170px; }
+.appearance-theme-submenu .appearance-theme-back { color:var(--muted); min-height:26px; font-size:.8rem; border-bottom:1px solid var(--line); border-radius:0; margin-bottom:4px; }
+.appearance-theme-row .appearance-preset-unavailable { color:var(--warning); max-width:370px; }
+.appearance-code-sample { background:var(--code-bg);border:1px solid var(--line);border-radius:9px;overflow:hidden; }
+.appearance-code-heading { display:flex;align-items:center;justify-content:space-between;gap:8px;padding:8px 12px;border-bottom:1px solid var(--line);font-family:var(--font-ui);font-size:.85rem;color:var(--muted); }
+.appearance-code-heading>div { display:flex;gap:3px;flex-wrap:wrap; }
+.appearance-code-heading button { border:0;background:none;color:var(--muted);font-size:.8rem;padding:4px 7px;border-radius:5px;cursor:pointer; }
+.appearance-code-heading button[aria-pressed=true] { color:var(--text);background:var(--hover); }
+.appearance-code-sample .appearance-preview-code { margin:0;padding:16px;background:transparent;overflow:auto;border-radius:0;white-space:pre; }
+.appearance-code-sample>small { display:block;font-family:var(--font-ui);font-size:.8rem;padding:0 12px 10px;color:var(--muted); }
+
+.appearance-theme-back svg { transform:rotate(180deg); }
+.appearance-settings .appearance-theme-trigger { min-width:174px; max-width:235px; border:1px solid var(--line); border-radius:20px; color:var(--text); }
+.compact-select-menu>button>.appearance-theme-badge { flex:0 0 23px; }

@@ -1,0 +1,13 @@
+{
+  "schemaVersion": 1,
+  "apiVersion": 1,
+  "id": "personal.reading-theme",
+  "name": "暖色阅读",
+  "version": "1.0.0",
+  "description": "轻量暖色主题与简洁写作偏好",
+  "capabilities": ["context", "theme"],
+  "contributes": {
+    "context": "Use clear, concise prose. Preserve the user's requested output language.",
+    "theme": { "variables": { "--accent": "#a86143" } }
+  }
+}

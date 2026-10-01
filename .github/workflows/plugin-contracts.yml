@@ -1,0 +1,23 @@
+name: Plugin contracts and recovery
+on: [push, pull_request]
+permissions:
+  contents: read
+jobs:
+  plugin-contracts:
+    runs-on: windows-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with:
+          node-version: 24
+          cache: npm
+      - run: npm ci
+      - run: npm run check:docs
+      - run: npm run check:plugins
+      - run: npm run typecheck
+      - run: node --import tsx --test tests/plugin-*.test.ts tests/runtime-extensions.test.ts
+      - run: npm run setup:electron
+      - run: npm run test:plugin-recovery

@@ -1,0 +1,3 @@
+.composer-plan-mode { display:inline-flex; align-items:center; gap:5px; padding:4px 6px; border:0; border-radius:6px; background:transparent; color:var(--muted); font:inherit; font-size:0.923077rem; white-space:nowrap; }
+.composer-plan-mode:hover:not(:disabled) { background:var(--hover); color:var(--text); }
+.composer-plan-mode:focus-visible { outline:2px solid var(--muted); outline-offset:2px; }

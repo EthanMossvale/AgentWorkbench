@@ -1,0 +1,11 @@
+{
+  "schemaVersion": 1,
+  "apiVersion": 1,
+  "id": "example.ui-workshop",
+  "name": "界面扩展开发示例",
+  "version": "1.0.0",
+  "description": "演示动态设置页、内置页面替换、多实例界面操作和独立配置保存。仅供开发文档参考。",
+  "capabilities": ["host"],
+  "main": "main.mjs",
+  "renderer": "renderer.mjs"
+}

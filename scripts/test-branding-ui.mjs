@@ -1,0 +1,58 @@
+import {_electron as electron} from 'playwright';
+import electronPath from 'electron';
+import {mkdir,writeFile,readFile,rename} from 'node:fs/promises';
+import path from 'node:path';
+import assert from 'node:assert/strict';
+import {fileURLToPath} from 'node:url';
+import {build} from 'esbuild';
+import {encodeZip} from '../packages/native-resources/archive.ts';
+import {defaultBranding} from '../packages/branding/default.ts';
+
+const root=path.resolve(path.dirname(fileURLToPath(import.meta.url)),'..');
+const output=path.join(root,'build/qa/branding-ui-'+Date.now()),profile=path.join(output,'profile');await mkdir(profile,{recursive:true});
+const env={...process.env,AGENT_WORKBENCH_TEST_DATA:profile,AGENT_WORKBENCH_TEST_HIDDEN:'1',AGENT_WORKBENCH_TEST_CODEX_EXECUTABLE:process.execPath,AGENT_WORKBENCH_TEST_CLAUDE_EXECUTABLE:process.execPath};delete env.ELECTRON_RUN_AS_NODE;
+const checks=[],errors=[];let app,page;
+const record=name=>{checks.push(name);console.log('PASS '+name);};
+const call=(method,payload={})=>page.evaluate(({method,payload})=>window.workbench.call(method,payload),{method,payload});
+const launch=async()=>{app=await electron.launch({executablePath:electronPath,args:['.'],cwd:root,env,timeout:45000});page=await app.firstWindow();page.setDefaultTimeout(15000);page.on('pageerror',error=>errors.push(error.message));await page.getByTestId('sidebar').waitFor();assert.equal(await app.evaluate(({BrowserWindow})=>BrowserWindow.getAllWindows()[0].isVisible()),false);};
+const close=async()=>{await app.close();app=undefined;};
+const native=()=>app.evaluate(({app})=>app.__workbenchTrayTest.branding());
+const current=async id=>{await page.waitForFunction(id=>[...document.querySelectorAll('[data-workbench-brand-mark]')].every(el=>el.dataset.workbenchBrandMark===id),id);assert.equal((await call('branding/get')).id,id);assert.equal((await native()).id,id);};
+const toggle=(record,enabled)=>call('extensions/toggle',{id:record.manifest.id,hash:record.hash,enabled,approveHost:enabled});
+async function fixture(id,host,renderer){const manifest={schemaVersion:1,apiVersion:1,id,name:id,description:'Disposable branding fixture',version:'1.0.0',capabilities:['host'],main:'host.mjs',...(renderer?{renderer:'renderer.mjs'}:{})};const file=path.join(output,id+'.zip');const files=[{name:'workbench.plugin.json',data:Buffer.from(JSON.stringify(manifest))},{name:'host.mjs',data:Buffer.from(host)}];if(renderer)files.push({name:'renderer.mjs',data:Buffer.from(renderer)});await writeFile(file,encodeZip(files));await call('extensions/import',{filePath:file});return (await call('extensions/list')).find(p=>p.manifest.id===id);}
+try{
+  await launch();await current(defaultBranding.id);
+  assert.equal(await page.locator('.sidebar-top [data-workbench-brand-mark]').count(),0);assert.equal(await page.locator('.sidebar-wordmark').innerText(),'Workbench');
+  const n=await native();assert.ok(n.scales.includes(1)&&n.scales.includes(2));
+  assert.equal(await app.evaluate(({nativeImage},data)=>nativeImage.createFromDataURL(data.actual).toBitmap().equals(nativeImage.createFromDataURL(data.expected).toBitmap()),{actual:n.app,expected:defaultBranding.app}),true);
+  assert.equal(await app.evaluate(({nativeImage},data)=>nativeImage.createFromDataURL(data.actual).toBitmap().equals(nativeImage.createFromDataURL(data.expected).toBitmap()),{actual:n.tray,expected:defaultBranding.tray['16']}),true);
+  await writeFile(path.join(output,'tray-native-16.png'),Buffer.from(n.tray.slice(22),'base64'));await writeFile(path.join(output,'app-native-256.png'),Buffer.from(n.app.slice(22),'base64'));
+  await page.screenshot({path:path.join(output,'default-light.png')});record('sidebar omits its mark; native approved-W app/tray pixels match source and retain scale representations');
+  await app.evaluate(({BrowserWindow})=>{const w=BrowserWindow.getAllWindows()[0],set=w.setIcon.bind(w);globalThis.__brandingWindowIcons=[];w.setIcon=image=>{globalThis.__brandingWindowIcons.push(image.toDataURL());set(image);};});
+  await call('theme/set',{theme:'dark'});await app.evaluate(({BrowserWindow})=>BrowserWindow.getAllWindows()[0].setSize(860,700));await page.screenshot({path:path.join(output,'default-dark-narrow.png')});
+  const prefs=await call('ui-preferences/get');const key=JSON.stringify(['sidebar.width','']);
+  const entry=Object.entries(prefs.entries).find(([name])=>name.includes('sidebar.width'));
+  await call('ui-preferences/update',{id:'sidebar.width',value:280,revision:entry?.[1].revision??0});record('dark/narrow layout keeps the fixed identity without replacing appearance or layout preferences');
+  const images=await page.evaluate(()=>{const canvas=document.createElement('canvas');canvas.width=canvas.height=64;const context=canvas.getContext('2d');context.fillStyle='#cc6633';context.fillRect(0,0,64,64);const a=canvas.toDataURL();context.fillStyle='#449966';context.fillRect(0,0,64,64);return [a,canvas.toDataURL()];});
+  const fixtureSource=path.join(output,'mount.tsx'),fixtureBundle=path.join(output,'mount.js');await writeFile(fixtureSource,`import React from 'react';import {createRoot} from 'react-dom/client';import {Mark} from ${JSON.stringify(path.join(root,'apps/desktop/renderer/BrandMark.tsx'))};window.__mountBrand=(id='later-brand')=>{const el=document.createElement('div');el.id=id;document.body.append(el);const root=createRoot(el);root.render(<Mark/>);window.__unmountBrand=()=>{root.unmount();el.remove();};};`);
+  await build({entryPoints:[fixtureSource],outfile:fixtureBundle,bundle:true,platform:'browser',format:'iife',target:'chrome130',loader:{'.css':'empty'}});
+  await page.evaluate(await readFile(fixtureBundle,'utf8'));await page.evaluate(()=>window.__mountBrand('existing-brand'));await page.locator('#existing-brand [data-workbench-brand-mark]').waitFor();await current(defaultBranding.id);
+  const first=await fixture('qa.brand-first',`export function activate(api){const image=${JSON.stringify(images[0])};api.branding.register({id:'identity',label:'Synthetic warm identity',app:image});api.registerCommand('read',()=>api.branding.get());globalThis.__staleBranding=api.branding;}`,`export function activate(api){window.__brandSurfaces={mounts:0,cleaned:0,late:0};api.observeSurfaces('brand-mark','after',({root})=>{window.__brandSurfaces.mounts++;root.textContent='';return()=>window.__brandSurfaces.cleaned++;});}`);
+  await assert.rejects(call('extensions/toggle',{id:first.manifest.id,hash:first.hash,enabled:true}));await toggle(first,true);await current('plugin:qa.brand-first/identity');
+  assert.equal((await call('extensions/command',{id:first.manifest.id,name:'read'})).id,'plugin:qa.brand-first/identity');
+  assert.ok(await app.evaluate(()=>globalThis.__brandingWindowIcons.length>0));record('exact-package approval activates typed branding registration in renderer, native window and tray');
+  await page.evaluate(()=>window.__mountBrand());await page.locator('#later-brand [data-workbench-brand-mark]').waitFor();await current('plugin:qa.brand-first/identity');await page.waitForFunction(()=>window.__brandSurfaces.mounts>=2);record('a later mounted production Mark and named surface observe the same active branding');
+  const second=await fixture('qa.brand-second',`export function activate(api){api.branding.register({id:'identity',label:'Synthetic second identity',app:${JSON.stringify(images[1])}});}`);
+  await toggle(second,true);await current('plugin:qa.brand-second/identity');await toggle(first,false);await current('plugin:qa.brand-second/identity');
+  assert.equal(await app.evaluate(()=>{try{globalThis.__staleBranding.register({id:'late',label:'Late',app:''});return false;}catch{return true;}}),true);
+  await toggle(second,false);await current(defaultBranding.id);record('multiple plugins unwind in non-LIFO order, release observers, reject stale APIs and restore the approved default');
+  const failed=await fixture('qa.brand-failed',`export function activate(api){api.branding.register({...api.branding.get(),id:'failed'});throw Error('Synthetic branding failure');}`);await toggle(failed,true);await current(defaultBranding.id);assert.equal((await call('extensions/list')).find(p=>p.manifest.id===failed.manifest.id).enabled,false);record('activation failure removes an already registered identity without leaving native or UI residue');
+  const delayed=await fixture('qa.brand-delayed',`export function activate(api){const original=api.branding.get();let release;api.registerMethod('branding/get',()=>new Promise(resolve=>release=()=>resolve(original)));api.registerCommand('release',()=>{release();});api.registerCommand('switch',()=>{api.branding.register({id:'newer',label:'Newer identity',app:${JSON.stringify(images[1])}});});}`);
+  await toggle(delayed,true);await page.evaluate(()=>{window.__unmountBrand();window.__mountBrand();});await page.locator('#later-brand img').waitFor();
+  await call('extensions/command',{id:delayed.manifest.id,name:'switch'});await page.waitForFunction(()=>document.querySelector('#later-brand [data-workbench-brand-mark]').dataset.workbenchBrandMark==='plugin:qa.brand-delayed/newer');
+  await call('extensions/command',{id:delayed.manifest.id,name:'release'});await page.waitForTimeout(100);assert.equal(await page.locator('#later-brand [data-workbench-brand-mark]').getAttribute('data-workbench-brand-mark'),'plugin:qa.brand-delayed/newer');await toggle(delayed,false);await current(defaultBranding.id);record('a late initial read cannot replace a newer branding event');
+  await page.evaluate(()=>window.__unmountBrand());await toggle(first,true);await current('plugin:qa.brand-first/identity');await close();await launch();await current('plugin:qa.brand-first/identity');
+  const restored=await call('ui-preferences/get');assert.ok(Object.values(restored.entries).some(value=>value.value===280));record('complete process restart restores the approved plugin and retains the existing sidebar preference');
+  await toggle(first,false);await current(defaultBranding.id);await rename(path.join(profile,'plugins',first.manifest.id),path.join(output,'removed-plugin'));await call('extensions/list');await close();await launch();await current(defaultBranding.id);record('disabled package removal and another restart retain the shipped B identity');
+  const final=await native();assert.equal(await app.evaluate(({nativeImage},data)=>nativeImage.createFromDataURL(data.actual).toBitmap().equals(nativeImage.createFromDataURL(data.expected).toBitmap()),{actual:final.tray,expected:defaultBranding.tray['16']}),true);assert.deepEqual(errors,[]);record('final native tray pixels return to B and renderer errors remain empty');
+}finally{if(app)await app.close();await writeFile(path.join(output,'report.json'),JSON.stringify({checks,errors,boundary:'Hidden isolated production Electron; synthetic approved plugins; no real account, model, active client or OS taskbar screenshot.'},null,2));console.log('Evidence: '+output);}

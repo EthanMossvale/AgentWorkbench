@@ -1,0 +1,44 @@
+import { _electron as electron } from 'playwright';
+import electronPath from 'electron';
+import { mkdir, mkdtemp, writeFile, readFile } from 'node:fs/promises';
+import os from 'node:os';
+import path from 'node:path';
+import assert from 'node:assert/strict';
+import { fileURLToPath } from 'node:url';
+const root=path.resolve(fileURLToPath(new URL('..',import.meta.url))),output=path.join(root,'build/qa/ui-redo');
+await mkdir(output,{recursive:true});const dataDir=await mkdtemp(path.join(os.tmpdir(),'awb-code-preview-'));
+const source=`// Read-only syntax preview\nexport interface Task {\n  title: string;\n  done: boolean;\n}\n\nexport function complete(task: Task): Task {\n  return { ...task, done: true };\n}\n\nconst message = "${'long line '.repeat(50)}";\n`;
+const file=path.join(dataDir,'task.ts'),json=path.join(dataDir,'settings.json');await writeFile(file,source);await writeFile(json,'{\n  "theme": "dark",\n  "preview": true\n}\n');
+const app=await electron.launch({executablePath:electronPath,args:[root],cwd:root,env:{...process.env,AGENT_WORKBENCH_TEST_DATA:dataDir,ELECTRON_RUN_AS_NODE:undefined}});
+const checks=[],errors=[],consoleErrors=[];const record=name=>{checks.push(name);console.log('PASS '+name);};
+try {
+ const page=await app.firstWindow();page.setDefaultTimeout(15000);page.on('pageerror',e=>errors.push(e.message));page.on('console',m=>{if(m.type()==='error')consoleErrors.push(m.text());});await page.waitForFunction(()=>!!window.workbench);
+ const call=(method,payload={})=>page.evaluate(({method,payload})=>window.workbench.call(method,payload),{method,payload});
+ await call('theme/set',{theme:'dark'});await page.getByTestId('new-session').click();await page.getByTestId('composer-input').fill('这段草稿在浏览代码时保留');
+ await page.getByTestId('open-files').click();
+ const open=async(target)=>{await page.getByRole('textbox',{name:'文件路径',exact:true}).fill(target);await page.getByRole('button',{name:'前往路径'}).click();await page.getByTestId('code-preview').waitFor();};
+ await open(file+':7');await page.waitForFunction(()=>document.querySelector('[data-testid=code-preview]').dataset.line==='7');
+ await page.waitForFunction(()=>new Set([...document.querySelectorAll('.view-line span')].map(el=>getComputedStyle(el).color)).size>=3);
+ assert.equal(await page.getByTestId('code-preview').getAttribute('data-language'),'typescript');
+ await page.evaluate(()=>document.fonts.ready);
+ assert.match(await page.locator('.codicon-folding-expanded').first().evaluate(el=>getComputedStyle(el).fontFamily),/codicon/);
+ assert.ok(await page.evaluate(()=>document.fonts.check('16px codicon')));
+ assert.equal(await page.getByRole('dialog').count(),0);record('TypeScript uses a real docked Monaco editor with syntax colors and exact line navigation');
+ await page.screenshot({path:path.join(output,'code-dark.png')});
+ const editor=page.locator('.monaco-editor').first();await editor.click();await page.keyboard.type('MUST_NOT_WRITE');assert.equal(await readFile(file,'utf8'),source);
+ assert.equal(await page.getByTestId('composer-input').inputValue(),'这段草稿在浏览代码时保留');record('typing in the read-only editor leaves both the source file and conversation draft unchanged');
+ await page.getByRole('button',{name:'搜索代码'}).click();await page.locator('.find-widget.visible').waitFor();const find=page.locator('.find-widget textarea').first();await find.fill('complete');await page.waitForFunction(()=>document.querySelectorAll('.findMatch,.currentFindMatch').length>0);
+ await page.waitForFunction(()=>document.querySelector('.find-widget').getBoundingClientRect().top>=document.querySelector('.code-editor').getBoundingClientRect().top);await page.screenshot({path:path.join(output,'code-search-dark.png')});await page.keyboard.press('Escape');assert.equal(await page.getByTestId('file-dock').count(),1);record('editor search highlights matches and Escape closes search without closing the file dock');
+ await page.locator('.codicon-folding-expanded').first().waitFor();await page.locator('.codicon-folding-expanded').first().click();await page.waitForFunction(()=>document.querySelector('.codicon-folding-collapsed'));record('code blocks fold through the editor gutter');
+ assert.equal(await page.getByRole('button',{name:'自动换行',exact:true}).getAttribute('aria-pressed'),'true');await page.getByRole('button',{name:'自动换行',exact:true}).click();assert.equal(await page.getByRole('button',{name:'自动换行',exact:true}).getAttribute('aria-pressed'),'false');await page.getByRole('button',{name:'自动换行',exact:true}).click();
+ await open(json);assert.equal(await page.getByTestId('code-preview').getAttribute('data-language'),'json');await page.waitForFunction(()=>new Set([...document.querySelectorAll('.view-line span')].map(el=>getComputedStyle(el).color)).size>=3);
+ await page.getByRole('tab',{name:'task.ts',exact:true}).click();assert.equal(await page.getByTestId('code-preview').getAttribute('data-language'),'typescript');record('JSON is highlighted by the bundled language service and file tabs switch without losing the draft');
+ await page.locator('.codicon-folding-collapsed').first().waitFor();
+ await page.getByRole('tab',{name:'文件',exact:true}).click();await page.getByRole('button',{name:'task.ts',exact:true}).click();await page.locator('.codicon-folding-collapsed').first().waitFor();record('folding and cursor state survive switching files and returning through the directory');
+ await call('theme/set',{theme:'light'});await page.screenshot({path:path.join(output,'code-light.png')});
+ await page.getByRole('button',{name:'关闭 settings.json'}).click();assert.equal(await page.getByRole('tab',{name:'settings.json',exact:true}).count(),0);
+ await page.getByRole('button',{name:'文件操作',exact:true}).click();await page.getByRole('menuitem',{name:'复制路径'}).click();assert.equal(await app.evaluate(({clipboard})=>clipboard.readText()),file);record('tabs close independently and file actions retain the correct path');
+ assert.deepEqual(errors,[]);assert.deepEqual(consoleErrors.filter(text=>!text.includes('Electron Security Warning')),[]);
+ await writeFile(path.join(output,'code-report.json'),JSON.stringify({passed:true,checks,errors,consoleErrors,dataDir,editor:'monaco-editor 0.57.0',evidence:'Actual isolated Electron renderer, bundled workers, local test files; no model or SSH requests.'},null,2));
+} catch(error) { const page=await app.firstWindow();await page.screenshot({path:path.join(output,'code-failure.png')});console.log({errors,consoleErrors});throw error; }
+finally { await app.close(); }

@@ -1,0 +1,5 @@
+.composer-account-picker{display:flex;align-items:center;gap:6px;min-width:0;flex-wrap:wrap}
+.composer-account-picker .account-control{max-width:270px}
+.composer-account-picker .account-control select{max-width:235px;overflow:hidden;text-overflow:ellipsis}
+.composer-account-picker>.text-button{font-size:0.846154rem;white-space:nowrap}
+.composer-account-error{flex-basis:100%;max-width:360px;font-size:0.846154rem;color:var(--danger,#a34136)}

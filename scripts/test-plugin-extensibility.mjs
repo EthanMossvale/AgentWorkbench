@@ -1,0 +1,97 @@
+import { _electron as electron } from 'playwright';
+import electronPath from 'electron';
+import { mkdir, writeFile, cp } from 'node:fs/promises';
+import { build as hostBuild } from 'esbuild';
+import { build as rendererBuild } from 'vite';
+import path from 'node:path';
+import assert from 'node:assert/strict';
+import { fileURLToPath } from 'node:url';
+import { collectDirectory, encodeZip } from '../packages/native-resources/archive.ts';
+import { openWorkbenchSettings, navigateWorkbench } from './ui-control-helpers.mjs';
+import { checkDevelopmentPluginUi } from './plugin-development-ui-checks.mjs';
+
+const root=path.resolve(path.dirname(fileURLToPath(import.meta.url)),'..');
+const output=path.resolve(process.env.AWB_EXTENSIBILITY_QA??path.join(root,'build/qa/plugin-extensibility-'+Date.now()));
+const appRoot=path.join(output,'app'),dataDir=path.join(output,'data');await mkdir(appRoot,{recursive:true});
+await rendererBuild({configFile:path.join(root,'vite.config.ts'),build:{outDir:path.join(appRoot,'renderer'),emptyOutDir:true},logLevel:'warn'});
+for(const entry of ['main','preload'])await hostBuild({entryPoints:[path.join(root,`apps/desktop/host/${entry}.ts`)],outfile:path.join(appRoot,`host/${entry}.cjs`),bundle:true,platform:'node',format:'cjs',target:'node22',external:['electron']});
+await cp(path.join(root,'services/vps-workspace-control'),path.join(appRoot,'host/workspace-control'),{recursive:true});await cp(path.join(root,'services/vps-account-broker'),path.join(appRoot,'host/account-runtime'),{recursive:true});
+await writeFile(path.join(appRoot,'package.json'),JSON.stringify({name:'awb-extension-qa',version:'1.0.0',main:'host/main.cjs'}));
+const env={...process.env,AGENT_WORKBENCH_TEST_DATA:dataDir,AGENT_WORKBENCH_TEST_HIDDEN:'1'};delete env.ELECTRON_RUN_AS_NODE;
+const checks=[],errors=[];let app,page;
+const record=name=>{checks.push(name);console.log('PASS '+name);};
+const launch=async()=>{app=await electron.launch({executablePath:electronPath,args:[appRoot],cwd:appRoot,env,timeout:45000});page=await app.firstWindow();page.setDefaultTimeout(15000);page.on('pageerror',error=>errors.push(error.message));await page.waitForFunction(()=>!!window.workbench);};
+const call=(method,payload={})=>page.evaluate(({method,payload})=>window.workbench.call(method,payload),{method,payload});
+const until=async check=>{for(let n=0;n<300;n++){if(await check())return;await new Promise(r=>setTimeout(r,50));}throw Error('UI state did not settle');};
+const snapshot=name=>page.screenshot({path:path.join(output,name+'.png'),fullPage:true});
+const toggle=(plugin,enabled)=>call('extensions/toggle',{id:plugin.manifest.id,hash:plugin.hash,enabled,approveHost:enabled});
+async function importFixture(id,renderer,main) {
+  const manifest={schemaVersion:1,apiVersion:1,id,name:id,description:'Isolated QA fixture',version:'1.0.0',capabilities:['host'],renderer:'renderer.mjs',...(main?{main:'main.mjs'}:{})};
+  const file=path.join(output,id+'.zip');await writeFile(file,encodeZip([{name:'workbench.plugin.json',data:Buffer.from(JSON.stringify(manifest))},{name:'renderer.mjs',data:Buffer.from(renderer)},...(main?[{name:'main.mjs',data:Buffer.from(main)}]:[])]));
+  await call('extensions/import',{filePath:file});return (await call('extensions/list')).find(p=>p.manifest.id===id);
+}
+try {
+  await launch();assert.equal((await call('extensions/list')).length,0);record('clean workbench does not preinstall any example plugin');
+  const zip=path.join(output,'ui-workshop.zip');await writeFile(zip,encodeZip(await collectDirectory(path.join(root,'examples/plugins/ui-workshop'))));
+  await call('extensions/import',{filePath:zip});const plugin=(await call('extensions/list')).find(p=>p.manifest.id==='example.ui-workshop');await toggle(plugin,true);
+  await call('session/create',{runtime:'demo'});await call('session/create',{runtime:'demo'});
+  await page.waitForFunction(()=>document.querySelectorAll('[data-workshop-row]').length===2);
+  await call('session/create',{runtime:'demo'});await page.waitForFunction(()=>document.querySelectorAll('[data-workshop-row]').length===3);
+  await page.locator('[data-workshop-row] button').first().click();await until(async()=>(await page.locator('[data-workshop-row] button').first().textContent())!=='查看任务标题');
+  record('one surface observer decorates every actual session and discovers later sessions with working host actions');
+  await openWorkbenchSettings(page,'appearance');await page.getByTestId('workshop-open').waitFor();assert.equal(await page.getByTestId('theme-light').count(),0);
+  await page.getByRole('button',{name:'深色',exact:true}).click();await page.waitForFunction(()=>document.documentElement.dataset.theme==='dark');
+  await page.getByTestId('workshop-open').click();await page.getByTestId('workshop-save').waitFor();
+  await page.getByRole('textbox',{name:'搜索设置',exact:true}).fill('示例');assert.equal(await page.getByTestId('settings-plugin:example.ui-workshop/skin').count(),1);
+  await page.getByTestId('workshop-color').selectOption('plum');await page.getByTestId('workshop-save').click();await page.getByRole('status').filter({hasText:'配置已保存'}).waitFor();
+  await page.getByTestId('workshop-host').click();await page.getByRole('status').filter({hasText:'宿主配置：plum'}).waitFor();
+  assert.equal((await call('extensions/list')).find(p=>p.manifest.id===plugin.manifest.id).hash,plugin.hash);
+  await snapshot('registered-settings-dark');record('searchable page registration and built-in replacement share durable host-renderer settings without changing package approval');
+  await app.close();app=null;await launch();await page.getByTestId('workshop-color').waitFor();
+  assert.equal(await page.getByTestId('workshop-color').inputValue(),'plum');await snapshot('registered-settings-restarted');record('restart restores registered settings and saved values');
+  await toggle(plugin,false);await page.getByTestId('workshop-save').waitFor({state:'detached'});
+  await page.waitForFunction(()=>document.querySelector('[data-testid=settings-general]')?.getAttribute('aria-current')==='page');
+  await openWorkbenchSettings(page,'appearance');await page.getByTestId('theme-light').waitFor();await page.getByTestId('theme-light').click();
+  assert.equal(await page.locator('[data-workshop-row]').count(),0);assert.equal(await page.locator('style[data-plugin="example.ui-workshop"]').count(),0);
+  await assert.rejects(call('extensions/storage/read',{id:plugin.manifest.id,hash:plugin.hash}));
+  record('disable restores the built-in settings page, removes all instances and styles, fences data access, and redirects a removed page');
+  await navigateWorkbench(page,'workspace');
+  await page.evaluate(()=>{const box=document.createElement('section');box.id='qa-targets';for(let n=0;n<3;n++){const node=document.createElement('div');node.className='qa-target';node.dataset.key=String(n);node.textContent='Core '+n;node.hidden=n===2;box.append(node);}document.body.append(box);});
+  const multi=await importFixture('qa.multi-surfaces',`export function activate(api) {
+    window.__surfaceQA={mounted:0,cleaned:0,aborted:0,lateCleaned:0};window.__surfaceApi=api;
+    window.__releaseWatch=api.observeSurfaces('.qa-target','replace',({root,target,signal})=>{const q=window.__surfaceQA;q.mounted++;root.dataset.qaInstance=target.dataset.key;root.textContent='Replacement '+target.dataset.key;signal.addEventListener('abort',()=>q.aborted++,{once:true});return()=>q.cleaned++;});
+    window.__releaseOne=api.mountSurface('.qa-target','replace').dispose;
+    api.observeSurfaces('.qa-late','after',async({root,signal})=>{root.dataset.qaLate='yes';await new Promise(r=>window.__releaseLate=r);return()=>window.__surfaceQA.lateCleaned++;});
+    const a=api.settings.register({id:'first',replaces:'about',label:'First',render({root}){root.textContent='first replacement';}});
+    const b=api.settings.register({id:'second',replaces:'about',label:'Second',render({root}){root.textContent='second replacement';}});
+    window.__releaseFirst=a.dispose;window.__releaseSecond=b.dispose;
+  }`);
+  await toggle(multi,true);await page.waitForFunction(()=>document.querySelectorAll('[data-qa-instance]').length===3);
+  assert.equal(await page.locator('[data-qa-instance="0"]').isVisible(),false);await page.evaluate(()=>window.__releaseOne());assert.equal(await page.locator('[data-qa-instance="0"]').isVisible(),true);
+  await page.evaluate(()=>document.querySelector('.qa-target[data-key="1"]').classList.remove('qa-target'));
+  await page.waitForFunction(()=>window.__surfaceQA.cleaned===1);assert.equal(await page.locator('[data-key="1"]').evaluate(e=>e.hidden),false);
+  await page.evaluate(()=>document.querySelector('[data-key="1"]').classList.add('qa-target'));
+  await page.waitForFunction(()=>window.__surfaceQA.mounted===4);
+  await page.evaluate(()=>document.querySelector('[data-key="0"]').remove());await page.waitForFunction(()=>window.__surfaceQA.cleaned===2);
+  record('multi-instance mounts react to attribute changes and removals; overlapping single mounts preserve registration order');
+  await openWorkbenchSettings(page,'about');await page.getByText('second replacement',{exact:true}).waitFor();
+  await page.evaluate(()=>window.__releaseFirst());assert.equal(await page.getByText('second replacement',{exact:true}).isVisible(),true);
+  await page.evaluate(()=>window.__releaseSecond());await page.getByRole('heading',{name:'Agent Workbench',exact:true}).waitFor();
+  record('settings replacements restore correctly after non-LIFO layer removal');
+  await page.evaluate(()=>{const node=document.createElement('div');node.className='qa-late';document.body.append(node);});
+  await page.waitForFunction(()=>typeof window.__releaseLate==='function');await toggle(multi,false);
+  await page.waitForFunction(()=>window.__surfaceQA.cleaned===4);assert.equal(await page.locator('[data-key="2"]').evaluate(e=>e.hidden),true);assert.equal(await page.locator('[data-key="1"]').evaluate(e=>e.hidden),false);
+  await page.evaluate(()=>window.__releaseLate());await page.waitForFunction(()=>window.__surfaceQA.lateCleaned===1);
+  assert.equal(await page.evaluate(()=>window.__surfaceQA.aborted),4);
+  assert.equal(await page.evaluate(()=>{try{window.__surfaceApi.settings.open('about');return false;}catch{return true;}}),true);
+  await page.evaluate(()=>{document.querySelector('#qa-targets').remove();document.querySelector('.qa-late').remove();});
+  record('disable aborts every instance, restores prior hidden values, runs late async cleanup and rejects stale API handles');
+  const failure=await importFixture('qa.failing-page',`export function activate(api) {api.addStyle(':root{--qa-failure:1}');const p=api.settings.register({id:'fail',label:'Failure',async render(){throw Error('Synthetic page failure');}});p.open();}`,
+    `export function activate(api) {api.registerMethod('qa/active',()=>true);}`);
+  await toggle(failure,true);await until(async()=>!(await call('extensions/list')).find(p=>p.manifest.id===failure.manifest.id).enabled);
+  assert.equal(await page.locator('style[data-plugin="qa.failing-page"]').count(),0);assert.equal(await page.locator('[data-plugin-settings="plugin:qa.failing-page/fail"]').count(),0);await assert.rejects(call('qa/active'));
+  record('asynchronous page failure disables its plugin and releases host methods, registered pages and styles');
+  await checkDevelopmentPluginUi({app,page,call,output,put:writeFile,record});
+  assert.deepEqual(errors,[]);await writeFile(path.join(output,'result.json'),JSON.stringify({passed:true,checks,rendererErrors:errors},null,2));console.log(JSON.stringify({passed:true,checks:checks.length,output}));
+} catch(error) {await snapshot('failure').catch(()=>{});await writeFile(path.join(output,'result.json'),JSON.stringify({passed:false,checks,rendererErrors:errors,error:String(error)},null,2));throw error;}
+finally {await app?.close();}

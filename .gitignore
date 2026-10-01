@@ -1,0 +1,27 @@
+# No credentials, runtime state, dependencies, or build outputs in this repo.
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+*.p12
+*.pfx
+id_rsa*
+id_ed25519*
+auth.json
+.credentials.json
+credentials.json
+secrets/
+private/
+state/
+logs/
+*.log
+node_modules/
+dist/
+build/
+target/
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.DS_Store
+Thumbs.db

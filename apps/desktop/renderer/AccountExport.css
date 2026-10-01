@@ -1,0 +1,21 @@
+.account-export-trigger{display:inline-flex;flex:none}
+.account-export-trigger>.icon-button{width:28px;height:28px;border-radius:7px;color:var(--muted)}
+.account-export-trigger>.icon-button:hover{color:var(--accent);background:var(--tint)}
+.account-export-modal{width:min(540px,calc(100vw - 32px));max-height:calc(100dvh - 40px);overflow:auto}
+.account-export{min-width:0}
+.account-export-format{display:flex;align-items:center;gap:12px;margin-top:4px}
+.account-export-format>label{font-size:.923077rem;color:var(--muted);flex:none}
+.account-export-format>select{min-width:132px;max-width:60%;border:1px solid var(--line);border-radius:8px;padding:7px 30px 7px 10px;background:var(--bg);color:var(--text);font:inherit}
+.account-export-format>span{margin-left:auto;font-size:.846154rem;color:var(--muted);overflow-wrap:anywhere}
+.account-export-description,.account-export-note{color:var(--muted);font-size:.846154rem;line-height:1.65;margin:10px 0 14px}
+.account-export-preview{border:1px solid var(--line);border-radius:10px;overflow:hidden;background:transparent}
+.account-export-preview-heading{display:flex;align-items:center;justify-content:space-between;gap:12px;padding:10px 12px;border-bottom:1px solid var(--line);font-size:.846154rem}
+.account-export-preview-heading small{margin-left:8px;color:var(--muted);font-size:inherit}
+.account-export-preview-heading .text-button{display:inline-flex;align-items:center;gap:5px;flex:none}
+.account-export-preview pre{margin:0;padding:14px;min-height:160px;max-height:280px;overflow:auto;white-space:pre-wrap;overflow-wrap:anywhere;background:transparent;color:var(--text);font:12px/1.65 var(--font-code,Consolas,monospace);user-select:text}
+.account-export .modal-actions{margin-top:0;display:flex;justify-content:flex-end;gap:8px}
+.account-export .modal-actions .button{display:inline-flex;align-items:center;justify-content:center;gap:7px}
+.account-export-result{min-height:20px;color:var(--muted);font-size:.846154rem;margin-bottom:8px}
+.account-export .inline-error{line-height:1.6;font-size:.923077rem;overflow-wrap:anywhere}
+.account-export .inline-error .text-button{margin-left:8px}
+@media(max-width:520px){.account-export-format{gap:8px;flex-wrap:wrap}.account-export-format>span{font-size:.769231rem}.account-export-preview-heading small{display:block;margin:3px 0 0}.account-export-preview pre{max-height:220px}}

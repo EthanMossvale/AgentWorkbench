@@ -1,0 +1,73 @@
+.file-change-card { border:1px solid var(--line); border-radius:12px; margin:14px 0 24px; overflow:hidden; color:var(--text); font-size:0.923077rem; background:var(--surface); }
+.file-change-card > header { display:flex; gap:11px; align-items:center; padding:13px 15px; border-bottom:1px solid var(--line); }
+.change-card-icon { display:flex; align-items:center; justify-content:center; background:var(--hover); border-radius:8px; width:34px; height:34px; flex-shrink:0; color:var(--muted); }
+.file-change-card strong { font-size:1rem; font-weight:500; }
+.change-card-summary { display:flex; align-items:center; gap:9px; margin-top:2px; }
+.change-card-summary > small,.change-counts small { font-size:0.769231rem; color:var(--muted); }
+.change-counts { display:inline-flex; align-items:center; gap:5px; white-space:nowrap; font-size:0.846154rem; font-variant-numeric:tabular-nums; }
+.change-added { color:#24734e; }
+.change-removed { color:#ad4940; }
+[data-theme=dark] .change-added { color:#81c5a0; }
+[data-theme=dark] .change-removed { color:#e8988d; }
+.change-review-button { border:1px solid var(--line); border-radius:7px; background:transparent; padding:4px 9px; font:inherit; color:var(--text); margin-left:auto; }
+.change-file-list > button { display:flex; align-items:center; gap:10px; width:100%; border:0; padding:9px 15px; text-align:left; background:transparent; color:var(--text); font:inherit; }
+.change-file-list > button:hover,.change-review-button:hover,.change-expand:hover { background:var(--hover); }
+.change-file-path { flex:1; min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+.change-expand { display:flex; align-items:center; gap:6px; border:0; background:transparent; color:var(--muted); font:inherit; padding:10px 15px 12px; width:100%; }
+.change-expand[aria-expanded=true] svg { transform:rotate(180deg); }
+.change-card-note { font-size:0.846154rem; color:var(--muted); padding:0 15px; }
+
+.file-change-card[hidden],.file-change-capsule-container[hidden],.change-review-body[hidden],.change-patches[hidden],.file-change-popover[hidden]{display:none}
+.file-change-capsule-container{display:flex;justify-content:center;min-width:0;max-width:100%}
+.file-change-capsule{display:flex;align-items:center;gap:7px;min-width:0;max-width:100%;padding:5px 10px;border:1px solid var(--line);border-radius:20px;background:var(--surface);color:var(--muted);font:0.846154rem/1.4 var(--font-ui);white-space:nowrap}
+.file-change-capsule>span:first-child{overflow:hidden;text-overflow:ellipsis}
+.file-change-capsule:hover,.file-change-capsule[aria-expanded=true]{background:var(--hover);color:var(--text)}
+.file-change-capsule>svg{flex:none}
+.file-change-popover{position:fixed;z-index:1200;width:min(390px,calc(100vw - 20px));max-height:min(380px,calc(100vh - 28px));overflow:auto;border:1px solid var(--line);border-radius:12px;background:var(--surface);color:var(--text);box-shadow:0 9px 28px #0002;font:0.923077rem/1.5 var(--font-ui)}
+.file-change-popover>header{display:flex;gap:12px;align-items:center;justify-content:space-between;padding:11px 14px;border-bottom:1px solid var(--line)}
+.file-change-popover>header strong{font-weight:500}
+.file-change-popover small{color:var(--muted);font-size:0.769231rem}
+.file-change-popover .change-file-list{padding:5px 0}
+.file-change-review{flex:0 0 clamp(260px,var(--file-pane-width,560px),calc(100% - 345px));min-width:0;min-height:0;display:flex;flex-direction:column;overflow:hidden;outline:none;font-family:var(--font-ui);color:var(--text);background:var(--surface);container-type:inline-size;container-name:filereview}
+ .change-reader-header{display:flex;align-items:center;justify-content:space-between;padding:14px 16px 10px;gap:8px;font-size:1rem}
+ .change-reader-header strong{font-weight:500}
+.change-review-toolbar{display:flex;align-items:center;justify-content:space-between;gap:12px;padding:0 20px 12px;color:var(--muted);font-size:0.846154rem}
+.change-review-toolbar label{display:flex;align-items:center;gap:8px;white-space:nowrap;flex-shrink:0}
+.change-review-toolbar select{border:1px solid var(--line);border-radius:6px;background:var(--surface);color:var(--text);font:inherit;padding:5px 8px;max-width:220px}
+.change-review-body{display:flex;flex:1;min-height:0;min-width:0;border-top:1px solid var(--line)}
+.change-review-body>nav{display:flex;flex-direction:column;flex:0 0 clamp(170px,23%,260px);min-width:0;border-right:1px solid var(--line);padding:10px 8px;background:var(--main)}
+.change-review-body>nav input{min-width:0;width:100%;box-sizing:border-box;padding:7px 8px;border:1px solid var(--line);border-radius:6px;background:var(--surface);font:0.846154rem var(--font-ui);color:var(--text);margin-bottom:8px}
+.change-review-files{min-height:0;overflow:auto}
+.change-review-files button{display:flex;flex-direction:column;gap:4px;border:0;border-radius:6px;padding:9px 8px;width:100%;text-align:left;background:transparent;color:var(--muted);font:0.846154rem/1.4 var(--font-ui)}
+.change-review-files button>span:first-child{max-width:100%;overflow-wrap:anywhere}
+.change-review-files button[aria-current=true],.change-review-files button:hover{background:var(--hover);color:var(--text)}
+.change-review-detail{display:flex;flex-direction:column;flex:1;min-width:0;overflow:hidden}
+.change-review-detail>header{display:flex;align-items:flex-start;gap:10px;padding:12px 16px;border-bottom:1px solid var(--line)}
+.change-review-detail>header>div{display:flex;flex-direction:column;gap:5px;min-width:0;flex:1;overflow-wrap:anywhere}
+.change-review-detail>header strong{font-size:0.923077rem;font-weight:500}
+.change-review-detail>header small{color:var(--muted);font-size:0.846154rem}
+.change-review-detail>header .text-button{flex-shrink:0;font-size:0.846154rem}
+.change-patches{flex:1;overflow:auto;min-height:0;padding:0}
+.change-patch h3,.change-review-note{margin:12px 16px;font-size:0.846154rem;color:var(--muted);font-weight:400}
+.change-review-footer{padding:10px 16px;border-top:1px solid var(--line);font-size:0.769231rem;line-height:1.5;color:var(--muted)}
+.change-diff{font:0.846154rem/1.75 var(--font-mono,Consolas,'Cascadia Code',monospace);tab-size:4}
+.change-diff-line{display:grid;grid-template-columns:4ch 4ch 2ch minmax(0,1fr)}
+.change-diff-pair{display:grid;grid-template-columns:1fr 1fr;min-width:550px}
+.change-diff-cell{display:grid;grid-template-columns:4ch 2ch minmax(0,1fr);min-width:0}
+.change-diff-cell+div{border-left:1px solid var(--line)}
+.change-diff code{font:inherit;white-space:pre-wrap;overflow-wrap:anywhere;padding:0 10px 0 3px;min-width:0}
+.diff-number,.diff-sign{color:var(--muted);user-select:none;text-align:right;padding-right:6px;font-variant-numeric:tabular-nums}
+.diff-sign{text-align:center;padding-right:0}
+.diff-meta{background:var(--hover);color:var(--muted);padding:4px 12px;font-size:0.769231rem;white-space:pre-wrap;overflow-wrap:anywhere}
+.diff-added{background:#36805a16;color:var(--text)}
+.diff-removed{background:#bb554c17;color:var(--text)}
+.diff-added .diff-sign{color:var(--success,#24734e)}
+.diff-removed .diff-sign{color:var(--danger,#ad4940)}
+.diff-empty{background:var(--hover)}
+[data-theme=dark] .diff-added{background:#36805a28}
+[data-theme=dark] .diff-removed{background:#bb554c28}
+@container filereview (max-width:700px){.change-review-body{flex-direction:column}.change-review-body>nav{flex:0 0 auto;max-height:150px;border-right:0;border-bottom:1px solid var(--line)}.change-review-files{display:flex;gap:4px}.change-review-files button{flex:0 0 180px}.change-review-files button>span:first-child{white-space:nowrap;text-overflow:ellipsis;overflow:hidden}.change-review-toolbar{padding-left:12px;padding-right:12px}}
+
+.file-change-review[hidden]{display:none}
+@media(max-width:700px){.file-change-review{flex-basis:48%;min-width:220px}.has-reader-dock .conversation-column{min-width:0}}
+@container filereview (max-width:320px){.change-review-toolbar{align-items:flex-start;flex-direction:column;gap:6px}.change-review-detail>header{flex-wrap:wrap}.change-review-footer{padding:8px;font-size:0.692308rem}.change-review-body>nav{max-height:128px}}

@@ -1,0 +1,73 @@
+import { _electron as electron } from 'playwright';
+import electronPath from 'electron';
+import { mkdir, writeFile, cp } from 'node:fs/promises';
+import { build as hostBuild } from 'esbuild';
+import { build as rendererBuild } from 'vite';
+import path from 'node:path';
+import assert from 'node:assert/strict';
+import { fileURLToPath } from 'node:url';
+import { collectDirectory, encodeZip } from '../packages/native-resources/archive.ts';
+import { navigateWorkbench } from './ui-control-helpers.mjs';
+import { checkDevelopmentPluginUi } from './plugin-development-ui-checks.mjs';
+
+const root=path.resolve(path.dirname(fileURLToPath(import.meta.url)),'..');
+const output=path.resolve(process.env.AWB_RUNTIME_UI_QA??path.join(root,'build/qa/runtime-studio-'+Date.now()));
+const appRoot=path.join(output,'app'),dataDir=path.join(output,'data');await mkdir(appRoot,{recursive:true});
+await rendererBuild({configFile:path.join(root,'vite.config.ts'),build:{outDir:path.join(appRoot,'renderer'),emptyOutDir:true},logLevel:'warn'});
+for(const entry of ['main','preload'])await hostBuild({entryPoints:[path.join(root,`apps/desktop/host/${entry}.ts`)],outfile:path.join(appRoot,`host/${entry}.cjs`),bundle:true,platform:'node',format:'cjs',target:'node22',external:['electron']});
+await cp(path.join(root,'services/vps-workspace-control'),path.join(appRoot,'host/workspace-control'),{recursive:true});await cp(path.join(root,'services/vps-account-broker'),path.join(appRoot,'host/account-runtime'),{recursive:true});
+await writeFile(path.join(appRoot,'package.json'),JSON.stringify({name:'awb-runtime-qa',version:'1.0.0',main:'host/main.cjs'}));
+const env={...process.env,AGENT_WORKBENCH_TEST_DATA:dataDir,AGENT_WORKBENCH_TEST_HIDDEN:'1'};delete env.ELECTRON_RUN_AS_NODE;
+const checks=[],errors=[];let app,page;
+const record=name=>{checks.push(name);console.log('PASS '+name);};
+const launch=async()=>{app=await electron.launch({executablePath:electronPath,args:[appRoot],cwd:appRoot,env,timeout:45000});page=await app.firstWindow();page.setDefaultTimeout(15000);page.on('pageerror',error=>errors.push(error.message));await page.waitForFunction(()=>!!window.workbench);};
+const call=(method,payload={})=>page.evaluate(({method,payload})=>window.workbench.call(method,payload),{method,payload});
+const until=async check=>{for(let n=0;n<300;n++){if(await check())return;await new Promise(r=>setTimeout(r,50));}throw Error('UI state did not settle');};
+const waitSession=(id,status)=>until(async()=>(await call('state/get')).sessions.find(s=>s.id===id)?.status===status);
+const snapshot=name=>page.screenshot({path:path.join(output,name+'.png'),fullPage:true});
+try {
+  await launch();
+  const zip=path.join(output,'runtime-studio.zip');await writeFile(zip,encodeZip(await collectDirectory(path.join(root,'examples/plugins/runtime-studio'))));
+  await call('extensions/import',{filePath:zip});const plugin=(await call('extensions/list')).find(p=>p.manifest.id==='example.runtime-studio');
+  const original=await page.locator('.workspace').evaluate(e=>getComputedStyle(e).backgroundColor);
+  await call('extensions/toggle',{id:plugin.manifest.id,hash:plugin.hash,enabled:true,approveHost:true});
+  await page.getByTestId('runtime-studio-toolbar').waitFor();
+  await page.waitForFunction(()=>getComputedStyle(document.querySelector('.desktop-frame')).backgroundImage.includes('data:image/svg+xml'));
+  assert.notEqual(await page.locator('.workspace').evaluate(e=>getComputedStyle(e).backgroundColor),original);
+  await page.getByTestId('studio-theme').click();assert.equal(await page.getByTestId('runtime-studio-toolbar').evaluate(e=>getComputedStyle(e).backgroundColor),'rgb(215, 230, 223)');
+  await page.getByTestId('studio-density').click();assert.equal(await page.getByTestId('studio-density').textContent(),'标准阅读');
+  record('skin loads an approved packaged SVG, changes colors and layout, and replaces the header with functional controls');
+  await page.getByTestId('composer-runtime').click();await page.getByRole('menuitemradio',{name:'Echo 开发运行时',exact:true}).click();
+  await page.getByTestId('plugin-model-controls').waitFor();
+  await page.getByTestId('composer-input').fill('Runtime plugin UI acceptance');
+  // Exercise the normal direct-send path without invoking a translation model.
+  await call('plugins/set-enabled',{id:'translation',enabled:false});
+  await page.getByTestId('prepare-draft').click();
+  await until(async()=>(await call('state/get')).sessions.some(s=>s.binding.runtime==='plugin:example.echo'&&s.messages.length===2));
+  let state=await call('state/get'),session=state.sessions.find(s=>s.binding.runtime==='plugin:example.echo');
+  assert.equal(session.messages.at(-1).original,'Echo 1: Runtime plugin UI acceptance');record('a new runtime appears in the standard selector and sends through the standard composer and conversation');
+  await page.getByTestId('plugin-model-selector').click();await page.getByRole('menuitemradio',{name:'简短回声',exact:true}).click();
+  await page.getByRole('button',{name:'权限：默认',exact:true}).click();await page.getByRole('menuitemradio',{name:/逐项复核/}).click();
+  await page.getByTestId('composer-input').fill('[approval] UI confirmation');await page.getByTestId('prepare-draft').click();
+  await page.getByRole('radio',{name:'允许示例',exact:true}).check();await snapshot('runtime-skin-approval');await page.getByRole('button',{name:'允许本次',exact:true}).click();await waitSession(session.id,'idle');
+  state=await call('state/get');session=state.sessions.find(s=>s.id===session.id);assert.equal(session.permissionMode,'plugin:review');assert.equal(session.modelSelection.model,'compact');record('custom models, permissions and native approval receipts work in the core UI');
+  await page.evaluate(()=>window.dispatchEvent(new CustomEvent('workbench-settings',{detail:'plugins'})));await page.getByTestId('runtime-studio-toolbar').waitFor({state:'hidden'});
+  await navigateWorkbench(page,'workspace');await page.getByTestId('sidebar-session-'+session.id).locator('.session-select').click();await page.getByTestId('runtime-studio-toolbar').waitFor();assert.equal(await page.getByTestId('runtime-studio-toolbar').count(),1);record('replacement follows navigation and React remounts without duplicate controls');
+  await app.close();app=null;await launch();await page.getByTestId('sidebar-session-'+session.id).locator('.session-select').click();await page.getByTestId('runtime-studio-toolbar').waitFor();await page.getByTestId('plugin-model-controls').waitFor();
+  state=await call('state/get');assert.equal(state.sessions.find(s=>s.id===session.id).permissionMode,'plugin:review');record('restart restores plugin runtime registration, checkpoint, model, custom permissions and skin');
+  await snapshot('runtime-skin-restarted');
+  await page.getByTestId('studio-shell').click();await page.getByTestId('studio-full-shell').waitFor();assert.equal(await page.locator('#root').evaluate(e=>e.hidden),true);
+  await page.getByRole('button',{name:'读取运行时',exact:true}).click();await page.getByText('已注册运行时：Echo 开发运行时',{exact:true}).waitFor();await snapshot('single-plugin-full-shell');
+  await page.getByRole('button',{name:'返回常规界面',exact:true}).click();assert.equal(await page.locator('#root').evaluate(e=>e.hidden),false);record('the same plugin replaces the complete shell, calls host functions and restores the core interface');
+  await call('extensions/toggle',{id:plugin.manifest.id,hash:plugin.hash,enabled:false});await page.getByTestId('runtime-studio-toolbar').waitFor({state:'detached'});await page.getByTestId('plugin-runtime-unavailable').waitFor();
+  assert.equal(await page.locator('style[data-plugin="example.runtime-studio"]').count(),0);assert.equal(await page.locator('.workspace-header').evaluate(e=>e.hidden),false);assert.equal(await page.getByTestId('prepare-draft').isDisabled(),true);record('disable removes styles and listeners, restores the core header and retains unavailable-runtime history');
+  await snapshot('runtime-disabled');
+  // Existing acceptance adds arbitrary selectors, overlapping mounts and host overrides.
+  await checkDevelopmentPluginUi({app,page,call,output,put:writeFile,record});
+  assert.deepEqual(errors,[]);
+  await writeFile(path.join(output,'result.json'),JSON.stringify({passed:true,checks,rendererErrors:errors},null,2));
+  console.log(JSON.stringify({passed:true,checks:checks.length,output}));
+} catch(error) {
+  await snapshot('failure').catch(()=>{});
+  await writeFile(path.join(output,'result.json'),JSON.stringify({passed:false,checks,rendererErrors:errors,error:String(error)},null,2));throw error;
+} finally { await app?.close(); }

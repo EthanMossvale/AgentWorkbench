@@ -1,0 +1,10 @@
+{
+  "schemaVersion": 1,
+  "apiVersion": 1,
+  "id": "example.theme-studio",
+  "name": "主题预设示例",
+  "version": "1.0.0",
+  "description": "注册一浅一深的配色模板，不覆盖字体设置。",
+  "capabilities": ["host"],
+  "renderer": "renderer.mjs"
+}

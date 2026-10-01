@@ -1,0 +1,96 @@
+import { _electron as electron } from 'playwright';
+import electronPath from 'electron';
+import {mkdir,mkdtemp,readFile,writeFile,cp,rm} from 'node:fs/promises';
+import {tmpdir} from 'node:os';
+import {checkForkRouting} from './fork-routing-ui-checks.mjs';
+import {build as hostBuild} from 'esbuild';
+import {build as rendererBuild} from 'vite';
+import {execFile} from 'node:child_process';
+import {promisify} from 'node:util';
+import path from 'node:path';
+import assert from 'node:assert/strict';
+import {fileURLToPath} from 'node:url';
+const root=path.resolve(path.dirname(fileURLToPath(import.meta.url)),'..');
+const output=path.resolve(process.env.AWB_FORK_UI_QA??path.join(root,'build/qa/preview-forks-20260928/fork-ui'));await mkdir(output,{recursive:true});
+const appRoot=path.join(output,'app'),repo=path.join(output,'fixture-'+Date.now());await mkdir(repo);
+const plain=await mkdtemp(path.join(tmpdir(),'awb-fork-routing-')),unborn=path.join(plain,'unborn');await mkdir(unborn);
+const git=async(cwd,...args)=>(await promisify(execFile)('git',args,{cwd,windowsHide:true})).stdout.trim();
+await git(repo,'init');await git(repo,'config','user.name','Fixture');await git(repo,'config','user.email','fixture@example.invalid');await git(repo,'config','core.autocrlf','false');await writeFile(path.join(repo,'tracked.txt'),'base\n');await git(repo,'add','.');await git(repo,'commit','-m','fixture');await writeFile(path.join(repo,'tracked.txt'),'local change\n');await writeFile(path.join(repo,'new.txt'),'new file\n');
+await git(unborn,'init');
+await rendererBuild({configFile:path.join(root,'vite.config.ts'),build:{outDir:path.join(appRoot,'renderer'),emptyOutDir:true},logLevel:'warn'});
+for(const entry of ['main','preload'])await hostBuild({entryPoints:[`apps/desktop/host/${entry}.ts`],outfile:path.join(appRoot,`host/${entry}.cjs`),bundle:true,platform:'node',format:'cjs',target:'node22',external:['electron']});
+await cp(path.join(root,'services/vps-workspace-control'),path.join(appRoot,'host/workspace-control'),{recursive:true});await cp(path.join(root,'services/vps-account-broker'),path.join(appRoot,'host/account-runtime'),{recursive:true});
+await writeFile(path.join(appRoot,'package.json'),JSON.stringify({name:'awb-fork-qa',version:'1.0.0',main:'host/main.cjs'}));
+const dataDir=path.join(output,`synthetic-${Date.now()}`);await mkdir(dataDir,{recursive:true});
+const env={...process.env,AGENT_WORKBENCH_TEST_DATA:dataDir,AGENT_WORKBENCH_TEST_HIDDEN:'1'};delete env.ELECTRON_RUN_AS_NODE;
+const checks=[],errors=[];let app,page,passed=false;
+const record=name=>{checks.push(name);console.log('PASS '+name);};
+const launch=async()=>{app=await electron.launch({executablePath:electronPath,args:[appRoot],cwd:appRoot,env,timeout:45000});page=await app.firstWindow();page.on('pageerror',error=>errors.push(error.message));await page.waitForFunction(()=>!!window.workbench);};
+const call=(method,payload={})=>page.evaluate(({method,payload})=>window.workbench.call(method,payload),{method,payload});
+const select=async id=>{await page.waitForFunction(id=>document.querySelector('[data-testid="sidebar-session-'+id+'"]')||document.querySelector('.project-show-more[aria-expanded="false"]'),id);if(!await page.getByTestId('sidebar-session-'+id).count())await page.locator('.project-show-more[aria-expanded="false"]').first().click();await page.getByTestId('sidebar-session-'+id).locator('.session-select').click();};
+const snapshot=name=>page.screenshot({path:path.join(output,name+'.png'),fullPage:true});
+const source='11111111-1111-1111-1111-111111111111';
+try{
+  await launch();const initial=await call('state/get');await app.close();app=null;
+  const session={id:source,projectId:null,projectPath:repo,title:'合成验收 · 方案讨论',pinned:false,archived:false,group:'',status:'idle',createdAt:'2026-09-26T01:00:00Z',permissionMode:'read-only',binding:{runtime:'demo',provider:'offline',accountRef:'none',executionId:'local-device',egress:'demo'},messages:[
+    {id:'u1',role:'user',original:'我们先讨论第一种方案。',submitted:'Let us discuss the first approach.',demo:true,timestamp:'2026-09-26T01:01:00Z'},
+    {id:'a1',role:'assistant',original:'Start with a small, independent prototype. Keep the original conversation available while exploring the alternative.',translation:'先做一个小型独立原型。在探索另一个方向时，保留原来的讨论。',translationStatus:'complete',demo:true,timestamp:'2026-09-26T01:02:00Z'},
+    {id:'u2',role:'user',original:'第二种方案有什么不同？',submitted:'How does the second approach differ?',demo:true,timestamp:'2026-09-26T01:03:00Z'},
+    {id:'a2',role:'assistant',original:'The second approach changes the storage layer. This later answer must not appear when branching from the first reply.',translation:'第二种方案会改变存储层。从第一条回复分支时，不应保留这段后续内容。',translationStatus:'complete',demo:true,timestamp:'2026-09-26T01:04:00Z'},
+  ]};
+  const running={...structuredClone(session),id:'running',title:'合成验收 · 运行中',status:'idle'};
+  const plainSession={...structuredClone(session),id:'plain-folder',projectId:'plain-project',projectPath:plain,title:'普通文件夹聊天'};
+  const noPathSession={...structuredClone(session),id:'no-folder',projectPath:undefined,title:'无目录聊天'};
+  const unbornSession={...structuredClone(session),id:'unborn-repo',projectPath:unborn,title:'尚无提交的仓库'};
+  await writeFile(path.join(dataDir,'state.json'),JSON.stringify({...initial,projects:[...initial.projects,{id:'plain-project',name:'普通文件夹',path:plain,paths:[plain]}],sessions:[session,running,plainSession,noPathSession,unbornSession]},null,2));
+  await launch();await select(source);
+  await page.getByTestId('sidebar-session-'+source).click({button:'right'});
+  await page.getByTestId('session-fork-submenu').hover();await page.getByTestId('session-fork-menu').waitFor();
+  await page.waitForFunction(()=>!document.querySelector('[data-testid="create-worktree-fork"]')?.disabled);await snapshot('sidebar-light');
+  const bounds=await page.getByTestId('session-fork-menu').boundingBox();assert.ok(bounds.x>=0&&bounds.y>=0);
+  const parentBefore=structuredClone((await call('state/get')).sessions.find(s=>s.id===source));
+  await page.getByTestId('create-session-fork').click();await page.getByTestId('branch-origin').waitFor();
+  let state=await call('state/get'),whole=state.sessions.find(s=>s.branch);
+  assert.equal(whole.messages.length,4);assert.equal(whole.permissionMode,'read-only');assert.equal(whole.projectPath,repo);assert.deepEqual(state.sessions.find(s=>s.id===source),parentBefore);
+  assert.equal(whole.title,session.title+' (1)');record('sidebar pointer submenu creates a numbered independent whole-chat fork with unchanged parent');
+  await page.getByTestId('branch-origin').getByRole('button').click();await page.waitForFunction(()=>!document.querySelector('[data-testid="branch-origin"]'));
+  await page.getByTestId('fork-message-a1').click();await page.getByTestId('fork-location-picker').waitFor();await page.waitForFunction(()=>!document.querySelector('[data-testid="fork-worktree"]')?.disabled);await snapshot('fork-location-light');await page.getByTestId('fork-here').click();await page.getByTestId('branch-origin').waitFor();
+  state=await call('state/get');let point=state.sessions.find(s=>s.branch?.sourceMessageId==='a1');
+  assert.deepEqual(point.messages.map(m=>m.id),['u1','a1']);assert.equal(await page.getByTestId('source-block-a2-0').count(),0);assert.equal(await page.getByTestId('source-block-a1-0').count(),1);
+  assert.equal(point.messages[1].translation,session.messages[1].translation);
+  assert.equal(point.title,session.title+' (2)');const boundary=await page.getByTestId('branch-origin').boundingBox(),answer=await page.getByTestId('source-block-a1-0').boundingBox();assert.ok(boundary.y>answer.y+answer.height);await snapshot('message-fork-light');record('reply action keeps the exact bilingual prefix and excludes later messages');
+  await page.getByTestId('branch-origin').getByRole('button').click();
+  await page.waitForFunction(()=>document.activeElement?.getAttribute('data-message-id')==='a1');record('branch provenance returns to and focuses the original fork point');
+  assert.equal(await page.locator('.user-message .message-fork').count(),0);assert.equal(await page.getByTestId('fork-message-u2').count(),0);assert.equal(await page.getByTestId('edit-message-u2').isVisible(),true);record('user messages retain edit and resend with no branch control');
+  const question=await call('session/fork',{sessionId:source,messageId:'u2'});await select(question.id);await page.getByTestId('branch-origin').waitFor();
+  state=await call('state/get');
+  assert.deepEqual(question.messages.map(m=>m.id),['u1','a1']);assert.equal(await page.getByTestId('composer-input').inputValue(),session.messages[2].original);record('legacy explicit API preserves saved before-turn drafts without exposing a user-message action');
+
+  await select(source);await page.getByTestId('fork-message-a1').click();await page.getByTestId('fork-location-picker').waitFor();await page.getByTestId('fork-worktree').click();await page.getByTestId('branch-origin').waitFor();
+  state=await call('state/get');const worktreeChat=state.sessions.find(s=>s.worktree);assert.equal(worktreeChat.title,session.title+' (4)');assert.deepEqual(worktreeChat.messages.map(m=>m.id),['u1','a1']);assert.notEqual(worktreeChat.projectPath,repo);assert.equal(await readFile(path.join(worktreeChat.projectPath,'tracked.txt'),'utf8'),'local change\n');assert.equal(await readFile(path.join(worktreeChat.projectPath,'new.txt'),'utf8'),'new file\n');assert.equal(await git(worktreeChat.projectPath,'branch','--show-current'),'');assert.equal(await readFile(path.join(repo,'tracked.txt'),'utf8'),'local change\n');record('message fork creates a real detached Git worktree with copied changes and independent cwd');
+  await page.getByTestId('sidebar-session-'+source).click({button:'right'});await page.getByTestId('session-fork-submenu').hover();await page.getByTestId('create-worktree-fork').click();
+  await page.waitForFunction(()=>document.querySelector('.breadcrumb strong')?.textContent?.endsWith('(5)'));state=await call('state/get');assert.equal(state.sessions.filter(s=>s.worktree).length,2);record('sidebar worktree entry uses the same creation lifecycle and numbering');
+  await page.evaluate(()=>window.dispatchEvent(new CustomEvent('workbench-settings',{detail:'worktrees'})));await page.getByTestId('worktree-settings').waitFor();await page.getByRole('button',{name:'刷新工作树',exact:true}).click();await page.waitForFunction(()=>document.querySelectorAll('.worktree-row').length===2);await snapshot('worktree-settings-light');record('worktree settings list both managed checkouts and their linked chats');
+  await page.locator('.worktree-row').first().getByRole('button',{name:'打开聊天',exact:true}).click();await select(question.id);
+  await call('theme/set',{theme:'dark'});
+  await app.evaluate(({BrowserWindow})=>BrowserWindow.getAllWindows()[0].setContentSize(860,640));
+  await page.waitForFunction(()=>innerWidth===860);
+  if(await page.getByTestId('toggle-translation-pane').getAttribute('aria-pressed')==='true')await page.getByTestId('toggle-translation-pane').click();
+  await snapshot('question-fork-dark-narrow');
+  assert.ok(await page.getByTestId('composer-input').isVisible());
+  assert.equal(await page.evaluate(()=>document.documentElement.scrollWidth>innerWidth),false);record('dark narrow window keeps branch origin and composer within the viewport');
+  await select(source);const row=page.getByTestId('sidebar-session-'+source).locator('.session-select');await row.focus();await page.keyboard.press('Shift+F10');
+  await page.waitForFunction(()=>document.querySelector('[data-testid="session-fork-submenu"]')?.disabled===false);await page.getByTestId('session-fork-submenu').focus();await page.keyboard.press('ArrowRight');await page.getByTestId('session-fork-menu').waitFor();
+  assert.equal(await page.getByTestId('create-session-fork').evaluate(el=>document.activeElement===el),true);
+  await page.waitForFunction(()=>!document.querySelector('[data-testid="create-worktree-fork"]')?.disabled);await snapshot('sidebar-dark-narrow');await page.keyboard.press('ArrowLeft');await page.getByTestId('session-fork-menu').waitFor({state:'hidden'});
+  assert.equal(await page.getByTestId('session-fork-submenu').evaluate(el=>document.activeElement===el),true);
+  await page.keyboard.press('Escape');await page.getByTestId('sidebar-context-menu').waitFor({state:'hidden'});record('branch submenu supports keyboard entry, return and Escape with focus restoration');
+  await checkForkRouting({app,page,call,select,snapshot,record,output,source,plain,unborn});
+  await select(point.id);await page.getByTestId('composer-input').fill('Only this branch continues.');await call('plugins/set-enabled',{id:'translation',enabled:false});
+  const before=await call('state/get');const preview=await call('draft/prepare',{sessionId:point.id,text:'Only this branch continues.',bypass:true});
+  await call('draft/submit',{sessionId:point.id,id:preview.id,sourceHash:preview.sourceHash});
+  state=await call('state/get');assert.equal(state.sessions.find(s=>s.id===point.id).messages.length,4);assert.deepEqual(state.sessions.find(s=>s.id===source),before.sessions.find(s=>s.id===source));record('continued branch appends only to its own transcript');
+  await call('session/delete',{id:source,confirm:true});await select(point.id);await page.getByTestId('branch-origin').waitFor();assert.equal(await page.getByTestId('branch-origin').getByRole('button').isDisabled(),true);record('deleting the source leaves branch history and a non-broken provenance label');
+  await app.close();app=null;await launch();await select(point.id);state=await call('state/get');assert.equal(state.sessions.find(s=>s.id===point.id).messages.length,4);assert.equal(state.sessions.find(s=>s.id===question.id).forkDraft,session.messages[2].original);record('actual Electron restart preserves branch history, lineage and unsent question');
+  assert.deepEqual(errors,[]);record('no renderer exceptions');passed=true;
+}catch(error){errors.push(String(error));if(page)await snapshot('failure').catch(()=>{});throw error;}finally{if(app)await app.close();await writeFile(path.join(output,'report.json'),JSON.stringify({syntheticDataOnly:true,checks,errors,passed},null,2));await rm(plain,{recursive:true,force:true});}

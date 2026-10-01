@@ -1,0 +1,159 @@
+import type {createPeerTools} from '../../packages/collaboration-core/tools';
+import {EventEmitter} from 'node:events';
+import {randomBytes} from 'node:crypto';
+import path from 'node:path';
+import type {PermissionMode,Session,SshHost} from '../../packages/contracts';
+import {buildSshArgs,buildSshEnvironment,SSH_EXECUTABLE} from '../../packages/ssh-transport';
+import {openNativeGateway} from '../../packages/model-api/native-gateway';
+import {ProcessSupervisor,type NativeFrame,type NativeProcessTransport,type ProcessExit,type ProcessSpec,type ProcessState} from '../remote-supervisor';
+import {NATIVE_OWNER_REMOTE_BRIDGE} from '../codex-bridge/native-owner-remote';
+import {ClaudeToolMcpSession,openOfficialClaudeTools,type ClaudeToolServer,type ClaudeToolServerOptions} from './tools';
+import {LocalClaudeContext,withClaudeLocalContext,type ClaudeLocalContext} from './local-context';
+import {LocalClaudeTasks,withClaudeLocalTasks} from './local-tasks';
+import {normalizeClaudeToolResult} from './results';
+import {claudeMcpPolicy,type ClaudeMcpPolicy} from './policy';
+import {openIsolatedClaudeTools} from './isolation';
+import {LocalClaudeResultStore,withClaudeResultStore,type ClaudeResultStore} from './result-store';
+
+export interface NativeClaudeOptions extends ClaudeToolServerOptions {
+  host:SshHost;session:Session;authorize():void;
+  workbenchTools?:()=>ReturnType<typeof createPeerTools>;
+}
+export interface NativeClaudeService {
+  supports(host:SshHost,session:Session):boolean;
+  defaultDirectory(sessionId:string):string;
+  /** Typed replacement point; registration uses the approved host service lifecycle. */
+  openTools(options:ClaudeToolServerOptions):Promise<ClaudeToolServer>;
+  openContext?(options:ClaudeToolServerOptions):Promise<ClaudeLocalContext>;
+  normalizeToolResult?(name:string,result:unknown):unknown;
+  toolPolicy?(options:ClaudeToolServerOptions):ClaudeMcpPolicy;
+  openToolProcess?(options:ClaudeToolServerOptions):Promise<ClaudeToolServer>;
+  openResultStore?(options:ClaudeToolServerOptions):Promise<ClaudeResultStore>;
+  createTransport(options:NativeClaudeOptions):NativeProcessTransport;
+}
+export function claudeAccountBinding(ref:string){
+  if(!ref.startsWith('vps-account:'))throw Error('CLAUDE_ACCOUNT_BINDING_INVALID');
+  const values=ref.slice(12).split('/').map(decodeURIComponent);
+  if(values.length!==5||values[2]!=='claude'||values.some(v=>!v||v.length>256||/[\x00-\x20\x7f]/.test(v)))throw Error('CLAUDE_ACCOUNT_BINDING_INVALID');
+  return {authorityId:values[0],authorityGeneration:values[1],accountId:values[3],accountGeneration:values[4]};
+}
+export class ClaudeBridgeService implements NativeClaudeService {
+  constructor(private directory:string,private factory=(spec:ProcessSpec)=>new ProcessSupervisor(spec)){}
+  supports(host:SshHost,session:Session){
+    try{claudeAccountBinding(session.binding.accountRef);return host.role==='workspace'&&host.username!=='root'&&session.binding.hostId===host.id&&session.binding.runtime==='claude'&&session.binding.egress==='vps'&&session.binding.executionId==='local-device'&&session.binding.accountRuntime==='native-owner';}catch{return false;}
+  }
+  defaultDirectory(sessionId:string){if(!/^[a-f0-9-]{36}$/.test(sessionId))throw Error('CLAUDE_SESSION_ID_INVALID');return path.join(this.directory,'workspaces',sessionId);}
+  openContext(options:ClaudeToolServerOptions):Promise<ClaudeLocalContext>{return Promise.resolve(new LocalClaudeContext(options));}
+  normalizeToolResult(name:string,result:unknown){return normalizeClaudeToolResult(name,result);}
+  toolPolicy(options:ClaudeToolServerOptions){return claudeMcpPolicy(options.policy);}
+  openToolProcess(options:ClaudeToolServerOptions){return openOfficialClaudeTools(options,this.factory,(name,result)=>this.normalizeToolResult(name,result));}
+  openResultStore(options:ClaudeToolServerOptions):Promise<ClaudeResultStore>{return LocalClaudeResultStore.open(options);}
+  async openTools(options:ClaudeToolServerOptions){
+    options={...options,policy:this.toolPolicy(options)};
+    const tools=await openIsolatedClaudeTools(options,o=>this.openToolProcess(o));let results:ClaudeResultStore|undefined;
+    try{
+      results=await this.openResultStore(options);
+      const context=withClaudeLocalContext(tools,await this.openContext(options));
+      const tasks=new LocalClaudeTasks(options,o=>this.openToolProcess(o),results);
+      return withClaudeResultStore(withClaudeLocalTasks(context,tasks),results);
+    }catch(error){try{await tools.close();}finally{await results?.close();}throw error;}
+  }
+  createTransport(options:NativeClaudeOptions){if(!this.supports(options.host,options.session))throw Error('CLAUDE_REMOTE_BINDING_INVALID');return new ClaudeSshTransport(options,o=>this.openTools(o),this.factory);}
+}
+
+/** Only stdio and tool transport cross SSH. Native authentication remains with the broker. */
+export class ClaudeSshTransport extends EventEmitter implements NativeProcessTransport {
+  state:ProcessState='new';
+  private ssh?:ProcessSupervisor;private tools?:ClaudeToolServer;private gateway?:Awaited<ReturnType<typeof openNativeGateway>>;
+  private abort=new AbortController();private cleanup?:Promise<ProcessExit>;private starting?:Promise<void>;
+  private nativeClosed?:boolean;private permission:PermissionMode;private permissionRequests=new Map<string,PermissionMode>();
+  private ready=false;private threadId?:string;
+  private bootstrapWritten=false;
+  constructor(private options:NativeClaudeOptions,private openTools:(o:ClaudeToolServerOptions)=>Promise<ClaudeToolServer>,private factory:(spec:ProcessSpec)=>ProcessSupervisor){super();this.permission=options.session.permissionMode??'default';}
+  start(){if(this.state!=='new')return Promise.reject(Error('CLAUDE_TRANSPORT_ALREADY_STARTED'));this.state='starting';return this.starting=this.open();}
+  private async open(){
+    const o=this.options;
+    const externalAbort=()=>{void this.stop('claude-cancelled').catch(()=>{});};o.signal.addEventListener('abort',externalAbort,{once:true});
+    this.abort.signal.addEventListener('abort',()=>o.signal.removeEventListener('abort',externalAbort),{once:true});
+    try{
+      o.signal.throwIfAborted();o.authorize();
+      const localEnv={...o.env,CLAUDE_EFFORT:o.session.modelSelection?.effort??o.env.CLAUDE_EFFORT};
+      this.tools=await this.openTools({...o,env:localEnv,signal:this.abort.signal});this.abort.signal.throwIfAborted();
+      if(o.workbenchTools){
+        const local=this.tools,workbench=o.workbenchTools;
+        const merge=(definitions:readonly Record<string,unknown>[])=>{
+          if(workbench().definitions.some(tool=>definitions.some(local=>local.name===tool.name)))throw Error('CLAUDE_TOOL_NAME_COLLISION');
+          return [...definitions,...workbench().definitions];
+        };
+        this.tools={...local,get definitions(){return merge(local.definitions);},listTools:async()=>merge(await local.listTools?.()??local.definitions),
+          call:async(name,args,signal)=>{
+            if(!workbench().definitions.some(tool=>tool.name===name))return local.call(name,args,signal);
+            this.abort.signal.throwIfAborted();signal?.throwIfAborted();o.authorize();
+            const value=await workbench().call(name,args,signal);
+            return {content:[{type:'text',text:JSON.stringify(value??null)}]};
+          },close:()=>local.close()};
+      }
+      const model={id:o.session.modelSelection?.model??'default',model:o.session.modelSelection?.model??'default',name:'Claude',enabled:true};
+      this.gateway=await openNativeGateway({runtime:'claude',model,mcpOnly:true,authorizeMcp:()=>{this.abort.signal.throwIfAborted();o.authorize();},credentials:async()=>{throw Error('LOCAL_MODEL_NETWORKING_FORBIDDEN');},mcp:()=>new ClaudeToolMcpSession(this.tools!,()=>this.permission,()=>{this.abort.signal.throwIfAborted();o.authorize();})});
+      this.abort.signal.throwIfAborted();
+      const sessionId=o.session.binding.executionSessionId??o.session.id,socketPath=`/tmp/agent-workbench-${sessionId}-${randomBytes(8).toString('hex')}.sock`,endpoint=new URL(this.gateway.baseUrl);
+      const command=`exec /usr/bin/python3 -u -c "import base64;exec(base64.b64decode('${Buffer.from(NATIVE_OWNER_REMOTE_BRIDGE).toString('base64')}'))"`;
+      const args=buildSshArgs(o.host,command).map(v=>v==='ClearAllForwardings=yes'?'ClearAllForwardings=no':v);
+      args.splice(args.indexOf('--'),0,'-o','ExitOnForwardFailure=yes','-o','StreamLocalBindMask=0177','-o','StreamLocalBindUnlink=no','-R',`${socketPath}:127.0.0.1:${endpoint.port}`);
+      const ssh=this.ssh=this.factory({executable:SSH_EXECUTABLE,args,env:buildSshEnvironment(),maxFrameBytes:48*1024*1024});
+      let resolve!:()=>void,reject!:(error:Error)=>void;
+      const connected=new Promise<void>((yes,no)=>{resolve=yes;reject=no;});connected.catch(()=>{});
+      // Owner preflight can use 25s for identity, 25s for initialize and 20s for MCP.
+      const timer=setTimeout(()=>reject(Error('CLAUDE_REMOTE_PREPARATION_TIMEOUT')),90000);
+      const cancel=()=>reject(Error('CLAUDE_REMOTE_CANCELLED'));this.abort.signal.addEventListener('abort',cancel,{once:true});
+      ssh.on('frame',(frame:NativeFrame)=>{
+        const value=frame.value,params=value.params as any;
+        if(value.method==='workbench/bridgeReady'){
+          const receipt=params?.sessionReceipt;
+          const fork=!o.session.binding.nativeSessionId?o.session.branch?.native:undefined;
+          if(fork&&(receipt?.threadId!==o.session.id||receipt?.fork?.threadId!==fork.threadId||receipt?.fork?.lastMessageId!==fork.lastMessageId)){reject(Error('CLAUDE_REMOTE_FORK_UNSUPPORTED_OR_MISMATCH'));return;}
+          if(this.ready||params?.provider!=='claude'||params?.transport!=='official-mcp-v1'||receipt?.cwd!==o.cwd||receipt?.environmentId!=='local-device'||typeof receipt?.threadId!=='string'||o.session.binding.nativeSessionId&&receipt.threadId!==o.session.binding.nativeSessionId){reject(Error('CLAUDE_REMOTE_RECEIPT_MISMATCH'));return;}
+          this.threadId=receipt.threadId;this.ready=true;resolve();return;
+        }
+        if(value.method==='workbench/bridgeClosed'){this.nativeClosed=params?.cleanupConfirmed===true;return;}
+        if(!this.ready){reject(Error('CLAUDE_REMOTE_UNAVAILABLE: The broker must support official-mcp-v1.'));return;}
+        if(value.type==='control_response'){
+          const response=value.response as any,id=response?.request_id,mode=this.permissionRequests.get(id);
+          if(mode){this.permissionRequests.delete(id);if(response.subtype==='success'&&response.response?.mode===({default:'default',plan:'plan','accept-edits':'acceptEdits','full-access':'bypassPermissions'} as any)[mode])this.permission=mode;}
+        }
+        this.emit('frame',frame);
+      });
+      ssh.on('fault',(error:Error)=>{reject(error);this.emit('fault',error);void this.stop('claude-ssh-fault').catch(()=>{});});
+      ssh.on('disconnect',()=>{reject(Error('CLAUDE_REMOTE_DISCONNECTED'));if(this.state!=='stopping'&&this.state!=='closed'){this.emit('fault',Error('CLAUDE_REMOTE_DISCONNECTED'));void this.stop('claude-disconnect').catch(()=>{});}});
+      try{
+        await ssh.start();this.abort.signal.throwIfAborted();
+        this.bootstrapWritten=true;
+        await ssh.write({provider:'claude',username:o.host.username,sessionId,environmentId:'local-device',cwd:o.cwd,socketPath,secret:this.gateway.token,toolPath:endpoint.pathname+'/mcp',...claudeAccountBinding(o.session.binding.accountRef),selection:o.session.modelSelection??{},permissionMode:this.permission,...(!o.session.binding.nativeSessionId&&o.session.branch?.native?{fork:o.session.branch.native}:{})});
+        await connected;this.abort.signal.throwIfAborted();this.state='running';
+      }finally{clearTimeout(timer);this.abort.signal.removeEventListener('abort',cancel);}
+    }catch(error){this.state='failed';this.emit('fault',error);throw error;}
+  }
+  async write(input:any){
+    if(this.state!=='running'||!this.ssh)throw Error('CLAUDE_REMOTE_NOT_CONNECTED');this.options.authorize();
+    if(input?.type==='control_request'&&input.request?.subtype==='set_permission_mode'){
+      const mode=({default:'default',plan:'plan',acceptEdits:'accept-edits',bypassPermissions:'full-access'} as Record<string,PermissionMode>)[input.request.mode];
+      if(!mode)throw Error('CLAUDE_PERMISSION_MODE_INVALID');this.permissionRequests.set(input.request_id,mode);
+    }
+    await this.ssh.write(input?.type==='user'?{...input,session_id:this.threadId}:input);
+  }
+  stop(reason='requested'):Promise<ProcessExit>{return this.cleanup??=(async()=>{
+    this.state='stopping';this.abort.abort();
+    await this.starting?.catch(()=>{});this.state='stopping';
+    // Revoke the local endpoint first, then ask the owner to reap the remote process.
+    const local=Promise.allSettled([this.tools?.close(),this.gateway?.close()]);
+    if(this.ready&&this.ssh?.state==='running'){
+      let timer:ReturnType<typeof setTimeout>|undefined;
+      const exited=new Promise<void>(resolve=>{this.ssh!.once('disconnect',resolve);timer=setTimeout(resolve,5000);});
+      try{await this.ssh.write({type:'workbench_close'});await exited;}catch{/* Exit evidence below remains authoritative. */}finally{clearTimeout(timer);}
+    }
+    const exit=await this.ssh?.stop(reason)??{code:null,signal:null,reason};
+    const cleaned=await local;this.state='closed';this.emit('disconnect',exit);
+    if(cleaned.some(result=>result.status==='rejected')||this.bootstrapWritten&&!this.nativeClosed)throw Error('CLAUDE_CLEANUP_UNCONFIRMED');
+    return exit;
+  })();}
+}

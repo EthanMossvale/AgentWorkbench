@@ -1,0 +1,10 @@
+{
+  "schemaVersion": 1,
+  "apiVersion": 1,
+  "id": "personal.host-extension",
+  "name": "宿主扩展示例",
+  "version": "1.0.0",
+  "description": "展示上下文钩子、独立命令和请求中间件",
+  "capabilities": ["host", "context"],
+  "main": "main.mjs"
+}

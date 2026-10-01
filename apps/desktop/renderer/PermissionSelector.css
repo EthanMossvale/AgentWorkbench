@@ -1,0 +1,19 @@
+.permission-selector{display:inline-flex;min-width:0;flex:0 1 auto}
+.permission-selector[hidden]{display:none}
+.permission-selector-trigger{display:inline-flex;align-items:center;gap:5px;max-width:100%;min-width:0;min-height:28px;padding:5px 6px;border:0;border-radius:6px;background:transparent;color:var(--muted);font-size:0.769231rem;white-space:nowrap}
+.permission-selector-trigger:hover:not(:disabled),.permission-selector-trigger[aria-expanded=true]{background:var(--hover);color:var(--text)}
+.permission-selector-trigger>span:first-of-type{min-width:0;overflow:hidden;text-overflow:ellipsis}
+.permission-selector-chevron{display:flex;align-items:center;transform:rotate(90deg);opacity:.8}
+.permission-selector-trigger[aria-expanded=true] .permission-selector-chevron{transform:rotate(-90deg)}
+.permission-selector-trigger[aria-busy=true]{cursor:progress}
+.permission-selector-menu{position:fixed;z-index:60;width:280px;box-sizing:border-box;padding:6px;overflow-y:auto;overscroll-behavior:contain;border:1px solid var(--line);border-radius:10px;background:var(--raised);color:var(--text);box-shadow:var(--shadow);font-family:var(--font-ui,var(--font-serif,Georgia,"Noto Serif CJK SC","Source Han Serif SC","Songti SC","SimSun",serif))}
+.permission-selector-heading{padding:4px 8px 6px;color:var(--muted);font-size:0.846154rem;line-height:16px;overflow-wrap:anywhere}
+.permission-selector-option{display:flex;align-items:center;gap:10px;width:100%;padding:6px 8px;border:0;border-radius:5px;background:transparent;text-align:left;color:var(--text)}
+.permission-selector-option:hover,.permission-selector-option:focus{background:var(--hover)}
+.permission-selector-option:focus-visible{outline:1px solid var(--accent);outline-offset:-1px}
+.permission-selector-copy{flex:1;min-width:0}
+.permission-selector-menu .permission-selector-copy>strong{display:block;font-family:inherit;font-size:1rem;font-weight:500;line-height:19px;overflow-wrap:anywhere}
+.permission-selector-menu .permission-selector-copy>small{display:block;margin-top:2px;font-family:inherit;font-size:0.846154rem;line-height:16px;color:var(--muted);overflow-wrap:anywhere}
+.permission-selector-check{display:flex;align-items:center;justify-content:center;flex:0 0 15px;color:var(--accent)}
+.composer-toolbar-start{display:flex;align-items:center;gap:10px;min-width:0}
+.composer-toolbar .permission-selector-trigger{font-size:0.846154rem;color:var(--text);padding-left:0}

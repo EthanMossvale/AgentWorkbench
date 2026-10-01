@@ -1,0 +1,11 @@
+.desktop-frame{height:100dvh;min-height:0;display:flex;flex-direction:column;overflow:hidden}
+.desktop-frame>.app-shell{height:auto;flex:1;min-height:0}
+.desktop-titlebar{height:46px;min-height:46px;display:flex;align-items:center;gap:6px;padding:0 150px 0 8px;background:var(--side);color:var(--muted);user-select:none;-webkit-app-region:drag}
+.desktop-titlebar[hidden]{display:none}
+.titlebar-history,.titlebar-menus{display:flex;align-items:center;gap:2px;-webkit-app-region:no-drag;flex-shrink:0}
+.desktop-titlebar button{height:30px;min-width:30px;padding:0 10px;display:inline-flex;align-items:center;justify-content:center;border:0;border-radius:5px;background:none;color:inherit;font-size:1rem}
+.desktop-titlebar button:hover,.desktop-titlebar button[aria-expanded=true]{background:var(--hover);color:var(--text)}
+.desktop-titlebar button:disabled{opacity:.3;background:none;cursor:default}
+.titlebar-history button{padding:0 6px}.titlebar-history button:first-child>svg{transform:rotate(180deg)}
+.sidebar-slot{display:flex;min-height:0;flex-shrink:0}.sidebar-slot[hidden]{display:none}
+.desktop-titlebar .titlebar-sidebar-toggle{padding:0 6px;-webkit-app-region:no-drag}

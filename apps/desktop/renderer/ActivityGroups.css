@@ -1,0 +1,12 @@
+.activity-group{margin:6px 0;color:var(--muted);font-size:0.923077rem;min-width:0}
+.activity-group>summary{display:flex;align-items:center;gap:7px;cursor:pointer;list-style:none;min-height:28px;min-width:0}
+.activity-group>summary::-webkit-details-marker{display:none}
+.activity-group>summary>small{margin-left:auto;font-size:0.769231rem;white-space:nowrap;flex-shrink:0}
+.activity-group-icon,.activity-group-chevron{display:flex;flex-shrink:0}
+.activity-group[open]>summary>.activity-group-chevron{transform:rotate(90deg)}
+.activity-group-attention{color:var(--danger)}
+.activity-group-body{border-left:1px solid var(--line);padding-left:12px;margin:4px 0 8px 5px}
+.activity-diagnostics>summary{opacity:.85}
+
+.activity-group>summary:focus-visible{outline:2px solid var(--accent);outline-offset:3px}
+.activity-group-caption{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}

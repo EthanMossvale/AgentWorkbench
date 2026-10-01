@@ -1,0 +1,9 @@
+.branch-origin{display:flex;align-items:center;gap:7px;margin:0 auto 22px;padding:0 24px;box-sizing:border-box;max-width:760px;color:var(--muted);font-size:0.846154rem;line-height:1.7;min-width:0}
+.branch-origin>svg{flex-shrink:0}.branch-origin>span,.branch-origin>small{white-space:nowrap}
+.branch-origin .text-button{font:inherit;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;text-align:left;min-width:0;color:inherit}
+.branch-origin .text-button:hover:not(:disabled){color:var(--text)}
+.native-message .message-actions{display:flex;align-items:center;gap:6px;margin-top:10px;padding:0;border:0}
+.user-message-actions{align-items:center;gap:4px}
+.message-fork.icon-button{width:27px;height:27px;min-height:27px;color:var(--muted);border-radius:7px}
+.message-fork:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
+.message-fork:disabled{opacity:.38;cursor:default}

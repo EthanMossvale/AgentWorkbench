@@ -1,0 +1,9 @@
+.modal.fork-dialog{width:min(460px,calc(100vw - 48px));padding:22px}
+[data-workbench-fork-action][hidden],[data-workbench-fork-picker][hidden]{display:none!important}
+.fork-dialog .modal-header{margin-bottom:14px}
+.fork-choices{display:flex;flex-direction:column;gap:5px}
+.fork-choices>button{display:flex;align-items:center;gap:12px;text-align:left;border:0;border-radius:9px;background:transparent;color:var(--text);padding:12px;min-height:62px}
+.fork-choices>button:hover:not(:disabled),.fork-choices>button:focus-visible{background:var(--hover)}
+.fork-choices>button:disabled{opacity:.5;cursor:default}.fork-choices span{min-width:0}.fork-choices strong{font-size:1rem;font-weight:500;display:block}.fork-choices small{font-size:0.846154rem;line-height:1.5;color:var(--muted);display:block;margin-top:5px}.fork-note{font-size:0.846154rem;color:var(--muted);margin:12px 0 0}
+.branch-continuation{display:flex;align-items:center;gap:10px;margin:24px 0 30px;color:var(--muted);font-size:0.846154rem}
+.branch-continuation:before,.branch-continuation:after{content:"";height:1px;background:var(--line);flex:1;min-width:18px}.branch-continuation .text-button{font-size:0.846154rem;white-space:nowrap;color:var(--accent)}.branch-continuation small{font-size:0.769231rem}

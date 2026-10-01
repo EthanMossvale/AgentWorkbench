@@ -1,0 +1,844 @@
+{
+  "schemaVersion": 2,
+  "sdk": {
+    "packages/visualizations/index.ts": [
+      "export interface VisualizationDocument {\n    path: string;\n    html: string;\n    digest: string;\n}",
+      "export interface VisualizationReference {\n    path: string;\n    title?: string;\n    mode?: 'wide';\n    renderer?: string;\n}",
+      "export interface VisualizationRenderResult {\n    html: string;\n    renderer: string;\n    fallback: boolean;\n}",
+      "export interface VisualizationRenderer {\n    id: string;\n    label: string;\n    replaces?: 'core.html';\n    render(context: {\n        document: VisualizationDocument;\n        reference: VisualizationReference;\n        signal: AbortSignal;\n    }): string | Promise<string>;\n}",
+      "export interface VisualizationRendererHandle {\n    id: string;\n    dispose(): void;\n}",
+      "export interface VisualizationState {\n    modelContent: UiValue;\n    privateContent: UiValue;\n}",
+      "export interface VisualizationToken {\n    type: 'visualization';\n    raw: string;\n    reference: VisualizationReference;\n}",
+      "export interface VisualizationsApi {\n    instructions(runtime?: string): Promise<string>;\n    parse(raw: string): VisualizationReference | undefined;\n    read(reference: VisualizationReference, sessionId?: string): Promise<VisualizationDocument>;\n    render(document: VisualizationDocument, reference: VisualizationReference, renderer: string, signal: AbortSignal): Promise<VisualizationRenderResult>;\n    listRenderers(): {\n        id: string;\n        label: string;\n    }[];\n    registerRenderer(renderer: VisualizationRenderer): VisualizationRendererHandle;\n    subscribe(listener: () => void): () => void;\n}"
+    ],
+    "packages/visualizations/instructions.ts": [
+      "export interface VisualizationPresentationPolicy {\n    instructions(runtime?: string): string;\n}"
+    ],
+    "packages/visualizations/document.ts": [
+      "export interface VisualizationPageOptions {\n    html: string;\n    channel: string;\n    state: unknown;\n    dark: boolean;\n}"
+    ],
+    "packages/session-core/follow-ups.ts": [
+      "export interface FollowUpEntry {\n    id: string;\n    preview: DraftPreview;\n    binding: string;\n    afterTurnId: string;\n    createdAt: string;\n    status: 'queued' | 'paused' | 'sending' | 'uncertain';\n    error?: string;\n}",
+      "export interface FollowUpIntent {\n    modeId: string;\n    action: FollowUpAction;\n    expectedTurnId: string;\n}",
+      "export interface FollowUpMode {\n    id: string;\n    label: string;\n    description: string;\n    action: FollowUpAction;\n}",
+      "export interface FollowUpModeHandle {\n    id: string;\n    dispose(): void;\n}",
+      "export interface FollowUpModesApi {\n    list(): FollowUpMode[];\n    resolve(id: string, canSteer: boolean, invert?: boolean): FollowUpAction;\n    register(mode: FollowUpMode): FollowUpModeHandle;\n    replace(id: string, mode: Omit<FollowUpMode, 'id'>): FollowUpModeHandle;\n    subscribe(listener: () => void): () => void;\n}",
+      "export interface FollowUpsApi {\n    enqueue(sessionId: string, preview: DraftPreview, expectedTurnId: string): Promise<{\n        queued: boolean;\n        id: string;\n    }>;\n    send(sessionId: string, id: string, manual?: boolean): Promise<void>;\n    cancel(sessionId: string, id: string): Promise<void>;\n    pause(sessionId: string, reason?: string): Promise<void>;\n    status(sessionId: string): {\n        error?: string;\n    };\n    subscribe(listener: () => void): () => void;\n}",
+      "export type FollowUpAction = 'queue' | 'steer';"
+    ],
+    "packages/ui-preferences/index.ts": [
+      "export interface UiPreferenceChange {\n    id: string;\n    scope?: string;\n    revision: number;\n    value?: UiValue;\n    reset?: boolean;\n}",
+      "export interface UiPreferenceDefinition {\n    id: string;\n    type: 'boolean' | 'number' | 'string' | 'string-list' | 'boolean-map' | 'object';\n    defaultValue: UiValue;\n    min?: number;\n    max?: number;\n    choices?: readonly string[];\n    nullable?: boolean;\n}",
+      "export interface UiPreferenceEntry {\n    revision: number;\n    value?: UiValue;\n}",
+      "export interface UiPreferenceHandle {\n    id: string;\n    dispose(): void;\n}",
+      "export interface UiPreferenceRead {\n    value: UiValue;\n    revision: number;\n    saved: boolean;\n}",
+      "export interface UiPreferenceSnapshot {\n    schemaVersion: 1;\n    revision: number;\n    entries: Record<string, UiPreferenceEntry>;\n    error?: string;\n}",
+      "export interface UiPreferencesApi {\n    list(): UiPreferenceDefinition[];\n    get(id: string, scope?: string): UiPreferenceRead;\n    set(id: string, value: UiValue, revision: number, scope?: string): Promise<UiPreferenceRead>;\n    reset(id: string, revision: number, scope?: string): Promise<UiPreferenceRead>;\n    register(definition: UiPreferenceDefinition): UiPreferenceHandle;\n    override(id: string, resolve: (value: UiValue, scope?: string) => UiValue): UiPreferenceHandle;\n    subscribe(listener: () => void): () => void;\n}",
+      "export type UiValue = null | boolean | number | string | UiValue[] | {\n    [key: string]: UiValue;\n};"
+    ],
+    "packages/ui-preferences/window.ts": [
+      "export interface DisplayArea {\n    x: number;\n    y: number;\n    width: number;\n    height: number;\n}",
+      "export interface WindowBounds {\n    x?: number;\n    y?: number;\n    width: number;\n    height: number;\n}"
+    ],
+    "packages/native-memory/background.ts": [
+      "export interface MemoryBackgroundAdmission {\n    started: boolean;\n    taskId?: string;\n    reason?: string;\n    at: string;\n    runtime?: MemoryRuntime;\n}",
+      "export interface MemoryBackgroundPort {\n    allowed(target: MemoryTaskBinding): Promise<boolean>;\n    pending(runtime: MemoryRuntime): Promise<string[]>;\n    prepare(target: MemoryTaskBinding, sessionId: string, submissionId: string, entries: string[]): Promise<{\n        prompt: string;\n        deliveryId: string;\n        count: number;\n    } | undefined>;\n    finish(runtime: MemoryRuntime, sessionId: string, deliveryId: string): Promise<number>;\n    read(target: MemoryTaskBinding, sessionId: string, query: Record<string, unknown>): Promise<unknown>;\n    verify?(target: MemoryTaskBinding, sessionId: string): Promise<MemoryReceiptVerification>;\n    issues?(deliveryId: string): MemoryReceiptCode[];\n    prepareConsolidation?(target: MemoryTaskBinding, sessionId: string, submissionId: string, entries: string[]): Promise<{\n        prompt: string;\n        deliveryIds: string[];\n        count: number;\n    } | undefined>;\n    readConsolidation?(target: MemoryTaskBinding, sessionId: string, query: Record<string, unknown>): Promise<unknown>;\n    storeConsolidation?(target: MemoryTaskBinding, sessionId: string, input: MemoryConsolidationInput, signal: AbortSignal): Promise<{\n        verified: number;\n        total: number;\n        entries: {\n            archiveId: string;\n            state: 'verified' | 'pending';\n            code?: string;\n        }[];\n    }>;\n    verifyConsolidation?(target: MemoryTaskBinding, sessionId: string): Promise<MemoryReceiptVerification>;\n    finishConsolidation?(sessionId: string): Promise<number>;\n}",
+      "export interface MemoryBackgroundTask {\n    id: string;\n    runtime: MemoryRuntime;\n    model: string;\n    effort?: string;\n    permissionMode: PermissionMode;\n    submissionKey: string;\n    state: MemoryTaskState;\n    createdAt: string;\n    finishedAt?: string;\n    processed: number;\n    total: number;\n    reason?: string;\n    receiptIssues?: MemoryReceiptCode[];\n    mode?: 'consolidation';\n    workKey?: string;\n    recipientRuntime?: MemoryRuntime;\n}",
+      "export interface MemoryTaskBinding {\n    binding: SessionBinding;\n    modelSelection?: NativeModelSelection;\n    permissionMode?: PermissionMode;\n    projectPath?: string;\n}",
+      "export interface MemoryTaskExecution {\n    sessionId: string;\n    target: MemoryTaskBinding;\n    prompt: string;\n    signal: AbortSignal;\n    read(query: Record<string, unknown>): Promise<unknown>;\n    verify(): Promise<MemoryReceiptVerification>;\n    store?(input: MemoryConsolidationInput): Promise<{\n        verified: number;\n        total: number;\n        entries: {\n            archiveId: string;\n            state: 'verified' | 'pending';\n            code?: string;\n        }[];\n    }>;\n}",
+      "export interface MemoryTaskExecutor {\n    mode?: 'consolidation';\n    supports(target: MemoryTaskBinding): boolean;\n    run(task: MemoryTaskExecution): Promise<{\n        state: 'completed' | 'blocked' | 'failed' | 'uncertain';\n        reason?: string;\n    }>;\n}",
+      "export type MemoryTaskState = 'queued' | 'running' | 'completed' | 'blocked' | 'failed' | 'uncertain' | 'cancelled';"
+    ],
+    "packages/native-memory/consolidation.ts": [
+      "export interface MemoryConsolidationArchive {\n    id: string;\n    origin: Provider;\n    scope: string;\n    revision: number;\n    operation: 'upsert' | 'withdraw';\n}",
+      "export interface MemoryConsolidationEntry {\n    archiveId: string;\n    title: string;\n    content: string;\n    topic?: string;\n}",
+      "export interface MemoryConsolidationEvidence {\n    archiveId: string;\n    revision: number;\n    scope: string;\n    disposition: 'stored';\n    files: {\n        path: string;\n        sha256: string;\n    }[];\n    index: {\n        path: string;\n        sha256: string;\n    };\n    indexSourceId: string;\n}",
+      "export interface MemoryConsolidationInput {\n    entries: MemoryConsolidationEntry[];\n}",
+      "export interface MemoryConsolidationWriter {\n    store(homes: NativeHomes, archive: MemoryConsolidationArchive, entry: MemoryConsolidationEntry, assertActive: () => Promise<void>): Promise<MemoryConsolidationEvidence>;\n}"
+    ],
+    "packages/native-memory/default-target.ts": [
+      "export interface MemoryDefaultChoice {\n    targetId: string;\n    selection?: NativeModelSelection;\n}",
+      "export interface MemoryDefaultService {\n    resolve(context?: Pick<Session, 'projectId' | 'projectPath' | 'permissionMode'>, recipient?: MemoryRuntime): Promise<MemoryTaskBinding>;\n}"
+    ],
+    "packages/native-memory/index.ts": [
+      "export interface NativeMemoryConfig {\n    version: 3;\n    enabled: boolean;\n    files: Record<string, string>;\n    pending: Record<string, string>;\n    lastCapture?: string;\n    lastError?: string;\n    sourceCount?: number;\n    uniqueCount?: number;\n}",
+      "export interface NativeMemoryStatus {\n    backgroundRunning?: boolean;\n    backgroundAdmission?: import('./background').MemoryBackgroundAdmission;\n    backgroundAdmissions?: Partial<Record<Provider, import('./background').MemoryBackgroundAdmission>>;\n    backgroundTasks?: import('./background').MemoryBackgroundTask[];\n    activeCodex?: number;\n    activeClaude?: number;\n    enabled: boolean;\n    running: boolean;\n    lastSync?: string;\n    lastCapture?: string;\n    lastError?: string;\n    sourceCount: number;\n    uniqueCount: number;\n    needsInitialImport: boolean;\n    initialSources?: InitialSources;\n    pendingCodex: number;\n    pendingClaude: number;\n    acknowledgedCount: number;\n    handoffError?: string;\n    paused?: boolean;\n}"
+    ],
+    "packages/session-core/native-titles.ts": [
+      "export interface NativeSessionTitle {\n    nativeSessionId: string;\n    title: string;\n    source: 'custom' | 'generated';\n}",
+      "export interface NativeSessionTitlesService {\n    read(request: NativeTitleReadRequest): Promise<NativeSessionTitle | undefined>;\n}",
+      "export interface NativeTitleReadRequest {\n    runtime: string;\n    nativeSessionId: string;\n    cwd: string;\n    configDir: string;\n    projectDirectoryName?: string;\n    signal?: AbortSignal;\n}",
+      "export type NativeTitleRefreshResult = {\n    status: 'updated' | 'unchanged' | 'unavailable' | 'protected';\n};"
+    ],
+    "packages/native-events/semantics.ts": [
+      "export interface NativeBackgroundState {\n    tasks: NativeBackgroundTask[];\n    updatedAt: string;\n    observing: boolean;\n}",
+      "export interface NativeBackgroundTask {\n    id: string;\n    type: string;\n    description: string;\n    ambient: boolean;\n}",
+      "export interface NativeCommandState {\n    id: string;\n    state: 'queued' | 'started' | 'completed' | 'cancelled' | 'discarded' | 'refused';\n}",
+      "export interface NativeEventSemantics {\n    accepts(frame: NativeFrame): boolean;\n    batchWindowMs(): number;\n    auditWindowMs(): number;\n    taskKind(type: string): NativeTaskKind;\n    background(value: Readonly<Record<string, unknown>>): NativeBackgroundTask[] | undefined;\n    command(value: Readonly<Record<string, unknown>>): NativeCommandState | undefined;\n    apply(session: Session, frame: NativeFrame): void;\n}",
+      "export interface NativeProtocolState {\n    sessionState?: 'idle' | 'running' | 'requires_action';\n    commands?: {\n        name: string;\n        description: string;\n        argumentHint: string;\n    }[];\n    conversationId?: string;\n    resetAt?: string;\n    perTurnEffortActive?: boolean;\n}",
+      "export type NativeTaskKind = 'agent' | 'command' | 'other';"
+    ],
+    "packages/collaboration-core/activity-groups.ts": [
+      "export interface ActivityChat {\n    label: string;\n    targetSessionId?: string;\n}",
+      "export interface ActivityChatRule {\n    id: string;\n    present(activity: Readonly<RuntimeActivity>): ActivityChat | undefined;\n}",
+      "export interface ActivityGroup<T extends ActivityGroupingEntry = ActivityGroupingEntry> {\n    id: string;\n    items: T[];\n    label: string;\n    diagnostic: boolean;\n    attention: number;\n}",
+      "export interface ActivityGroupingApi {\n    chat(activity: Readonly<RuntimeActivity>): ActivityChat | undefined;\n    registerChat(rule: ActivityChatRule): {\n        id: string;\n        dispose(): void;\n    };\n    group<T extends ActivityGroupingEntry>(entries: readonly T[]): ActivityGroup<T>[];\n    register(rule: ActivityGroupingRule): {\n        id: string;\n        dispose(): void;\n    };\n    subscribe(listener: () => void): () => void;\n}",
+      "export interface ActivityGroupingEntry {\n    id: string;\n    activity?: RuntimeActivity;\n}",
+      "export interface ActivityGroupingRule {\n    id: string;\n    classify(activity: Readonly<RuntimeActivity>): {\n        key: string;\n        label: string;\n    } | undefined;\n}"
+    ],
+    "packages/session-core/presentation.ts": [
+      "export interface SessionPresentationService {\n    fallback(session: Session, title: string): boolean;\n    nativeTitle(session: Session, title: unknown): boolean;\n    codex(session: Session, threadId: string | undefined, frame: {\n        method?: unknown;\n        params?: unknown;\n    }): boolean;\n    preview(session: Session): SessionPreview;\n}",
+      "export interface SessionPreview {\n    messageId?: string;\n    source: 'translation' | 'original' | 'submitted' | 'empty';\n    excerpt: string;\n    content: string;\n    truncated: boolean;\n}",
+      "export interface SessionTitleMetadata {\n    titleSource?: SessionTitleSource;\n}",
+      "export type SessionTitleSource = 'fallback' | 'native' | 'manual';"
+    ],
+    "services/codex-bridge/index.ts": [
+      "export interface CodexAcceptance {\n    version: 1;\n    observedAt: string;\n    executableSha256: string;\n    hostBinding: string;\n    evidence: BridgeEvidence;\n    reports: string[];\n    accountRuntime?: 'existing-codex' | 'native-owner';\n}",
+      "export interface NativeCodexHandle {\n    connection: CodexBridgeConnection;\n    adapter: CodexNativeAdapter;\n    threadId: string;\n    threadName?: string;\n    effectiveModel?: import('../../packages/contracts').NativeModelSelection;\n    ownerReceipt?: NativeOwnerReceipt;\n}",
+      "export interface NativeCodexOptions {\n    context?: SharedContextOptions;\n    peerContext?: NativePeerContextSession;\n    peerTools?: ReturnType<typeof createPeerTools>;\n    profile?: EnvironmentProfile;\n}",
+      "export interface NativeCodexService {\n    supports(host: SshHost, session: Session): boolean;\n    defaultDirectory(sessionId: string): string;\n    models?(host: SshHost, session: Session): Promise<NativeModelOption[]>;\n    connect(host: SshHost, session: Session, options: NativeCodexOptions): Promise<NativeCodexHandle>;\n    close(sessionId: string): Promise<void>;\n    dispose(): Promise<void>;\n}"
+    ],
+    "packages/native-events/types.ts": [
+      "export interface NativeEventAudit {\n    version: 1;\n    frames: number;\n    observations: number;\n    unknown: number;\n    unsupported: number;\n    malformed: number;\n    omitted: number;\n    receipts: NativeEventReceipt[];\n}",
+      "export interface NativeEventCoverage {\n    runtime: NativeEventRuntime;\n    key: string;\n    disposition: NativeEventDisposition;\n    route: string;\n}",
+      "export interface NativeEventPresentation {\n    title: string;\n    detail?: string;\n}",
+      "export interface NativeEventPresenter {\n    id: string;\n    runtime: NativeEventRuntime;\n    keys: string[];\n    present(input: {\n        event: NativeEventCoverage;\n        value: Readonly<Record<string, unknown>>;\n    }): NativeEventPresentation | undefined;\n}",
+      "export interface NativeEventReceipt extends NativeEventCoverage {\n    count: number;\n    firstAt: string;\n    lastAt: string;\n    nativeChildId?: string;\n    lastSequence?: number;\n    lastBytes: number;\n    lastDigest: string;\n    adapterId?: string;\n    adapterFailed?: boolean;\n}",
+      "export interface PluginNativeEvents {\n    diagnostic(receipt: Readonly<NativeEventReceipt>): string;\n    catalog(runtime?: NativeEventRuntime): NativeEventCoverage[];\n    inspect(runtime: NativeEventRuntime, value: Readonly<Record<string, unknown>>): NativeEventCoverage[];\n    register(presenter: NativeEventPresenter): () => void;\n    onReceipt(handler: (receipt: Readonly<NativeEventReceipt>) => void): () => void;\n}",
+      "export type NativeEventDisposition = 'handled' | 'observed' | 'private' | 'unsupported' | 'unknown' | 'malformed';",
+      "export type NativeEventRuntime = 'codex' | 'claude';"
+    ],
+    "packages/native-events/index.ts": [
+      "export interface NativeEventNotice {\n    receipt: NativeEventReceipt;\n    presentation?: NativeEventPresentation;\n}"
+    ],
+    "packages/model-management/access-registry.ts": [
+      "export interface AccountAccessHandle {\n    id: string;\n    dispose(): Promise<void>;\n}",
+      "export interface AccountAccessService {\n    registerLogin(owner: string, definition: AccountLoginRegistration): AccountAccessHandle;\n    registerImporter(owner: string, definition: AccountImporterRegistration): AccountAccessHandle;\n    methods(account: LocalModelAccount): Promise<AccountLoginMethod[]>;\n    formats(): AccountImportFormat[];\n    start(account: LocalModelAccount, method: string, changed: (job: LoginHandle['job']) => void): Promise<LoginHandle>;\n    parse(format: string, contents: string): Promise<ParsedAccountCredentials>;\n    subscribe(listener: () => void): () => void;\n    dispose(): Promise<void>;\n}",
+      "export interface AccountImporterRegistration extends AccountImportFormat {\n    parse(contents: string): CodexCredential[] | Promise<CodexCredential[]>;\n}",
+      "export interface AccountLoginRegistration {\n    id: string;\n    provider: 'codex' | 'claude';\n    label: string;\n    description: string;\n    availability?(account: LocalModelAccount): Promise<{\n        available: boolean;\n        reason?: string;\n    }>;\n    start(account: LocalModelAccount, changed: (job: LoginHandle['job']) => void): Promise<LoginHandle>;\n}",
+      "export interface ParsedAccountCredentials {\n    records: CodexCredential[];\n    signal: AbortSignal;\n    assertActive(): void;\n}"
+    ],
+    "packages/model-management/credentials.ts": [
+      "export interface CodexCredential {\n    name?: string;\n    auth?: Record<string, unknown>;\n    refreshToken?: string;\n}"
+    ],
+    "apps/desktop/host/account-names.ts": [
+      "export interface AccountNameService {\n    apply(catalog: AccountCatalog, state?: AppState): AccountCatalog;\n    rename(hostId: unknown, accountId: unknown, generation: unknown, name: unknown, revision: unknown): Promise<SharedAccount>;\n}"
+    ],
+    "apps/desktop/renderer/AccountCard.tsx": [
+      "export interface AccountCardProps {\n    name: string;\n    email?: string;\n    subtitle: string;\n    children?: ReactNode;\n    controls?: ReactNode;\n    expanded?: boolean;\n    onExpanded?(expanded: boolean): void;\n    onRename?(name: string): Promise<void>;\n    testId?: string;\n    className?: string;\n    accountId?: string;\n    provider?: string;\n    preferenceScope?: string;\n}"
+    ],
+    "apps/desktop/renderer/file-review-controller.ts": [
+      "export interface FileReviewPluginApi {\n    list(sessionId?: string): FileReviewSnapshot[];\n    open(target: FileReviewTarget, path?: string): void;\n    close(target: FileReviewTarget): void;\n    subscribe(listener: () => void): () => void;\n    listViews(): readonly FileReviewViewOption[];\n    registerView(definition: FileReviewViewDefinition): {\n        id: string;\n        dispose(): void;\n    };\n}",
+      "export interface FileReviewSnapshot extends FileReviewTarget {\n    changes: TurnFileChanges;\n    running: boolean;\n}",
+      "export interface FileReviewTarget {\n    sessionId: string;\n    turnId: string;\n}",
+      "export interface FileReviewViewContext extends PluginContentContext, FileReviewTarget {\n    file: TurnFileChanges['files'][number];\n}",
+      "export interface FileReviewViewDefinition {\n    id: string;\n    label: string;\n    render(context: FileReviewViewContext): PluginContentResult | Promise<PluginContentResult>;\n}",
+      "export interface FileReviewViewOption {\n    id: string;\n    label: string;\n}"
+    ],
+    "packages/collaboration-core/file-changes.ts": [
+      "export interface FileChangeRecord {\n    activityId: string;\n    userMessageId?: string;\n    turnId?: string;\n    at: string;\n    changes: NativeFileChange[];\n    truncated?: boolean;\n}",
+      "export interface NativeFileChange {\n    path: string;\n    previousPath?: string;\n    kind: 'add' | 'modify' | 'delete' | 'rename';\n    additions: number | null;\n    deletions: number | null;\n    diff?: string;\n    truncated?: boolean;\n}",
+      "export interface TurnFileChanges {\n    id: string;\n    userMessageId?: string;\n    files: (NativeFileChange & {\n        edits: number;\n        patches: {\n            activityId: string;\n            diff?: string;\n            truncated?: boolean;\n        }[];\n    })[];\n    truncated: boolean;\n}"
+    ],
+    "packages/collaboration-core/diff-view.ts": [
+      "export interface DiffLine {\n    kind: 'context' | 'added' | 'removed' | 'meta';\n    text: string;\n    oldLine?: number;\n    newLine?: number;\n}",
+      "export interface SplitDiffLine {\n    left?: DiffLine;\n    right?: DiffLine;\n    meta?: DiffLine;\n}"
+    ],
+    "packages/model-management/account-export-types.ts": [
+      "export interface AccountExportContext {\n    account: LocalModelAccount;\n    credentials: Record<string, unknown>;\n    now: string;\n    signal: AbortSignal;\n}",
+      "export interface AccountExportDefinition extends Omit<AccountExportFormat, 'generation'> {\n    serialize(context: AccountExportContext): AccountExportDocument | Promise<AccountExportDocument>;\n}",
+      "export interface AccountExportDocument {\n    fileName: string;\n    value: Record<string, unknown>;\n}",
+      "export interface AccountExportFormat {\n    id: AccountExportFormatId;\n    label: string;\n    description: string;\n    generation: number;\n}",
+      "export interface AccountExportPreview {\n    formatId: AccountExportFormatId;\n    fileName: string;\n    content: string;\n    redacted: boolean;\n}",
+      "export interface AccountExportRequest {\n    id: string;\n    revision: string;\n    formatId?: AccountExportFormatId;\n}",
+      "export interface AccountExportResult {\n    status: 'copied' | 'saved' | 'cancelled';\n}",
+      "export interface AccountExportService {\n    formats(): AccountExportFormat[];\n    registerFormat(definition: AccountExportDefinition): () => void;\n    overrideFormat(id: AccountExportFormatId, definition: Omit<AccountExportDefinition, 'id'>): () => void;\n    subscribe(listener: () => void): () => void;\n    preview(request: AccountExportRequest & {\n        reveal?: boolean;\n    }): Promise<AccountExportPreview>;\n    copy(request: AccountExportRequest): Promise<AccountExportResult>;\n    save(request: AccountExportRequest): Promise<AccountExportResult>;\n}",
+      "export type AccountExportFormatId = 'official' | 'sub2api' | 'cpa' | `${string}:${string}`;"
+    ],
+    "apps/desktop/host/account-export.ts": [
+      "export interface AccountExportHooks {\n    account(id: string): LocalModelAccount;\n    copy(content: string): void | Promise<void>;\n    pickSave?(fileName: string): Promise<string | null>;\n}"
+    ],
+    "packages/shortcuts/index.ts": [
+      "export interface ShortcutAction {\n    id: string;\n    label: string;\n    description: string;\n    scope: ShortcutScope;\n    defaultBindings: readonly string[];\n}",
+      "export interface ShortcutKeyEvent {\n    key: string;\n    ctrlKey: boolean;\n    metaKey: boolean;\n    altKey: boolean;\n    shiftKey: boolean;\n    isComposing?: boolean;\n    keyCode?: number;\n    repeat?: boolean;\n    getModifierState?(key: string): boolean;\n}",
+      "export interface ShortcutSettings {\n    version: 1;\n    revision: number;\n    overrides: Record<string, string[]>;\n}",
+      "export type ShortcutScope = 'global' | 'composer' | 'sidebar';"
+    ],
+    "apps/desktop/renderer/shortcuts.ts": [
+      "export interface ShortcutDefinition {\n    id: string;\n    label: string;\n    description?: string;\n    defaultBindings?: string[];\n    run: ShortcutHandler;\n}",
+      "export interface ShortcutEntry extends ShortcutAction {\n    owner?: string;\n    bindings: readonly string[];\n    customized: boolean;\n    conflicts: readonly string[];\n}",
+      "export interface ShortcutHandle {\n    id: string;\n    dispose(): void;\n}",
+      "export interface ShortcutRunContext {\n    signal: AbortSignal;\n    invokeDefault(): Promise<void>;\n}",
+      "export interface ShortcutsPluginApi {\n    list(): readonly ShortcutEntry[];\n    subscribe(listener: () => void): () => void;\n    getSettings(): ShortcutSettings;\n    setBindings(id: string, bindings: string[], revision: number): Promise<void>;\n    reset(id: string | undefined, revision: number): Promise<void>;\n    register(definition: ShortcutDefinition): ShortcutHandle;\n    override(id: string, run: ShortcutHandler): ShortcutHandle;\n    invoke(id: string): Promise<void>;\n}",
+      "export type ShortcutHandler = (context: ShortcutRunContext) => void | Promise<void>;"
+    ],
+    "packages/session-core/turn-timing.ts": [
+      "export interface TurnTiming {\n    id: string;\n    startedAt: string;\n    endedAt?: string;\n    error?: string;\n    userMessageId?: string;\n    nativeTurnId?: string;\n    status: 'running' | 'completed' | 'stopped' | 'failed' | 'uncertain';\n}"
+    ],
+    "packages/session-metrics/index.ts": [
+      "export interface MetricsGroup extends TokenCounts {\n    runtime: RuntimeKind;\n    model: string;\n    steps: number;\n    incomplete: TokenField[];\n    cacheHitRate: number | null;\n}",
+      "export interface MetricsSnapshot extends TokenCounts {\n    version: 1;\n    rounds: number;\n    steps: number | null;\n    tokensPerSecond: number | null;\n    rateBasis: UsageRate['basis'] | null;\n    cacheHitRate: number | null;\n    groups: MetricsGroup[];\n    incomplete: TokenField[];\n    partialHistory: boolean;\n    selection?: {\n        runtime: RuntimeKind;\n        model: string;\n    };\n}",
+      "export interface SessionMetrics {\n    version: 1;\n    records: UsageRecord[];\n    cursors: UsageCursor[];\n    rate?: UsageRate;\n    partialHistory?: boolean;\n}",
+      "export interface UsageCursor {\n    source: string;\n    total?: TokenCounts;\n    fingerprint?: string;\n    updatedAt?: string;\n    turnId?: string;\n    startedAt?: string;\n    completed?: string;\n    resultIds?: string[];\n}",
+      "export interface UsageRate {\n    outputTokens: number;\n    elapsedMs: number;\n    basis: 'api' | 'turn';\n    turnId: string;\n    updatedAt: string;\n}",
+      "export interface UsageRecord extends TokenCounts {\n    scope?: import('../model-management/types').UsageScope;\n    recordedAt?: string;\n    id: string;\n    source: string;\n    turnId: string;\n    runtime: RuntimeKind;\n    model: string;\n    steps: number;\n    updatedAt: string;\n}",
+      "export interface UsageSample extends TokenCounts {\n    id: string;\n    model?: string;\n    steps?: number;\n    elapsedMs?: number;\n}",
+      "export type TokenCounts = Record<TokenField, number | null>;",
+      "export type TokenField = typeof tokenFields[number];"
+    ],
+    "packages/collaboration-core/reading-turns.ts": [
+      "export interface ReadingTurn {\n    lastNativeEventAt?: string;\n    lastVisibleEventAt?: string;\n    ordered?: ConversationEntry[];\n    id: string;\n    users: ConversationEntry[];\n    process: ConversationEntry[];\n    answers: ConversationEntry[];\n    completed: boolean;\n    attention: boolean;\n    replyId?: string;\n    timing?: TurnTiming;\n    active: boolean;\n}"
+    ],
+    "packages/appearance/index.ts": [
+      "export interface AppearanceSettings {\n    version: 1;\n    revision: number;\n    uiFont: FontChoice;\n    contentFont: FontChoice;\n    codeFont: FontChoice;\n    uiSize: number;\n    contentSize: number;\n    codeSize: number;\n    palette: 'warm' | 'neutral';\n    lightPreset: ThemePresetId;\n    darkPreset: ThemePresetId;\n    accent: string | null;\n    numericStyle: 'lining' | 'font';\n    reducedMotion: 'system' | 'on' | 'off';\n}",
+      "export interface FontCatalog {\n    status: 'ready' | 'unavailable';\n    families: string[];\n    reason?: 'unsupported-platform' | 'enumeration-failed';\n    claude?: {\n        available: boolean;\n        italicAvailable: boolean;\n        source: 'installed-claude';\n        family: 'Anthropic Serif';\n    };\n}",
+      "export interface TitlebarAppearance {\n    color: string;\n    symbolColor: string;\n}",
+      "export type AppearancePatch = Partial<Omit<AppearanceSettings, 'version' | 'revision'>>;",
+      "export type FontChoice = 'system' | 'claude' | 'serif' | 'mono' | 'inherit' | `local:${string}` | PluginFontId;"
+    ],
+    "packages/appearance/themes.ts": [
+      "export interface SyntaxColors {\n    background: string;\n    foreground: string;\n    keyword: string;\n    string: string;\n    number: string;\n    comment: string;\n    function: string;\n    type: string;\n    punctuation: string;\n}",
+      "export interface ThemeColors {\n    bg: string;\n    side: string;\n    surface: string;\n    raised: string;\n    text: string;\n    muted: string;\n    line: string;\n    hover: string;\n    tint: string;\n    accent: string;\n    danger: string;\n    warning: string;\n    selection: string;\n}",
+      "export interface ThemePluginApi {\n    register(definition: ThemePresetDefinition): ThemePresetHandle;\n    list(): readonly ThemePreset[];\n    subscribe(listener: () => void): () => void;\n}",
+      "export interface ThemePreset {\n    id: ThemePresetId;\n    label: string;\n    description: string;\n    mode: ThemeMode;\n    owner?: string;\n    colors: Readonly<ThemeColors>;\n    syntax: Readonly<SyntaxColors>;\n}",
+      "export interface ThemePresetDefinition {\n    id: string;\n    label: string;\n    description?: string;\n    mode: ThemeMode;\n    base?: ThemePresetId;\n    colors?: Partial<ThemeColors>;\n    syntax?: Partial<SyntaxColors>;\n}",
+      "export interface ThemePresetHandle {\n    id: ThemePresetId;\n    dispose(): void;\n}",
+      "export type ThemeMode = 'light' | 'dark';",
+      "export type ThemePresetId = `builtin.${string}` | `plugin:${string}/${string}`;"
+    ],
+    "packages/appearance/syntax.ts": [
+      "export interface SyntaxPluginApi {\n    highlight(text: string, language: string): readonly SyntaxToken[];\n    register(language: string, highlight: SyntaxHighlighter): () => void;\n    subscribe(listener: () => void): () => void;\n}",
+      "export interface SyntaxToken {\n    text: string;\n    kind: SyntaxKind;\n}",
+      "export type SyntaxHighlighter = (text: string) => readonly SyntaxToken[];",
+      "export type SyntaxKind = 'plain' | 'keyword' | 'string' | 'number' | 'comment' | 'function' | 'type' | 'punctuation';"
+    ],
+    "packages/appearance/fonts.ts": [
+      "export interface FontPluginApi {\n    register(definition: FontPresetDefinition): FontPresetHandle;\n    list(): readonly FontPreset[];\n    subscribe(listener: () => void): () => void;\n}",
+      "export interface FontPreset {\n    id: PluginFontId;\n    owner: string;\n    label: string;\n    family: string;\n    fallback: 'system' | 'serif' | 'mono';\n}",
+      "export interface FontPresetDefinition {\n    id: string;\n    label: string;\n    family: string;\n    fallback?: 'system' | 'serif' | 'mono';\n}",
+      "export interface FontPresetHandle {\n    id: PluginFontId;\n    dispose(): void;\n}",
+      "export type PluginFontId = `plugin:${string}/${string}`;"
+    ],
+    "packages/session-core/sidebar-sessions.ts": [
+      "export interface SessionReorderRequest {\n    id: string;\n    targetId: string;\n    edge: 'before' | 'after';\n    scope: string;\n}",
+      "export interface SidebarOrderingService {\n    initialize(state: AppState): void;\n    observe(previous: AppState, next: AppState, at: string): void;\n    reorder(state: AppState, request: SessionReorderRequest, at: string): void;\n}"
+    ],
+    "packages/model-management/types.ts": [
+      "export interface AccountImportFormat {\n    id: string;\n    label: string;\n    description: string;\n}",
+      "export interface AccountLogin {\n    id: string;\n    accountId: string;\n    method: LoginMethod;\n    status: 'waiting' | 'verifying' | 'complete' | 'cancelled' | 'failed';\n    expiresAt: string;\n    url?: string;\n    userCode?: string;\n    codeRequested?: boolean;\n    callbackSupported?: boolean;\n    browserError?: string;\n    error?: string;\n}",
+      "export interface AccountLoginMethod {\n    id: LoginMethod;\n    label: string;\n    description: string;\n    available: boolean;\n    reason?: string;\n}",
+      "export interface LocalModelAccount {\n    id: string;\n    revision: string;\n    provider: AccountProvider;\n    name: string;\n    enabled: boolean;\n    status: 'signed-out' | 'authenticated' | 'unknown';\n    email?: string;\n    plan?: string;\n    models: NativeModelOption[];\n    observedAt?: string;\n    usage?: AccountUsage;\n    cycle?: {\n        start: string;\n        end: string;\n        windowMinutes: number;\n    };\n}",
+      "export interface ModelPrice {\n    input: number;\n    output: number;\n    cacheRead?: number;\n    cacheWrite?: number;\n}",
+      "export interface ModelUsageEntry extends UsageRecord {\n    key: string;\n    scope: UsageScope;\n    recordedAt: string;\n}",
+      "export interface ModelUsageGroup extends TokenCounts {\n    model: string;\n    requests: number;\n    incomplete: TokenField[];\n    estimatedUsd: number | null;\n    lowerBoundUsd?: number | null;\n    price?: ModelPrice;\n    priceRevision?: string;\n    priceSource?: 'manual' | 'reference';\n    cacheHitRate: number | null;\n}",
+      "export interface ModelUsageSummary extends TokenCounts {\n    scope: UsageScope;\n    period: UsagePeriod;\n    from: string | null;\n    until: string;\n    groups: ModelUsageGroup[];\n    incomplete: TokenField[];\n    estimatedUsd: number | null;\n    lowerBoundUsd?: number | null;\n    pricedUsd: number;\n    unpricedModels: number;\n    partialHistory: boolean;\n    cycleUnavailable: boolean;\n}",
+      "export interface SavedModelPrice {\n    scope: UsageScope;\n    model: string;\n    price: ModelPrice;\n    revision: string;\n    updatedAt: string;\n}",
+      "export type AccountProvider = 'codex' | 'claude';",
+      "export type LoginMethod = 'desktop' | 'browser' | 'device' | 'sso' | 'console' | `${string}:${string}`;",
+      "export type UsagePeriod = '1day' | '7day' | 'cycle' | 'month';",
+      "export type UsageScope = {\n    kind: 'api' | 'account' | 'translation';\n    id: string;\n};"
+    ],
+    "packages/native-memory/receipts.ts": [
+      "export interface MemoryReceiptEntryResult {\n    archiveId: string;\n    state: 'verified' | 'pending' | 'superseded';\n    code?: MemoryReceiptCode;\n    message?: string;\n}",
+      "export interface MemoryReceiptVerification {\n    deliveryId: string;\n    complete: boolean;\n    verified: number;\n    total: number;\n    entries: MemoryReceiptEntryResult[];\n}",
+      "export type MemoryReceiptCode = keyof typeof receiptMessages;"
+    ],
+    "packages/remote-account-catalog/cli.ts": [
+      "export interface RemoteCli {\n    errorCode?: string;\n    releaseIssue?: RemoteCliReleaseIssue;\n}",
+      "export interface RemoteCli {\n    policy?: RemoteCliPolicy;\n}",
+      "export interface RemoteCli {\n    provider: RemoteCliProvider;\n    installed: boolean;\n    executable: string;\n    version?: string;\n    latest?: string;\n    managed: boolean;\n    canUninstall: boolean;\n    busy: boolean;\n    revision: string;\n    error?: string;\n    installations: {\n        path: string;\n        version: string;\n    }[];\n    detected: {\n        path: string;\n        status: string;\n        version?: string;\n    }[];\n}",
+      "export interface RemoteCliPlan {\n    id: string;\n    provider: RemoteCliProvider;\n    operation: RemoteCliOperation;\n    currentVersion?: string;\n    version?: string;\n    targets: string[];\n    size?: number;\n}",
+      "export interface RemoteCliPolicy {\n    revision: number;\n    autoUpdate: boolean;\n    reclaimIdle: boolean;\n    idleHours: number;\n    lastUpdateAttempt?: number;\n    lastUpdateError?: string;\n}",
+      "export interface RemoteCliReleaseIssue {\n    stage: 'release' | 'manifest' | 'asset' | 'installer';\n    source: string;\n    httpStatus?: number;\n}",
+      "export type RemoteCliOperation = 'install' | 'update' | 'uninstall';",
+      "export type RemoteCliProvider = 'codex' | 'claude';"
+    ],
+    "packages/remote-account-catalog/retention-types.ts": [
+      "export interface RetentionInspection {\n    provider: RemoteCliProvider;\n    policy: RemoteCliPolicy;\n    available: boolean;\n    observedAt: number;\n    receivedAt: number;\n    sessions: RetentionSession[];\n    total: number;\n    nextCursor: string | null;\n    loginBusy: boolean;\n    running: boolean;\n    lastCheck?: {\n        checkedAt: string;\n        reclaimedBytes: number;\n        deferred?: boolean;\n        transferredBytes?: number;\n        error?: string;\n    };\n    issue?: string;\n}",
+      "export interface RetentionLogEntry {\n    id: string;\n    at: number;\n    lastAt: number;\n    provider: RemoteCliProvider;\n    kind: RetentionLogKind;\n    message: string;\n    sessionIds: string[];\n    accountId?: string;\n    archiveId?: string;\n    code?: string;\n    bytes?: number;\n    repeat: number;\n}",
+      "export interface RetentionLogPage {\n    entries: RetentionLogEntry[];\n    nextBefore: string | null;\n    issue?: string;\n    location: string;\n    maxEntries: number;\n    retentionDays: number;\n}",
+      "export interface RetentionSession {\n    sessionId: string;\n    accountId: string;\n    accountGeneration: string;\n    threadId: string | null;\n    title?: string;\n    lastModelActivity: number | null;\n    idleSeconds: number | null;\n    dueAt: number | null;\n    eligible: boolean;\n    clockReason: 'activity_unknown' | 'clock_ahead' | 'expired' | 'recent_model_activity';\n    active: boolean;\n    interrupted: boolean;\n    uncertain: boolean;\n    remoteState: 'present' | 'marked' | 'reclaimed' | 'restore_pending';\n    operation: 'archiving' | 'restoring' | null;\n    archiveId?: string;\n    localArchive?: 'partial' | 'verified' | 'reclaimed' | 'restored';\n    localBytes?: number;\n}",
+      "export type RetentionLogKind = 'checked' | 'archiving' | 'reclaimed' | 'deferred' | 'error' | 'cancelled' | 'restoring' | 'restored' | 'policy';"
+    ],
+    "packages/plugins-core/index.ts": [
+      "export interface PluginApi {\n    branding: BrandingApi;\n    version: 1;\n    id: string;\n    call<T = unknown>(method: string, payload?: unknown): Promise<T>;\n    invoke<T = unknown>(method: string, payload?: unknown): Promise<T>;\n    services: PluginServices;\n    runtimes: PluginRuntimes;\n    nativeEvents: PluginNativeEvents;\n    storage: PluginStorage;\n    registerMethod(method: string, handler: (payload: unknown) => unknown | Promise<unknown>): () => void;\n    emit(topic: string, payload?: unknown): void;\n    onEvent(handler: (event: PluginHostEvent) => void | Promise<void>): () => void;\n    onContext(handler: (input: {\n        sessionId: string;\n        projectPath?: string;\n        runtime: string;\n    }) => string | Promise<string>): () => void;\n    useHost(handler: (request: PluginRequest, next: (request?: PluginRequest) => Promise<unknown>) => Promise<unknown>): () => void;\n    registerCommand(name: string, handler: (payload: unknown) => unknown | Promise<unknown>): () => void;\n    onDispose(handler: () => void | Promise<void>): void;\n}",
+      "export interface PluginAppearance {\n    variables: Record<string, string>;\n    background?: string;\n    opacity?: number;\n}",
+      "export interface PluginManifest {\n    schemaVersion: 1;\n    id: string;\n    name: string;\n    version: string;\n    description: string;\n    apiVersion: 1;\n    capabilities: PluginCapability[];\n    main?: string;\n    renderer?: string;\n    requires?: PluginRequirements;\n    contributes?: {\n        context?: string;\n        theme?: {\n            variables?: Record<string, string>;\n            background?: string;\n            opacity?: number;\n        };\n    };\n}",
+      "export interface PluginRecord {\n    manifest: PluginManifest;\n    hash: string;\n    enabled: boolean;\n    approved: boolean;\n    directory: string;\n    error?: string;\n    origin: 'third-party';\n    requestedEnabled: boolean;\n    compatibility: PluginCompatibility;\n}",
+      "export interface PluginRegistryOptions {\n    recovery?: PluginRecoveryStore;\n    activationTimeoutMs?: number;\n    cleanupTimeoutMs?: number;\n}",
+      "export interface PluginRendererEntry {\n    id: string;\n    hash: string;\n    source: string;\n}",
+      "export interface PluginRequest {\n    method: string;\n    payload: unknown;\n}",
+      "export type PluginCapability = 'context' | 'theme' | 'host';",
+      "export type PluginHostEvent = {\n    type: 'state';\n    payload: unknown;\n} | {\n    type: 'plugin';\n    id: string;\n    topic: string;\n    payload: unknown;\n};"
+    ],
+    "packages/plugins-core/services.ts": [
+      "export interface PluginServiceInfo {\n    id: string;\n    members: string[];\n    contractVersion?: number;\n    compatibility?: {\n        version: number;\n        members: string[];\n    }[];\n}",
+      "export interface PluginServices {\n    list(): PluginServiceInfo[];\n    get<T extends object = Record<string, unknown>>(id: string): T;\n    register(id: string, service: object, contract?: ServiceContract): () => void;\n    override(id: string, members: Record<string, unknown>): () => void;\n    intercept(id: string, member: string, handler: (next: (...args: unknown[]) => unknown, ...args: unknown[]) => unknown): () => void;\n}",
+      "export interface ServiceContract {\n    version: number;\n    adapters?: {\n        version: number;\n        members: Record<string, string>;\n    }[];\n}"
+    ],
+    "packages/plugins-core/storage-types.ts": [
+      "export interface PluginDataSnapshot {\n    revision: string | null;\n    values: Record<string, PluginJson>;\n}",
+      "export interface PluginStorage {\n    read(): Promise<PluginDataSnapshot>;\n    write(expectedRevision: string | null, values: Record<string, PluginJson>): Promise<PluginDataSnapshot>;\n}",
+      "export type PluginJson = null | boolean | number | string | PluginJson[] | {\n    [key: string]: PluginJson;\n};"
+    ],
+    "packages/plugins-core/compatibility.ts": [
+      "export interface CompatibilityIssue {\n    code: 'HOST_VERSION_UNSUPPORTED' | 'SERVICE_UNAVAILABLE' | 'SERVICE_CONTRACT_UNSUPPORTED' | 'SERVICE_MEMBER_UNAVAILABLE';\n    service?: string;\n    member?: string;\n    expected?: number;\n    actual?: number;\n    repairable: boolean;\n}",
+      "export interface PluginCompatibility {\n    status: 'unchecked' | 'compatible' | 'blocked';\n    issues: CompatibilityIssue[];\n}",
+      "export interface PluginRequirements {\n    host?: {\n        min: string;\n        before?: string;\n    };\n    services?: {\n        id: string;\n        version: number;\n        members: string[];\n    }[];\n}"
+    ],
+    "packages/plugins-core/compatibility-repair.ts": [
+      "export interface PluginRepairBatchResult {\n    repairs: {\n        id: string;\n        hash?: string;\n        applied: boolean;\n        status: 'repaired' | 'failed' | 'unavailable';\n    }[];\n    remaining: PluginIncident[];\n    complete: boolean;\n}"
+    ],
+    "packages/plugins-core/recovery.ts": [
+      "export interface PluginIdentity {\n    id: string;\n    name?: string;\n    hash?: string;\n    version?: string;\n}",
+      "export interface PluginIncident extends PluginIdentity {\n    key: string;\n    code: string;\n    phase: RecoveryPhase;\n    certainty: 'confirmed' | 'suspected' | 'unknown';\n    at: string;\n    hostVersion: string;\n    previousHostVersion?: string;\n    repairable: boolean;\n    issues?: CompatibilityIssue[];\n}",
+      "export interface RecoverySnapshot {\n    schemaVersion: 1;\n    hostVersion: string;\n    previousHostVersion?: string;\n    safeMode: boolean;\n    boot: 'starting' | 'ready' | 'closed';\n    pending: (PluginIdentity & {\n        phase: RecoveryPhase;\n    })[];\n    incidents: PluginIncident[];\n    storageError?: string;\n}",
+      "export type RecoveryPhase = 'scan' | 'compatibility' | 'host' | 'renderer' | 'cleanup' | 'startup';"
+    ],
+    "packages/plugins-core/repair-draft.ts": [
+      "export interface PluginRepairDraft {\n    schemaVersion: 1;\n    id: string;\n    language: 'zh' | 'en';\n    text: string;\n}"
+    ],
+    "packages/runtime-extensions/types.ts": [
+      "export interface PluginRuntimes {\n    register(definition: RuntimeDefinition, adapter: RuntimeAdapter): () => Promise<void>;\n    list(): RuntimeCatalogEntry[];\n}",
+      "export interface RuntimeAdapter {\n    discover?(): Promise<{\n        ready: boolean;\n        reason?: string;\n        models?: NativeModelOption[];\n    }>;\n    create?(session: Session, signal: AbortSignal): Promise<JsonValue>;\n    run(context: RuntimeContext, input: DraftPreview): Promise<void>;\n    stop(context: RuntimeContext): Promise<void>;\n    resume?(context: RuntimeContext): Promise<void>;\n    fork?(source: Session, destination: Session, signal: AbortSignal): Promise<JsonValue>;\n    steer?(context: RuntimeContext, input: DraftPreview): Promise<void>;\n    approval?(context: RuntimeContext, id: RequestId, reply: ApprovalReply): Promise<void>;\n    interaction?(context: RuntimeContext, id: RequestId, reply: InteractionReply): Promise<void>;\n    permissions?(context: RuntimeContext, mode: PermissionMode): Promise<void>;\n    dispose?(): void | Promise<void>;\n}",
+      "export interface RuntimeCapabilities {\n    fork: boolean;\n    resume: boolean;\n    steer: boolean;\n    approvals: boolean;\n    interactions: boolean;\n    permissions: boolean;\n}",
+      "export interface RuntimeCatalogEntry extends RuntimeDefinition {\n    owner: string;\n    ready: boolean;\n    reason?: string;\n    capabilities: RuntimeCapabilities;\n}",
+      "export interface RuntimeContext {\n    readonly signal: AbortSignal;\n    session(): Session;\n    emit(event: RuntimeEvent): Promise<void>;\n}",
+      "export interface RuntimeDefinition {\n    apiVersion: 1;\n    id: PluginRuntimeId;\n    name: string;\n    description: string;\n    permissions: RuntimePermission[];\n    models?: NativeModelOption[];\n}",
+      "export interface RuntimePermission {\n    value: PermissionMode;\n    label: string;\n    description: string;\n}",
+      "export interface RuntimeSessionData {\n    owner: string;\n    version: 1;\n    name: string;\n    permissions: RuntimePermission[];\n    capabilities: RuntimeCapabilities;\n    state: JsonValue;\n}",
+      "export type JsonValue = null | boolean | number | string | JsonValue[] | {\n    [key: string]: JsonValue;\n};",
+      "export type PluginRuntimeId = `plugin:${string}`;",
+      "export type RuntimeEvent = {\n    type: 'title';\n    title: string;\n} | {\n    type: 'message';\n    id: string;\n    text: string;\n    phase?: 'commentary' | 'final';\n} | {\n    type: 'checkpoint';\n    state: JsonValue;\n} | {\n    type: 'context';\n    usage: NativeContextUsage;\n} | {\n    type: 'usage';\n    usage: import('../session-metrics').UsageSample;\n} | {\n    type: 'approval';\n    id: RequestId;\n    kind: 'command' | 'file' | 'tool' | 'plan';\n    details: string;\n    options: ApprovalOption[];\n} | {\n    type: 'interaction';\n    item: Omit<NativeInteraction, 'receipt' | 'receivedAt' | 'status' | 'threadId'>;\n};"
+    ],
+    "packages/attachments/activity-images.ts": [
+      "export interface ActivityImageRequest {\n    sessionId: string;\n    activityId: string;\n}",
+      "export interface ActivityImagesService {\n    read(input: ActivityImageRequest): Promise<AttachmentView[]>;\n}"
+    ],
+    "packages/collaboration-core/activity.ts": [
+      "export interface NativeChildSnapshot extends NativeChildEvent {\n    updatedAt: string;\n    startedAt?: string;\n    messages?: import('./child-conversation').NativeChildMessage[];\n    taskTranslation?: import('../translation/display').MessageTranslation;\n    transcriptTruncated?: boolean;\n}",
+      "export interface RuntimeActivity extends ActivityDetails {\n    id: string;\n    runtime: 'claude' | 'codex' | 'api';\n    kind: 'command' | 'file-edit' | 'tool' | 'message';\n    status: ActivityStatus;\n    startedAt: string;\n    updatedAt: string;\n    toolName?: string;\n    fileCount?: number;\n    turnId?: string;\n    nativeChildId?: string;\n    nativeOrder?: number;\n    category?: ActivityCategory;\n    attempt?: number;\n    maxAttempts?: number;\n    fileChanges?: NativeFileChange[];\n    fileChangesTruncated?: boolean;\n    imageDelivery?: import('../generated-images/types').GeneratedImageDelivery;\n    viewedAttachments?: import('../attachments/types').Attachment[];\n    protocol?: import('../native-events').NativeEventNotice;\n    presentation?: 'diagnostic';\n}",
+      "export type ActivityStatus = 'running' | 'completed' | 'failed' | 'cancelled' | 'uncertain';"
+    ],
+    "packages/collaboration-core/activity-details.ts": [
+      "export interface ActivityDetails {\n    title?: string;\n    input?: string;\n    output?: string;\n    cwd?: string;\n    exitCode?: number;\n    durationMs?: number;\n    inputTruncated?: boolean;\n    outputTruncated?: boolean;\n    imagePaths?: string[];\n}"
+    ],
+    "apps/desktop/renderer/media-controller.ts": [
+      "export interface ComposerSizing {\n    maxHeight: number;\n    viewportFraction: number;\n}",
+      "export interface MediaPluginApi {\n    openImages(ids: string[], initialId?: string): Promise<void>;\n    closeImages(): void;\n    addToDraft(ids: string[]): Promise<AttachmentDraftResult>;\n    registerAttachmentAction(definition: AttachmentActionDefinition): AttachmentActionHandle;\n    setComposerSizing(policy: ComposerSizing): () => void;\n    decideTextPaste(text: string): TextPasteDecision;\n    registerTextPastePolicy(definition: TextPastePolicy): TextPastePolicyHandle;\n}",
+      "export type MediaSurfaceName = 'image-viewer' | 'image-viewer-actions' | 'image-viewer-zoom' | 'attachment-list' | 'attachment-menu' | 'runtime-image-log';"
+    ],
+    "apps/desktop/renderer/attachment-draft.ts": [
+      "export interface AttachmentDraftResult {\n    added: number;\n    duplicates: number;\n}"
+    ],
+    "apps/desktop/renderer/attachment-actions.ts": [
+      "export interface AttachmentActionContext {\n    attachment: Readonly<Attachment>;\n    surface: AttachmentActionSurface;\n    invokeDefault?: () => void | Promise<unknown>;\n}",
+      "export interface AttachmentActionDefinition {\n    id: string;\n    label: string;\n    surfaces?: readonly AttachmentActionSurface[];\n    kind?: 'image' | 'file';\n    replaces?: CoreAttachmentAction;\n    run(context: AttachmentActionContext): void | Promise<unknown>;\n}",
+      "export interface AttachmentActionHandle {\n    id: string;\n    dispose(): void;\n}",
+      "export interface AttachmentMenuAction {\n    id: string;\n    label: string;\n    icon?: string;\n    shortcut?: string;\n    disabled?: boolean;\n    divider?: boolean;\n    run: () => void | Promise<unknown>;\n}",
+      "export type AttachmentActionSurface = 'history' | 'draft' | 'viewer' | 'activity';",
+      "export type CoreAttachmentAction = 'view' | 'open' | 'add-to-draft' | 'copy-image' | 'copy-path' | 'reveal' | 'save-as' | 'remove' | 'fit' | 'actual-size' | 'close';"
+    ],
+    "apps/desktop/renderer/plugin-renderer.ts": [
+      "export interface RendererPluginApi {\n    annotations: AnnotationsApi;\n    visualizations: VisualizationsApi;\n    uiPreferences: UiPreferencesApi;\n    activities: import('../../../packages/collaboration-core/activity-groups').ActivityGroupingApi;\n    fileChanges: FileReviewPluginApi;\n    shortcuts: ShortcutsPluginApi;\n    fonts: FontPluginApi;\n    themes: ThemePluginApi;\n    syntax: SyntaxPluginApi;\n    markdown: typeof markdownApi;\n    media: MediaPluginApi;\n    previews: PreviewPluginApi;\n    version: 1;\n    id: string;\n    root: HTMLElement;\n    signal: AbortSignal;\n    workbench: WorkbenchApi;\n    surfaces: typeof workbenchSurfaces;\n    mountSurface(surface: string, placement?: SurfacePlacement): PluginSurface;\n    observeSurfaces(surface: string, placement: SurfacePlacement, render: SurfaceRenderer): () => void;\n    settings: PluginSettingsApi;\n    storage: PluginStorage;\n    onEvent(listener: (event: PluginHostEvent) => void): () => void;\n    call<T = unknown>(method: string, payload?: unknown): Promise<T>;\n    command<T = unknown>(name: string, payload?: unknown): Promise<T>;\n    onState(listener: (state: AppState) => void): () => void;\n    onNavigate(listener: (sessionId: string) => void): () => void;\n    onCommand(listener: (command: DesktopCommand) => void): () => void;\n    addStyle(css: string): () => void;\n    assetUrl(path: string): Promise<string>;\n    listen(target: EventTarget, type: string, listener: EventListener, options?: AddEventListenerOptions): () => void;\n    replaceShell(): () => void;\n    onDispose(cleanup: () => void | Promise<void>): void;\n}"
+    ],
+    "apps/desktop/renderer/plugin-settings.ts": [
+      "export interface PluginSettingsApi {\n    register(definition: PluginSettingsDefinition): PluginSettingsHandle;\n    open(id: SettingsPageId): void;\n    list(): {\n        id: SettingsPageId;\n        label: string;\n        owner?: string;\n    }[];\n}",
+      "export interface PluginSettingsDefinition {\n    id: string;\n    label: string;\n    keywords?: string;\n    order?: number;\n    replaces?: CoreSettingsTab;\n    render(context: SettingsPageContext): PluginContentResult | Promise<PluginContentResult>;\n}",
+      "export interface PluginSettingsHandle {\n    id: SettingsPageId;\n    open(): void;\n    dispose(): void;\n}",
+      "export interface SettingsContribution {\n    owner: string;\n    key: string;\n    id: SettingsPageId;\n    definition: PluginSettingsDefinition;\n    failed(error: unknown): void;\n}",
+      "export interface SettingsPageContext extends PluginContentContext {\n    state(): AppState;\n}",
+      "export type CoreSettingsTab = typeof coreSettingsTabs[number];",
+      "export type SettingsPageId = CoreSettingsTab | `plugin:${string}`;"
+    ],
+    "apps/desktop/renderer/plugin-surfaces.ts": [
+      "export interface PluginSurface {\n    root: HTMLElement;\n    dispose(): void;\n}",
+      "export interface SurfaceContext extends PluginContentContext {\n    target: HTMLElement;\n}",
+      "export type SurfacePlacement = 'before' | 'after' | 'replace';",
+      "export type SurfaceRenderer = (context: SurfaceContext) => PluginContentResult | Promise<PluginContentResult>;"
+    ],
+    "packages/translation/types.ts": [
+      "export interface TranslationBackend {\n    profile: TranslationProfile;\n    key?: string;\n    auth?: 'key' | 'none';\n    runtime: RuntimeKind;\n    sourceId: string;\n    execute?(request: TranslationExecutionRequest): Promise<TranslationCompletion>;\n}",
+      "export interface TranslationCompletion {\n    text: string;\n    counts: TokenCounts;\n    model?: string;\n    reasoningTokens?: number | null;\n}",
+      "export interface TranslationExecutionRequest {\n    instructions: string;\n    input: string;\n    profile: TranslationProfile;\n    signal: AbortSignal;\n}",
+      "export interface TranslationTarget {\n    id: string;\n    name: string;\n    description: string;\n    model: string;\n    runtime: RuntimeKind;\n    ready: boolean;\n    reason?: string;\n    efforts: string[];\n    defaultEffort?: string;\n}",
+      "export interface TranslationTargetProvider {\n    list(): TranslationTarget[] | Promise<TranslationTarget[]>;\n    resolve(targetId: string, profile: TranslationProfile, effort?: string): Promise<TranslationBackend>;\n}",
+      "export interface TranslationUsageReceipt extends TokenCounts {\n    id: string;\n    sourceId: string;\n    runtime: RuntimeKind;\n    model: string;\n    at: string;\n    elapsedMs: number;\n    operation: 'translation' | 'refine' | 'segments';\n    direction: 'input' | 'output';\n    status: 'complete' | 'failed';\n    reasoningTokens: number | null;\n}",
+      "export interface TranslationUsageState extends SessionMetrics {\n    attempts: TranslationUsageReceipt[];\n}",
+      "export type TranslationSource = {\n    kind: 'custom';\n    targetId?: string;\n    effort?: string;\n} | {\n    kind: 'model';\n    targetId: string;\n    effort?: string;\n};"
+    ],
+    "packages/translation/native.ts": [
+      "export interface NativeTranslationLaunch {\n    runtime: 'codex' | 'claude';\n    executable: string;\n    env: NodeJS.ProcessEnv;\n    model: string;\n    effort?: string;\n}"
+    ],
+    "packages/navigation/file-links.ts": [
+      "export interface FileReference {\n    path: string;\n    line?: number;\n}",
+      "export interface LinkedText {\n    text: string;\n    reference?: FileReference;\n    url?: string;\n}"
+    ],
+    "packages/navigation/file-resolution.ts": [
+      "export interface FileNavigationApi {\n    resolve(request: FileResolutionRequest): Promise<string>;\n    locate(request: FileResolutionRequest): Promise<FileResolutionResult>;\n    registerSource(source: FileResolutionSource): () => void;\n}",
+      "export interface FileResolutionRequest {\n    cwd: string;\n    requested?: string;\n    roots?: readonly string[];\n    knownPaths?: readonly string[];\n}",
+      "export interface FileResolutionSource {\n    id: `plugin:${string}`;\n    candidates(request: Readonly<FileResolutionRequest>, signal: AbortSignal): readonly string[] | Promise<readonly string[]>;\n}",
+      "export type FileResolutionErrorCode = 'FILE_NOT_FOUND' | 'FILE_PATH_AMBIGUOUS' | 'FILE_SEARCH_INCOMPLETE' | 'FILE_SOURCE_FAILED';",
+      "export type FileResolutionResult = {\n    status: 'resolved';\n    path: string;\n    line?: number;\n} | {\n    status: 'ambiguous' | 'incomplete';\n    requested: string;\n    candidates: string[];\n    message: string;\n};"
+    ],
+    "packages/model-api/native-diagnostics.ts": [
+      "export interface NativeProviderDiagnostic {\n    status: number;\n    category: 'tool-sequence' | 'context-limit' | 'parameter' | 'authentication' | 'rate-limit' | 'upstream' | 'timeout' | 'transport' | 'protocol';\n    code?: string;\n    param?: string;\n    summary: string;\n}"
+    ],
+    "packages/model-api/native-gateway.ts": [
+      "export interface NativeGatewayOptions {\n    mcpOnly?: boolean;\n    authorizeMcp?(): void;\n    runtime: 'codex' | 'claude';\n    model: ApiModel;\n    effort?: string;\n    credentials(): Promise<{\n        connection: ModelConnection;\n        key: string;\n    }>;\n    fetcher?: typeof fetch;\n    mcp?: () => {\n        handle(request: unknown): Promise<unknown>;\n        dispose(): void;\n    };\n    mcpSessionPolicy?: NativeMcpSessionPolicy;\n    failure?(error: unknown): void;\n    diagnostic?(value: NativeProviderDiagnostic): void;\n    completion?: NativeCompletionCodec;\n    request?: NativeRequestCodec;\n    completionReceipt?(value: NativeCompletionReceipt): void;\n    usage?(value: {\n        counts: TokenCounts;\n        model: string;\n        elapsedMs: number;\n    }): void | Promise<void>;\n}",
+      "export interface NativeMcpSessionLimits {\n    maxSessions: number;\n    idleMs: number;\n}",
+      "export interface NativeMcpSessionPolicy {\n    limits(): NativeMcpSessionLimits;\n}"
+    ],
+    "packages/model-api/native-completion.ts": [
+      "export interface NativeCompletionBoundary {\n    request: Json;\n    push(delta: ModelStreamDelta): ModelStreamDelta[];\n    finish(turn: ApiTurn): ApiTurn;\n    dispose?(): void;\n}",
+      "export interface NativeCompletionCodec {\n    prepare(request: Json, protocol: Protocol): NativeCompletionBoundary | undefined;\n}",
+      "export interface NativeCompletionReceipt {\n    protocol: Protocol;\n    finishReason: 'stop' | 'tool_calls' | 'end_turn' | 'tool_use' | 'stop_sequence' | 'completed' | 'unknown';\n    toolCalls: number;\n    textChars: number;\n    boundary: 'tools' | 'explicit' | 'unmarked';\n    outcome?: NativeCompletionOutcome;\n}",
+      "export type NativeCompletionOutcome = 'completed' | 'needs_input' | 'blocked';"
+    ],
+    "packages/model-api/native-request.ts": [
+      "export interface NativeRequestCodec {\n    map(body: Record<string, any>, from: 'responses' | 'anthropic-messages', to: Protocol, model: ApiModel, effort?: string): Record<string, any>;\n}"
+    ],
+    "packages/branding/types.ts": [
+      "export interface BrandingApi {\n    get(): BrandingSnapshot;\n    list(): BrandingDefinition[];\n    register(definition: BrandingDefinition): BrandingHandle;\n    subscribe(listener: (snapshot: BrandingSnapshot) => void): () => void;\n}",
+      "export interface BrandingDefinition {\n    id: string;\n    label: string;\n    app: string;\n    tray?: Record<string, string>;\n}",
+      "export interface BrandingHandle {\n    id: string;\n    dispose(): void;\n}",
+      "export interface BrandingSnapshot extends BrandingDefinition {\n    revision: number;\n}"
+    ],
+    "packages/remote-account-catalog/configuration.ts": [
+      "export interface RemoteConfigurationAdapter {\n    status(host: SshHost): Promise<RemoteConfigurationStatus>;\n    plan(host: SshHost, operation: RemoteConfigurationOperation): Promise<RemoteConfigurationPreview>;\n    apply(host: SshHost, plan: RemoteConfigurationPreview): Promise<RemoteConfigurationStatus>;\n    configure?(host: SshHost, revision: number, autoUpdate: boolean): Promise<RemoteConfigurationStatus>;\n    autoUpdate?(host: SshHost): Promise<RemoteConfigurationStatus | undefined>;\n}",
+      "export interface RemoteConfigurationDefinition {\n    id: string;\n    label: string;\n    adapter: RemoteConfigurationAdapter;\n}",
+      "export interface RemoteConfigurationHandle {\n    id: string;\n    dispose(): void;\n}",
+      "export interface RemoteConfigurationPlan extends Omit<RemoteConfigurationPreview, 'token'> {\n    id: string;\n    configurationId: string;\n    label: string;\n}",
+      "export interface RemoteConfigurationPolicy {\n    schemaVersion: 1;\n    revision: number;\n    autoUpdate: boolean;\n    lastAttemptTarget?: string;\n    lastAttemptAt?: number;\n    lastAttemptError?: string;\n}",
+      "export interface RemoteConfigurationPreview {\n    token: string;\n    operation: RemoteConfigurationOperation;\n    currentVersion?: string;\n    version?: string;\n    targets: string[];\n    preserves: string[];\n}",
+      "export interface RemoteConfigurationRow extends RemoteConfigurationStatus {\n    id: string;\n    label: string;\n}",
+      "export interface RemoteConfigurationService {\n    register(owner: string, definition: RemoteConfigurationDefinition): RemoteConfigurationHandle;\n    replace(id: string, adapter: RemoteConfigurationAdapter): RemoteConfigurationHandle;\n    subscribe(listener: () => void): () => void;\n    list(host: SshHost): Promise<RemoteConfigurationRow[]>;\n    plan(host: SshHost, id: string, operation: RemoteConfigurationOperation): Promise<RemoteConfigurationPlan>;\n    apply(host: SshHost, id: string, planId: string): Promise<RemoteConfigurationRow>;\n    configure(host: SshHost, id: string, revision: number, autoUpdate: boolean): Promise<RemoteConfigurationRow>;\n    autoUpdate(host: SshHost, id: string): Promise<RemoteConfigurationRow | undefined>;\n}",
+      "export interface RemoteConfigurationStatus {\n    installed: boolean;\n    running: boolean;\n    currentVersion?: string;\n    bundledVersion: string;\n    canInstall: boolean;\n    canUpdate: boolean;\n    canUninstall: boolean;\n    error?: string;\n    installedRevision?: number;\n    bundledRevision?: number;\n    policy?: RemoteConfigurationPolicy;\n}",
+      "export type RemoteConfigurationOperation = 'install' | 'update' | 'uninstall';"
+    ],
+    "packages/model-api/types.ts": [
+      "export interface ApiHistoryEntry {\n    files?: import('../attachments/types').AttachmentPayload[];\n    role: 'user' | 'assistant';\n    content: string;\n}",
+      "export interface ApiModel {\n    id: string;\n    name: string;\n    model: string;\n    enabled: boolean;\n    contextWindow?: number;\n    maxOutputTokens?: number;\n    efforts?: string[];\n    defaultEffort?: string;\n    effortCandidates?: string[];\n    reasoningProbe?: import('./reasoning-info').ReasoningProbe;\n    manualEfforts?: string[];\n    adaptiveThinking?: boolean;\n    metadataSource?: 'upstream' | 'manual';\n    contextWindowSource?: 'upstream' | 'manual';\n}",
+      "export interface ApiToolCall {\n    id: string;\n    name: string;\n    arguments: string;\n}",
+      "export interface ApiToolDefinition {\n    name: string;\n    description: string;\n    inputSchema: Record<string, unknown>;\n}",
+      "export interface ApiTurn {\n    text: string;\n    calls: ApiToolCall[];\n    usage: ApiUsage;\n    raw: unknown;\n    requestId?: string;\n    completionOutcome?: import('./native-completion').NativeCompletionOutcome;\n}",
+      "export interface ApiUsage {\n    inputTokens: number | null;\n    outputTokens: number | null;\n}",
+      "export interface ModelConnection {\n    id: string;\n    revision: string;\n    name: string;\n    baseUrl: string;\n    protocol: Protocol;\n    enabled: boolean;\n    auth: 'key' | 'none';\n    hasKey: boolean;\n    credentialRef?: string;\n    models: ApiModel[];\n    discoveredModels: ApiModel[];\n    discoveredAt?: string;\n    discoveryError?: string;\n    tools: boolean;\n    timeoutMs: number;\n    maxOutputTokens: number;\n}",
+      "export interface ModelLane {\n    permissionMode?: import('../contracts').PermissionMode;\n    collaborationMode?: import('../session-core/planning').CollaborationMode;\n    pluginRuntime?: import('../runtime-extensions/types').RuntimeSessionData;\n    targetId: string;\n    binding: SessionBinding;\n    modelSelection?: NativeModelSelection;\n    nativeEnvironmentReceipt?: {\n        threadId: string;\n        environmentId: string;\n        cwd: string;\n        runtimeVersion: string;\n        accountRef: string;\n    };\n    nativeFork?: import('../contracts').NativeForkSource;\n    nativeContextUsage?: import('../contracts').NativeContextUsage;\n    messageCursor: number;\n}",
+      "export interface ModelTarget {\n    id: string;\n    name: string;\n    description: string;\n    runtime: RuntimeKind;\n    ready: boolean;\n    binding: SessionBinding;\n    selection?: NativeModelSelection;\n    contextWindow?: number;\n    unavailableReason?: string;\n}",
+      "export interface ModelTargetCatalog {\n    list(refresh: boolean): Promise<ModelTarget[]>;\n}"
+    ],
+    "packages/workspace-control/native-runtime.ts": [
+      "export interface NativeModelCatalog {\n    accountId: string;\n    accountGeneration: string;\n    provider: 'claude';\n    models: NativeModelOption[];\n}",
+      "export interface NativeRuntimeStatus {\n    accountId: string;\n    provider: 'codex' | 'claude';\n    installed: boolean;\n    authenticated: boolean;\n    versionMatched: boolean;\n    version?: string;\n    execution: 'unavailable' | 'local-executor-required' | 'local-tools-unverified' | 'local-mcp-required';\n    block: null | {\n        reason: 'rate_limited' | 'authentication_required' | 'billing_review';\n        observedAt: number;\n        resetsAt?: number;\n    };\n}"
+    ],
+    "packages/session-core/draft-recovery.ts": [
+      "export interface DraftRecovery {\n    id: string;\n    preview: DraftPreview;\n    outcome: 'pending' | 'not-sent' | 'failed' | 'uncertain';\n}",
+      "export interface DraftRecoveryService {\n    pendingMessages(session: Session, timestamp: string): Message[];\n    capture(session: Session, preview: DraftPreview): void;\n    observe(previous: Session | undefined, session: Session): void;\n    fail(session: Session, id: string): void;\n    dismiss(session: Session, id: string): void;\n    restart(session: Session): void;\n}"
+    ],
+    "services/claude-bridge/index.ts": [
+      "export interface NativeClaudeOptions extends ClaudeToolServerOptions {\n    host: SshHost;\n    session: Session;\n    authorize(): void;\n    workbenchTools?: () => ReturnType<typeof createPeerTools>;\n}",
+      "export interface NativeClaudeService {\n    supports(host: SshHost, session: Session): boolean;\n    defaultDirectory(sessionId: string): string;\n    openTools(options: ClaudeToolServerOptions): Promise<ClaudeToolServer>;\n    openContext?(options: ClaudeToolServerOptions): Promise<ClaudeLocalContext>;\n    normalizeToolResult?(name: string, result: unknown): unknown;\n    toolPolicy?(options: ClaudeToolServerOptions): ClaudeMcpPolicy;\n    openToolProcess?(options: ClaudeToolServerOptions): Promise<ClaudeToolServer>;\n    openResultStore?(options: ClaudeToolServerOptions): Promise<ClaudeResultStore>;\n    createTransport(options: NativeClaudeOptions): NativeProcessTransport;\n}"
+    ],
+    "services/claude-bridge/tools.ts": [
+      "export interface ClaudeToolServer {\n    readonly definitions: readonly Record<string, unknown>[];\n    listTools?(): Promise<readonly Record<string, unknown>[]>;\n    call(name: string, args: unknown, signal?: AbortSignal): Promise<unknown>;\n    listPrompts?(): Promise<unknown>;\n    getPrompt?(name: string, args?: Record<string, string>): Promise<unknown>;\n    close(): Promise<void>;\n}",
+      "export interface ClaudeToolServerOptions {\n    executable: string;\n    directory: string;\n    cwd: string;\n    env: NodeJS.ProcessEnv;\n    signal: AbortSignal;\n    policy?: Partial<ClaudeMcpPolicy>;\n    diagnostic?(value: ClaudeToolDiagnostic): void;\n    progress?(value: {\n        callId: string;\n        progress: number;\n        total?: number;\n    }): void;\n}"
+    ],
+    "services/remote-supervisor/index.ts": [
+      "export interface NativeFrame {\n    readonly sequence?: number;\n    readonly rawText: string;\n    readonly rawBase64: string;\n    readonly sha256: string;\n    readonly receivedAt: string;\n    readonly value: Readonly<Record<string, unknown>>;\n}",
+      "export interface NativeProcessTransport extends EventEmitter {\n    state: ProcessState;\n    start(): Promise<void>;\n    write(value: unknown): Promise<void>;\n    stop(reason?: string): Promise<ProcessExit>;\n}",
+      "export interface ProcessExit {\n    code: number | null;\n    signal: NodeJS.Signals | null;\n    reason: string;\n}",
+      "export interface ProcessSpec {\n    executable: string;\n    args: readonly string[];\n    cwd?: string;\n    env?: NodeJS.ProcessEnv;\n    maxFrameBytes?: number;\n    maxOutputBytes?: number;\n    lifetimeMs?: number;\n    outputMode?: 'jsonl' | 'opaque';\n}",
+      "export type ProcessState = 'new' | 'starting' | 'running' | 'stopping' | 'closed' | 'failed';"
+    ],
+    "services/claude-bridge/local-context.ts": [
+      "export interface ClaudeLocalContext {\n    discover(directory?: string): Promise<LocalClaudeCatalog>;\n    loadSkill(request: LocalClaudeSkillRequest, userInvoked?: boolean): Promise<LocalClaudeSkillPlan>;\n    runSkillCommand(request: LocalClaudeSkillRequest & {\n        index: number;\n        command: string;\n    }, tools: ClaudeToolServer, signal?: AbortSignal): Promise<unknown>;\n    close(): Promise<void>;\n}",
+      "export interface LocalClaudeCatalog {\n    cwd: string;\n    instructions: {\n        path: string;\n        kind: string;\n    }[];\n    memory: {\n        enabled: boolean;\n        directory?: string;\n        source: string;\n        files: string[];\n    };\n    skills: LocalClaudeSkill[];\n    warnings: string[];\n}",
+      "export interface LocalClaudeSkill {\n    id: string;\n    name: string;\n    description: string;\n    path: string;\n    directory: string;\n    hash: string;\n    kind: 'skill' | 'command';\n    modelInvocable: boolean;\n    userInvocable: boolean;\n    shellExecution: boolean;\n    pluginRoot?: string;\n}",
+      "export interface LocalClaudeSkillPlan {\n    skill: LocalClaudeSkill;\n    instructions: string;\n    execution: {\n        location: 'vps';\n        context: string;\n        agent?: string;\n        model?: string;\n        allowedTools?: string;\n    };\n    commands: {\n        index: number;\n        command: string;\n        shell: 'bash' | 'powershell';\n        completed: boolean;\n    }[];\n    warnings: string[];\n}",
+      "export interface LocalClaudeSkillRequest {\n    id: string;\n    hash: string;\n    arguments?: string;\n    directory?: string;\n}"
+    ],
+    "packages/model-api/runtime-target.ts": [
+      "export interface RuntimeModelChoice {\n    targetId?: string;\n    hostId?: string;\n    selection?: NativeModelSelection;\n}",
+      "export interface RuntimeModelPreferences {\n    version: 1;\n    entries: Partial<Record<RuntimeKind, RuntimeModelChoice>>;\n}"
+    ],
+    "packages/model-api/context-state.ts": [
+      "export interface NativeContextStateService {\n    recover(session: Session): NativeContextUsage | undefined;\n    select(session: Session, selection: NativeModelSelection, capacity?: number): void;\n    observe(session: Session, usage: NativeContextUsage): void;\n    capacity(session: Session, capacity: number): void;\n    handoff(previous: Session, restored: NativeContextUsage | undefined, capacity?: number): NativeContextUsage | undefined;\n}"
+    ],
+    "apps/desktop/host/workspace-management.ts": [
+      "export interface PreparedWorkspaceHost extends SshHost {\n    preparation: WorkspacePreparation;\n}",
+      "export interface WorkspaceManagementOptions {\n    directory: string;\n    pickImport(): Promise<string | null>;\n    pickExport(filename: string): Promise<string | null>;\n    remote?: RemoteWorkspaceControl;\n    enrollment?: WorkspaceEnrollmentService;\n}",
+      "export interface WorkspacePreparation {\n    ready: boolean;\n    reason?: 'catalog' | 'account' | 'runtime' | 'bridge' | 'changed';\n}",
+      "export type WorkspaceManagementActions = Pick<WorkspaceManagementService, 'list' | 'plan' | 'apply' | 'operation' | 'exportInvite' | 'importPreview' | 'import' | 'busy' | 'dispose'> & Partial<Pick<WorkspaceManagementService, 'exportConnection' | 'exportManaged' | 'connect'>>;"
+    ],
+    "services/claude-bridge/policy.ts": [
+      "export interface ClaudeMcpPolicy {\n    frameBytes: number;\n    outputWindowBytes: number;\n    resultBytes: number;\n    inlineBytes: number;\n    storedBytes: number;\n    catalogPages: number;\n    catalogTools: number;\n    commandConcurrency: number;\n}",
+      "export interface ClaudeToolDiagnostic {\n    code: string;\n    tool?: string;\n    callId?: string;\n    stage: 'catalog' | 'execute' | 'transport' | 'delivery';\n    elapsedMs?: number;\n    bytes?: number;\n    outcome: 'not-started' | 'unknown' | 'returned';\n}"
+    ],
+    "services/claude-bridge/result-store.ts": [
+      "export interface ClaudeResultPage {\n    id: string;\n    offset: number;\n    nextOffset: number;\n    bytes: number;\n    text: string;\n    eof: boolean;\n}",
+      "export interface ClaudeResultReference {\n    id: string;\n    bytes: number;\n    sha256: string;\n    encoding: 'utf8-json';\n    preview: string;\n}",
+      "export interface ClaudeResultStore {\n    readonly inlineBytes: number;\n    readonly maxResultBytes: number;\n    put(value: unknown): Promise<ClaudeResultReference>;\n    read(id: string, offset?: number, maxBytes?: number): Promise<ClaudeResultPage>;\n    close(): Promise<void>;\n}"
+    ],
+    "services/claude-bridge/local-tasks.ts": [
+      "export interface ClaudeLocalTasks {\n    start(input: LocalClaudeCommand, signal?: AbortSignal): Promise<LocalClaudeTask>;\n    output(id: string, waitMs?: number, signal?: AbortSignal): Promise<LocalClaudeTask>;\n    stop(id: string): Promise<LocalClaudeTask>;\n    list(): LocalClaudeTask[];\n    pending(): boolean;\n    subscribe(listener: (task: LocalClaudeTask) => void): () => void;\n    close(): Promise<void>;\n}",
+      "export interface LocalClaudeCommand {\n    requestId: string;\n    command: string;\n    shell?: LocalClaudeShell;\n    timeout?: number;\n    description?: string;\n}",
+      "export interface LocalClaudeTask {\n    id: string;\n    requestId: string;\n    shell: LocalClaudeShell;\n    command: string;\n    description?: string;\n    state: 'starting' | 'running' | 'completed' | 'failed' | 'cancelled' | 'uncertain';\n    startedAt: string;\n    finishedAt?: string;\n    collected: boolean;\n    result?: unknown;\n    error?: string;\n    output?: ClaudeResultReference;\n    outputError?: string;\n}",
+      "export type LocalClaudeShell = 'Bash' | 'PowerShell';"
+    ],
+    "packages/attachments/paste.ts": [
+      "export interface TextPasteDecision {\n    attachment: boolean;\n    byteLength: number;\n    thresholdBytes: number;\n    policyId: string;\n}",
+      "export interface TextPastePolicy {\n    id: string;\n    thresholdBytes: number;\n}",
+      "export interface TextPastePolicyHandle {\n    id: string;\n    dispose(): void;\n}"
+    ],
+    "packages/context-annotations/index.ts": [
+      "export interface AnnotationChange {\n    sessionId: string;\n    revision: number;\n    items: ContextAnnotation[];\n}",
+      "export interface AnnotationDraft {\n    version: 1;\n    revision: number;\n    items: ContextAnnotation[];\n}",
+      "export interface AnnotationService {\n    read(sessionId: string): AnnotationDraft;\n    update(change: AnnotationChange): Promise<AnnotationDraft>;\n    translate(request: AnnotationTranslationRequest): Promise<AnnotationDraft>;\n}",
+      "export interface AnnotationTranslationRequest {\n    sessionId: string;\n    revision: number;\n}",
+      "export interface ContextAnnotation {\n    id: string;\n    text: string;\n    translatedText?: string;\n    displayTranslation?: string;\n    source?: {\n        sessionId: string;\n        messageId?: string;\n        side?: 'source' | 'translation';\n    };\n}"
+    ],
+    "apps/desktop/renderer/annotation-controller.ts": [
+      "export interface AnnotationAction {\n    id: string;\n    label: string;\n    run(selection: AnnotationSelection, signal: AbortSignal): string | Promise<string>;\n}",
+      "export interface AnnotationHandle {\n    id: string;\n    dispose(): void;\n}",
+      "export interface AnnotationSelection {\n    text: string;\n    source: NonNullable<ContextAnnotation['source']>;\n}",
+      "export interface AnnotationTarget extends AnnotationDraft {\n    sessionId: string;\n    busy: boolean;\n}",
+      "export interface AnnotationsApi {\n    get(): AnnotationTarget | null;\n    add(selection: AnnotationSelection): Promise<AnnotationDraft>;\n    update(id: string, text: string): Promise<AnnotationDraft>;\n    remove(id: string): Promise<AnnotationDraft>;\n    clear(): Promise<AnnotationDraft>;\n    translate(): Promise<AnnotationDraft>;\n    subscribe(listener: () => void): () => void;\n    listActions(): {\n        id: string;\n        label: string;\n    }[];\n    registerAction(action: AnnotationAction): AnnotationHandle;\n    overrideAction(id: string, action: Omit<AnnotationAction, 'id'>): AnnotationHandle;\n}"
+    ],
+    "apps/desktop/host/memory-background.ts": [
+      "export interface MemoryRemoteExecution {\n    host(id: string): SshHost;\n    codex?: NativeCodexService;\n    claude?: NativeClaudeService;\n    assert(session: Session): void;\n    claudeModel(session: Session): ApiModel;\n    before(session: Session, signal: AbortSignal): Promise<void>;\n    quota?: ConstructorParameters<typeof NativeCodexRunner>[1]['quota'];\n}",
+      "export interface NativeMemoryExecutorOptions {\n    usage?: (entries: ModelUsageEntry[]) => Promise<void>;\n    processFactory?: (spec: ProcessSpec) => ProcessSupervisor;\n    remote?: MemoryRemoteExecution;\n}"
+    ],
+    "packages/desktop-updates/index.ts": [
+      "export interface DesktopUpdateBackend {\n    check(): Promise<void>;\n    install(): Promise<void>;\n    subscribe(listener: (state: DesktopUpdateState) => void): () => void;\n    dispose(): void;\n}",
+      "export interface DesktopUpdateRegistration {\n    id: string;\n    create(): DesktopUpdateBackend;\n}",
+      "export interface DesktopUpdateState {\n    phase: 'disabled' | 'idle' | 'checking' | 'downloading' | 'ready' | 'installing' | 'error';\n    version?: string;\n    percent?: number;\n    error?: string;\n}",
+      "export interface DesktopUpdatesApi {\n    snapshot(): DesktopUpdateState;\n    check(): Promise<DesktopUpdateState>;\n    install(): Promise<void>;\n    subscribe(listener: (state: DesktopUpdateState) => void): () => void;\n    register(definition: DesktopUpdateRegistration): () => void;\n}"
+    ],
+    "packages/contracts/index.ts": [
+      "export interface NativeContextUsage {\n    used: number;\n    capacity: number | null;\n    total: number;\n    updatedAt: string;\n    turnId?: string;\n    runtimeCapacity?: number | null;\n    estimated?: boolean;\n    modelWindows?: Record<string, number>;\n}",
+      "export interface TranslationProfile {\n    source?: import('../translation/types').TranslationSource;\n    revision?: string;\n    id: string;\n    name: string;\n    baseUrl: string;\n    protocol: Protocol;\n    model: string;\n    effort?: string;\n    verifiedEfforts: string[];\n    consent: boolean;\n    hasKey?: boolean;\n    maxCharacters: number;\n    maxCalls: number;\n    timeoutMs: number;\n    reasoning?: TranslationReasoning;\n    maxOutputTokens?: number;\n}",
+      "export interface TranslationResult {\n    text: string;\n    sourceHash: string;\n    providerId: string;\n    providerName?: string;\n    model: string;\n    direction: TranslationDirection;\n    elapsedMs: number;\n    inputTokens: number | null;\n    outputTokens: number | null;\n    requestedEffort: string | null;\n    effectiveEffort: string | null;\n    protectionVersion: 1 | 2;\n}",
+      "export interface SharedAccount {\n    id: string;\n    generation: string;\n    provider: 'codex' | 'claude';\n    status: 'authenticated' | 'configured' | 'unknown' | 'unauthenticated';\n    enabled?: boolean;\n    accessRevision?: number;\n    workspaceEnabled?: boolean;\n    workspaceAccessRevision?: number;\n    email?: string;\n    displayName?: string;\n    nameRevision?: string;\n    plan?: string;\n    authMethod?: string;\n    observedAt: string;\n}",
+      "export interface SharedAccountAlias {\n    name: string;\n    revision: string;\n}",
+      "export type DesktopCommand = 'new-session' | 'new-project' | 'settings' | 'search' | 'toggle-sidebar' | 'back' | 'forward' | 'shortcuts' | 'capabilities' | 'about' | 'archive-session' | 'delete-session' | 'pin-session' | 'unread-session' | 'focus-composer' | 'zoom-in' | 'zoom-out' | 'zoom-reset' | 'fullscreen' | 'menu-file' | 'menu-edit' | 'menu-view' | 'menu-help' | 'close-window' | 'quit-app';",
+      "export interface WorkbenchApi {\n    onPluginEvent?(listener: (event: import('../plugins-core').PluginHostEvent) => void): () => void;\n    attachFiles(files: File[]): Promise<import('../attachments/types').AttachmentView[]>;\n    onExtensions?(listener: () => void): () => void;\n    call<T = unknown>(method: string, payload?: unknown): Promise<T>;\n    importSkillFile(file: File, provider: 'codex' | 'claude'): Promise<unknown>;\n    importPluginFile(file: File): Promise<unknown>;\n    importSshFile(file: File): Promise<unknown>;\n    onState(listener: (state: AppState) => void): () => void;\n    onNavigate(listener: (sessionId: string) => void): () => void;\n    onCommand(listener: (command: DesktopCommand) => void): () => void;\n}"
+    ]
+  },
+  "namedSurfaces": "Object.freeze({\n    'desktop-update': '[data-workbench-desktop-update]',\n    'composer-model': '[data-workbench-model-controls]', 'composer-runtime': '[data-workbench-runtime-controls]',\n    'draft-recovery': '[data-workbench-draft-recovery]',\n    'annotation-selection': '[data-workbench-annotation-selection]',\n    'composer-annotations': '[data-workbench-annotations=\"draft\"]', 'message-annotations': '[data-workbench-annotations=\"message\"]',\n    'translation-settings': '[data-workbench-translation-settings]', 'translation-source': '[data-workbench-translation-source]',\n    'translation-model': '[data-workbench-translation-model]', 'translation-custom': '[data-workbench-translation-custom]',\n    'translation-intermediate': '[data-workbench-translation-intermediate]', 'translation-usage': '[data-workbench-translation-usage]',\n    'follow-up-settings': '[data-workbench-follow-up-settings]', 'follow-up-queue': '[data-workbench-follow-up-queue]', 'follow-up-menu': '[data-workbench-follow-up-menu]', 'follow-up-detail': '[data-workbench-follow-up-detail]', 'user-message': '[data-workbench-user-message]',\n    visualization: '[data-workbench-visualization]', 'visualization-toolbar': '[data-workbench-visualization-toolbar]',\n    'brand-mark': '[data-workbench-brand-mark]',\n    'ui-preferences-status': '[data-workbench-ui-preferences-status]',\n    shell: '.desktop-frame', titlebar: '.desktop-titlebar', sidebar: '.sidebar',\n    'session-preview': '[data-workbench-session-preview]', 'session-preview-body': '[data-workbench-session-preview-body]',\n    'session-preview-title': '[data-workbench-session-preview-title]',\n    'project-preview': '[data-workbench-project-preview]', 'project-folder': '[data-workbench-project-folder]',\n    main: '.main-panel', workspace: '.workspace', composer: '.composer-area',\n    'file-link': '[data-workbench-file-link]', 'file-link-menu': '[data-workbench-file-menu]', 'file-reader': '[data-testid=\"file-dock\"]',\n    'file-link-candidates': '[data-workbench-file-candidates]',\n    'workspace-header': '.workspace-header', conversation: '.conversation-column',\n    'reply-memory': '[data-testid=\"reply-memory\"]',\n    'session-fork-action': '[data-workbench-fork-action]', 'session-fork-picker': '[data-workbench-fork-picker]',\n    settings: '.settings-layout',\n    shortcuts: '[data-workbench-shortcuts]', 'shortcut-recorder': '[data-workbench-shortcut-recorder]',\n    'appearance-theme': '[data-workbench-theme-picker]',\n    'connection-layout': '.connection-layout', 'remote-files': '.remote-file-dock',\n    'workspace-export-duration': '[data-workbench-workspace-export-duration]',\n    'workspace-import': '[data-workbench-workspace-import]',\n    'remote-configuration-row': '[data-workbench-remote-configuration]', 'remote-configuration-plan': '[data-workbench-remote-configuration-plan]',\n    'remote-cli-row': '.remote-cli-row', 'session-retention': '.remote-retention',\n    'account-name-editor': '.account-name-editor', 'account-identity-email': '[data-workbench-account-email]',\n    'model-account-login': '.model-account-login', 'model-account-import': '.model-account-import',\n    'model-accounts': '.local-model-accounts', 'model-usage': '.model-usage-summary',\n    'model-account-card': '[data-workbench-account-card]', 'model-account-quota': '[data-workbench-account-quota]', 'account-allocations': '[data-workbench-quota-allocations]',\n    'model-account-export-trigger': '[data-workbench-account-export-trigger]', 'model-account-export': '[data-workbench-account-export]',\n    'session-metrics': '[data-session-metrics]', 'turn-progress': '[data-turn-progress]',\n    'active-turn-progress': '[data-active-turn-progress]', 'turn-process': '[data-turn-process]',\n    'turn-error': '[data-turn-error]',\n    'native-event-notice': '[data-workbench-native-event]',\n    'chat-event': '[data-workbench-chat-event]',\n    'activity-group': '[data-workbench-activity-group]',\n    'runtime-usage': '[data-workbench-runtime-usage]',\n    'file-change-capsule': '[data-file-change-capsule]', 'file-change-list': '[data-file-change-list]',\n    'file-change-card': '[data-file-change-card]', 'file-change-review': '[data-file-change-review]',\n    'file-change-diff': '[data-file-change-diff]', 'file-change-reader': '[data-file-change-reader]',\n    'subagent-reader': '[data-testid=\"child-reader\"]',\n    'subagent-label': '[data-subagent-label]',\n    'subagent-model-settings': '[data-testid=\"child-model-settings\"]',\n    'translation-toggle': '[data-testid=\"translation-quick-toggle\"]',\n    'translation-preview': '[data-workbench-preview]',\n    'image-viewer': '.image-viewer', 'image-viewer-actions': '.image-viewer-actions',\n    'image-viewer-zoom': '.image-zoom', 'attachment-list': '.attachment-list',\n    'attachment-menu': '.attachment-context-actions', 'runtime-image-log': '.runtime-image-log',\n    'plan-reader': '.plan-reader', 'plan-review': '.codex-plan-review, .approval-card[data-plan-review]',\n})",
+  "coreSettingsTabs": "['general', 'appearance', 'shortcuts', 'plugins', 'translation', 'memory', 'skills', 'runtimes', 'models', 'connections', 'capabilities', 'privacy', 'archive', 'about', 'worktrees'] as const",
+  "hostMethods": [
+    "accounts/assign",
+    "accounts/enroll-legacy",
+    "accounts/list",
+    "accounts/rename",
+    "accounts/reset-preview",
+    "accounts/reset-redeem",
+    "accounts/select",
+    "accounts/set-enabled",
+    "accounts/setup-apply",
+    "accounts/setup-plan",
+    "accounts/usage",
+    "annotations/get",
+    "annotations/translate",
+    "annotations/update",
+    "appearance/fonts",
+    "appearance/get",
+    "appearance/set",
+    "attachments/activity-images",
+    "attachments/cleanup",
+    "attachments/copy-image",
+    "attachments/image",
+    "attachments/import",
+    "attachments/open",
+    "attachments/open-storage",
+    "attachments/pick",
+    "attachments/reveal",
+    "attachments/save-as",
+    "attachments/storage",
+    "attachments/views",
+    "branding/get",
+    "branding/list",
+    "capabilities/get",
+    "child-message/translate",
+    "clipboard/write",
+    "codex-auth/account",
+    "codex-auth/cancel",
+    "codex-auth/current",
+    "codex-auth/open",
+    "codex-auth/start",
+    "codex-auth/status",
+    "composer/catalog",
+    "composer/execute",
+    "deep-link/copy",
+    "demo.sample/get",
+    "desktop-updates/check",
+    "desktop-updates/install",
+    "desktop-updates/status",
+    "desktop/action",
+    "desktop/data-directory",
+    "desktop/info",
+    "desktop/menu",
+    "desktop/titlebar",
+    "draft/cancel",
+    "draft/prepare",
+    "draft/recovery-dismiss",
+    "draft/refine",
+    "draft/submit",
+    "extensions/appearance",
+    "extensions/asset",
+    "extensions/command",
+    "extensions/disable-all",
+    "extensions/export",
+    "extensions/import",
+    "extensions/list",
+    "extensions/renderer-failed",
+    "extensions/renderers",
+    "extensions/services",
+    "extensions/storage/read",
+    "extensions/storage/write",
+    "extensions/toggle",
+    "files/browse",
+    "files/copy-content",
+    "files/info",
+    "files/open",
+    "files/resolve",
+    "files/reveal",
+    "files/save-as",
+    "follow-up/cancel",
+    "follow-up/send",
+    "host/discover",
+    "host/remove",
+    "host/save",
+    "html/preview",
+    "interaction/cancel",
+    "interaction/prepare",
+    "interaction/presentation",
+    "interaction/submit",
+    "interaction/translate",
+    "links/open",
+    "local-cli/check",
+    "local-cli/configure",
+    "local-cli/install",
+    "local-cli/list",
+    "local-cli/uninstall",
+    "memory/delete",
+    "memory/get",
+    "memory/list",
+    "memory/save",
+    "memory/settings",
+    "message/retranslate",
+    "model-api/context-budget",
+    "model-api/delete",
+    "model-api/discover",
+    "model-api/list",
+    "model-api/reasoning/cancel",
+    "model-api/reasoning/start",
+    "model-api/reasoning/status",
+    "model-api/refresh",
+    "model-api/save",
+    "model-api/set-enabled",
+    "model-targets/list",
+    "models/accounts/create",
+    "models/accounts/draft-discard",
+    "models/accounts/export-copy",
+    "models/accounts/export-formats",
+    "models/accounts/export-preview",
+    "models/accounts/export-save",
+    "models/accounts/import",
+    "models/accounts/import-formats",
+    "models/accounts/list",
+    "models/accounts/login-callback",
+    "models/accounts/login-cancel",
+    "models/accounts/login-code",
+    "models/accounts/login-methods",
+    "models/accounts/login-open",
+    "models/accounts/login-start",
+    "models/accounts/login-status",
+    "models/accounts/prepare",
+    "models/accounts/refresh",
+    "models/accounts/remove",
+    "models/accounts/rename",
+    "models/accounts/reset-preview",
+    "models/accounts/reset-redeem",
+    "models/accounts/reset-status",
+    "models/accounts/set-enabled",
+    "models/pricing/save",
+    "models/usage",
+    "native-accounts/create-claude",
+    "native-accounts/discard-claude",
+    "native-accounts/login-command",
+    "native-accounts/prepare-claude",
+    "native-accounts/remove",
+    "native-accounts/review",
+    "native-accounts/status",
+    "native-memory/archive/read",
+    "native-memory/catalog",
+    "native-memory/configure",
+    "native-memory/delete",
+    "native-memory/get",
+    "native-memory/list",
+    "native-memory/process",
+    "native-memory/read",
+    "native-memory/settings/get",
+    "native-memory/settings/write",
+    "native-memory/sync",
+    "native-memory/tasks/cancel",
+    "native-memory/tasks/list",
+    "native-memory/write",
+    "native-plugins/change",
+    "native-plugins/list",
+    "native-skills/export",
+    "native-skills/import",
+    "native-skills/links/apply",
+    "native-skills/links/plan",
+    "native-skills/list",
+    "native-skills/read",
+    "native-skills/toggle",
+    "navigation/get",
+    "navigation/open",
+    "navigation/view",
+    "path/open",
+    "permissions/remember",
+    "plan/translate",
+    "plugin-recovery/core-failed",
+    "plugin-recovery/core-ready",
+    "plugin-recovery/pulse",
+    "plugin-recovery/renderer-failed",
+    "plugin-recovery/renderer-ready",
+    "plugin-recovery/renderer-start",
+    "plugin-recovery/repair",
+    "plugin-recovery/repair-draft",
+    "plugin-recovery/repair-draft/ack",
+    "plugin-recovery/show",
+    "plugin-recovery/status",
+    "plugin-recovery/ui-language",
+    "plugins/list",
+    "plugins/set-enabled",
+    "project/archive-sessions",
+    "project/create",
+    "project/pick",
+    "project/pick-many",
+    "project/remove",
+    "project/reorder",
+    "project/update",
+    "remote-browser/cancel",
+    "remote-browser/code",
+    "remote-browser/create",
+    "remote-browser/delete",
+    "remote-browser/launch",
+    "remote-browser/open",
+    "remote-browser/profiles",
+    "remote-browser/reconnect",
+    "remote-browser/rename",
+    "remote-browser/setup-apply",
+    "remote-browser/setup-plan",
+    "remote-browser/start",
+    "remote-browser/status",
+    "remote-browser/stop",
+    "remote-cli/apply",
+    "remote-cli/configure",
+    "remote-cli/list",
+    "remote-cli/plan",
+    "remote-configuration/apply",
+    "remote-configuration/configure",
+    "remote-configuration/list",
+    "remote-configuration/plan",
+    "remote-files/browse",
+    "remote-files/download",
+    "remote-files/mutate",
+    "remote-files/upload",
+    "remote-resources/configure",
+    "remote-resources/read",
+    "remote-resources/reclaim",
+    "remote-storage/inspect",
+    "remote-storage/logs",
+    "remote-storage/status",
+    "runtime/catalog",
+    "runtime/choice",
+    "runtime/models",
+    "runtime/select",
+    "session/api-acknowledge",
+    "session/approval",
+    "session/catalog",
+    "session/collaboration",
+    "session/context",
+    "session/copy",
+    "session/create",
+    "session/delete",
+    "session/fork",
+    "session/fork-options",
+    "session/interaction",
+    "session/interaction/open-url",
+    "session/memory-handoff/read",
+    "session/metrics",
+    "session/migrate-native",
+    "session/migration-manifest",
+    "session/model",
+    "session/model-target",
+    "session/move-project",
+    "session/native-title/refresh",
+    "session/open-workspace",
+    "session/permissions",
+    "session/plan",
+    "session/plan/respond",
+    "session/prepare-runtime",
+    "session/preview",
+    "session/public-history",
+    "session/reconcile",
+    "session/reorder",
+    "session/skills",
+    "session/skills/read",
+    "session/stop",
+    "session/update",
+    "shortcuts/get",
+    "shortcuts/set",
+    "sidebar/collapse-all",
+    "sidebar/project-visibility",
+    "skills/delete",
+    "skills/import",
+    "skills/list",
+    "skills/read",
+    "ssh/import-file",
+    "ssh/install-key",
+    "ssh/pick-file",
+    "ssh/scan-host-key",
+    "ssh/trust-host-key",
+    "ssh/verify",
+    "state/get",
+    "studio/apply",
+    "studio/connect",
+    "studio/export-connection",
+    "studio/export-managed",
+    "studio/import",
+    "studio/import-preview",
+    "studio/invite-export",
+    "studio/list",
+    "studio/operation",
+    "studio/plan",
+    "studio/prepare",
+    "theme/set",
+    "translation/auto-submit",
+    "translation/candidates",
+    "translation/intermediate",
+    "translation/layout",
+    "translation/models",
+    "translation/quick-toggle",
+    "translation/settings",
+    "translation/targets",
+    "translation/usage",
+    "ui-preferences/flush-ready",
+    "ui-preferences/get",
+    "ui-preferences/update",
+    "visualizations/instructions",
+    "visualizations/read",
+    "visualizations/release",
+    "visualizations/render",
+    "workspace/select",
+    "worktrees/cleanup",
+    "worktrees/configure",
+    "worktrees/list",
+    "worktrees/open",
+    "worktrees/restore"
+  ]
+}

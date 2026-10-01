@@ -1,0 +1,26 @@
+[Unit]
+Description=Agent Workbench native account owner
+After=network.target
+
+[Service]
+Type=simple
+User=agent-workbench-accounts
+Group=agent-workbench-accounts
+WorkingDirectory=/var/lib/agent-workbench-accounts
+ExecStart=/usr/bin/python3 -B /opt/agent-workbench/account-runtime/broker.py --config /etc/agent-workbench/accounts.json
+StateDirectory=agent-workbench-accounts
+StateDirectoryMode=0700
+RuntimeDirectory=agent-workbench-accounts
+RuntimeDirectoryMode=0755
+UMask=0077
+NoNewPrivileges=true
+ProtectSystem=full
+PrivateTmp=true
+KillMode=control-group
+TimeoutStopSec=20
+Restart=on-failure
+RestartSec=5
+TasksMax=infinity
+
+[Install]
+WantedBy=multi-user.target

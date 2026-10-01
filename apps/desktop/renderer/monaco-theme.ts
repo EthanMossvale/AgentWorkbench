@@ -1,0 +1,7 @@
+import type { editor } from 'monaco-editor/editor/editor.api';
+import { defaultPreset, themeVariables } from '../../../packages/appearance/themes';
+export function monacoTheme(document:Document):editor.IStandaloneThemeData {
+  const mode=document.documentElement.dataset.theme==='dark'?'dark':'light',css=getComputedStyle(document.documentElement),fallback=themeVariables(defaultPreset(mode));
+  const get=(name:string)=>css.getPropertyValue(name).trim()||fallback[name]!;
+  return {base:mode==='dark'?'vs-dark':'vs',inherit:true,rules:[{token:'keyword',foreground:get('--syntax-keyword').slice(1)},{token:'string',foreground:get('--syntax-string').slice(1)},{token:'number',foreground:get('--syntax-number').slice(1)},{token:'comment',foreground:get('--syntax-comment').slice(1),fontStyle:'italic'},{token:'type.identifier',foreground:get('--syntax-type').slice(1)},{token:'identifier',foreground:get('--syntax-function').slice(1)},{token:'delimiter',foreground:get('--syntax-punctuation').slice(1)}],colors:{'editor.background':get('--code-bg'),'editor.foreground':get('--code-text'),'editorGutter.background':get('--code-bg'),'editorLineNumber.foreground':get('--muted'),'editorLineNumber.activeForeground':get('--accent'),'editor.lineHighlightBackground':get('--hover'),'editor.selectionBackground':get('--selection-bg'),'editorWidget.background':get('--surface'),'editorWidget.border':get('--line'),'editorIndentGuide.background1':get('--line')}};
+}

@@ -1,0 +1,11 @@
+{
+  "schemaVersion": 1,
+  "apiVersion": 1,
+  "id": "example.runtime-studio",
+  "name": "运行时与皮肤开发示例",
+  "version": "1.0.0",
+  "description": "注册独立的离线回声运行时，并替换界面配色、背景及工作区工具栏。仅用于插件开发验证，不连接模型服务。",
+  "capabilities": ["host"],
+  "main": "main.mjs",
+  "renderer": "renderer.mjs"
+}

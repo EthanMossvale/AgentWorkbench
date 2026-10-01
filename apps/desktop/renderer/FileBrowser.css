@@ -1,0 +1,33 @@
+.file-dock { container-type:inline-size; container-name:filedock; }
+.file-dock-actions { display:flex; align-items:center; gap:6px; padding:2px 10px 9px; min-width:0; }
+.file-dock-actions .compact-select-trigger { flex:1; min-width:0; justify-content:flex-start; border:1px solid var(--line); border-radius:7px; padding:5px 8px; font-size:0.923077rem; }
+.file-dock-actions .compact-select-trigger > span { overflow:hidden; text-overflow:ellipsis; }
+.file-dock-actions .compact-select-trigger > svg:last-child { margin-left:auto; }
+.file-dock-actions > .icon-button { margin-left:auto; }
+.file-open-button { display:flex; flex-shrink:0; border:1px solid var(--line); border-radius:7px; overflow:hidden; }
+.file-open-button button { display:flex; align-items:center; gap:5px; background:transparent; border:0; padding:5px 7px; color:var(--text); font:inherit; font-size:0.923077rem; }
+.file-open-button button + button { border-left:1px solid var(--line); }
+.file-open-button button:hover { background:var(--hover); }
+.file-dock-body { display:flex; flex:1; min-height:0; min-width:0; overflow:hidden; border-top:1px solid var(--line); }
+.file-dock .file-dock-body .file-preview { min-width:0; border:0; }
+.file-dock-body:not(.has-preview) .file-preview:has(+.file-explorer):not(:has([role=alert])) { display:none; }
+.file-explorer { display:flex; flex-direction:column; min-height:0; min-width:0; flex:1; padding-top:7px; }
+.has-preview .file-explorer { flex:0 0 190px; border-left:1px solid var(--line); }
+.file-dock .file-explorer .file-browser-tools { padding:0 8px 6px; gap:5px; color:var(--muted); }
+.file-dock .file-explorer .file-browser-tools input { border:0; background:transparent; }
+.file-tree { overflow:auto; min-height:0; padding:0 5px 12px; }
+.file-tree-row { display:flex; align-items:center; width:100%; min-height:29px; gap:6px; padding:4px 8px; border:0; border-radius:5px; color:var(--text); background:transparent; text-align:left; font:inherit; font-size:0.923077rem; }
+.file-tree-row > svg,.tree-arrow { flex-shrink:0; color:var(--muted); }
+.file-tree-row > span:last-child { overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+.file-tree-row:hover,.file-tree-row.selected { background:var(--hover); }
+.file-tree-row:focus-visible { outline:1px solid var(--accent); outline-offset:-1px; }
+.tree-arrow { display:flex; width:11px; }
+.tree-arrow.expanded { transform:rotate(90deg); }
+.file-tree-note { font-size:0.846154rem; color:var(--muted); padding:6px 10px; overflow-wrap:anywhere; }
+.file-tree-note .text-button { display:block; margin-top:4px; }
+@container filedock (max-width:559px) { .has-preview .file-explorer { display:none; } }
+
+.file-dock .file-tab-group:has([aria-selected=true]) { background:var(--hover); box-shadow:inset 0 -2px var(--accent); }
+.file-dock .file-tab-close:focus-visible { outline:1px solid var(--accent); outline-offset:-3px; }
+
+.file-dock[hidden] { display:none; }

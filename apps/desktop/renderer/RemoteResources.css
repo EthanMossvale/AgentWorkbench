@@ -1,0 +1,18 @@
+.remote-resources{padding:0 0 24px;margin-bottom:22px;border-bottom:1px solid var(--line)}.remote-resource-meters{display:grid;gap:20px;margin:18px 0}.remote-resource-meters>div>div{display:flex;justify-content:space-between;gap:12px;font-size:0.923077rem}.remote-resource-meters strong{font-weight:500}.remote-resource-meters progress{width:100%;height:6px;accent-color:var(--accent);margin:10px 0 4px}.remote-resource-meters small,.resource-observed{font-size:0.846154rem;color:var(--muted)}.remote-resource-actions{display:flex;gap:8px;flex-wrap:wrap;margin:16px 0}.remote-resources fieldset{padding:0;border:0;margin:0;min-width:0}.remote-file-tools{display:flex;gap:6px;align-items:center;flex-wrap:wrap;padding:8px 12px;border-bottom:1px solid var(--line);font-size:0.846154rem}.remote-file-tools>span{width:100%;color:var(--muted);overflow-wrap:anywhere}.remote-file-tools button{border:1px solid var(--line);background:transparent;color:var(--text);border-radius:5px;padding:4px 7px;cursor:pointer}.remote-file-tools button:disabled{opacity:.45;cursor:default}.remote-file-menu{position:fixed;z-index:1000;min-width:196px;max-width:210px;border:1px solid var(--line);border-radius:8px;padding:5px;background:var(--panel,var(--surface));box-shadow:0 8px 28px #0002}.remote-file-menu button{display:block;width:100%;border:0;text-align:left;background:transparent;color:var(--text);padding:9px;border-radius:5px;cursor:pointer}.remote-file-menu button:hover{background:var(--hover)}.remote-file-path{font-size:0.923077rem;overflow-wrap:anywhere}.remote-file-editor{width:100%;min-height:320px;max-height:60vh;font-family:var(--font-mono,monospace);font-size:0.923077rem;resize:vertical}
+/* Actual content width determines the connection pane layout. */
+.settings-content>.connections-page.has-files{max-width:none}
+.connections-page .connection-layout.connection-panes{gap:0;row-gap:24px;align-items:start}
+.connections-page .connection-panes>.host-detail{padding-left:0;border-left:0}
+.connection-panes>.connection-divider{align-self:stretch;min-height:450px;cursor:col-resize;touch-action:none;position:relative;outline:0}
+.connection-divider:before{content:"";position:absolute;top:0;bottom:0;left:7px;width:1px;background:var(--line)}
+.connection-divider:hover:before,.connection-divider:focus-visible:before,.connection-panes.is-resizing .connection-divider:before{width:2px;background:var(--accent)}
+.connection-panes.is-resizing{user-select:none;cursor:col-resize}
+.connections-page .connection-panes>.remote-file-dock{min-width:0;height:calc(100vh - 195px);min-height:420px;position:sticky;top:12px;grid-column:5}
+.remote-file-dock[hidden],.connection-panes[hidden]{display:none!important}
+.remote-file-dock>.file-dock{position:relative;width:100%;min-width:0;max-width:none;height:100%;border:1px solid var(--line);border-radius:8px;box-shadow:none}
+.connections-page .connection-panes:not(.files-beside)>.remote-file-dock{grid-column:3;position:relative;height:540px}
+.connections-page .connection-panes.is-stacked>.host-detail{padding-top:20px;border-top:1px solid var(--line)}
+.connections-page .connection-panes.is-stacked>.remote-file-dock{grid-column:1}
+.connection-panes.is-stacked>.connection-host-tree{max-height:250px;overflow:auto}
+.remote-resource-actions button[aria-pressed=true]{background:var(--hover);border-color:var(--accent)}
+.remote-file-menu button:focus-visible{outline:1px solid var(--accent)}

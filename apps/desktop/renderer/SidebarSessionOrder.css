@@ -1,0 +1,2 @@
+.session-row.session-drop-before::before,.session-row.session-drop-after::after{content:"";position:absolute;z-index:4;left:10px;right:8px;height:2px;background:var(--accent);border-radius:2px;pointer-events:none}
+.session-row.session-drop-before::before{top:-1px}.session-row.session-drop-after::after{bottom:-1px}

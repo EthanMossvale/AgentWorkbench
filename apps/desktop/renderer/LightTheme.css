@@ -1,0 +1,20 @@
+/* Paper, warm gray and ink. Scope every legacy color repair to light mode. */
+:root:not([data-theme=dark]) .connection-dot,
+:root:not([data-theme=dark]) .running-dot { background: #80766b; }
+:root:not([data-theme=dark]) .connection-dot.offline { background: var(--danger); }
+:root:not([data-theme=dark]) .composer { box-shadow: 0 3px 12px #30282006; }
+:root:not([data-theme=dark]) .modal-backdrop { background: #241f1b58; }
+:root:not([data-theme=dark]) .legend-dot.implemented { background: #80766b; }
+:root:not([data-theme=dark]) .legend-dot.contract-tested { background: #847266; }
+:root:not([data-theme=dark]) .capability-status.implemented,
+:root:not([data-theme=dark]) .capability-status.contract-tested { color: #756b60; }
+:root:not([data-theme=dark]) .theme-preview { background: #faf9f6; border-color: #e3dfd8; }
+:root:not([data-theme=dark]) .theme-preview > i { background: #efede8; border-color: #e3dfd8; }
+:root:not([data-theme=dark]) .theme-preview > div span { background: #e3dfd8; }
+:root:not([data-theme=dark]) .theme-preview > div span:first-child { background: #98543d; }
+:root:not([data-theme=dark]) .theme-option.dark .theme-preview { background: #242424; border-color: #45413e; }
+:root:not([data-theme=dark]) .theme-option.dark .theme-preview > i { background: #1e1e1e; border-color: #45413e; }
+:root:not([data-theme=dark]) .theme-option.dark .theme-preview > div span { background: #45413e; }
+:root:not([data-theme=dark]) .theme-option.dark .theme-preview > div span:first-child { background: #d6a085; }
+/* Keep the legacy preview default weaker than the appearance control's geometry. */
+:where(:root:not([data-theme=dark])) .theme-option.system .theme-preview { background: linear-gradient(110deg, #faf9f6 50%, #242424 50%); }

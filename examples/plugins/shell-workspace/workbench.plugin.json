@@ -1,0 +1,11 @@
+{
+  "schemaVersion": 1,
+  "apiVersion": 1,
+  "id": "example.shell-workspace",
+  "name": "专注工作台示例",
+  "version": "1.0.0",
+  "description": "演示完整界面替换、原生工作台服务和停用恢复。",
+  "capabilities": ["host"],
+  "main": "main.mjs",
+  "renderer": "renderer.mjs"
+}

@@ -1,0 +1,6 @@
+import {RememberedDetails} from './UiMemory';
+import type {AccountUsage,ResetCard} from '../../../packages/account-usage/types';
+/** Shared display; the owner still prepares an immutable confirmation before redemption. */
+export default function AccountResetCards({usage,scope,busy,onUse,canUse=true}:{usage?:AccountUsage;scope:string;busy:boolean;onUse(card:ResetCard):void;canUse?:boolean}){
+ return <RememberedDetails memoryId="LocalModelAccounts.details.1" scope={scope} className="model-reset-cards"><summary>重置卡 <span>{usage?.availableResetCount===undefined?'数量未知':usage.availableResetCount+' 张可用'}</span></summary>{usage?.cards.map(card=><div className="model-reset-card" key={card.key}><div><strong>{card.title??'额度重置卡'}</strong><small>{card.expiresAt?new Date(card.expiresAt*1000).toLocaleString('zh-CN')+' 到期':'到期时间未知'}{card.count>1?' · '+card.count+' 张':''}</small></div>{canUse&&<button className="text-button" data-testid={'reset-preview-'+card.key} disabled={busy||!card.available} onClick={()=>onUse(card)}>使用{card.creditId?'这张':'一张'}</button>}</div>)}{!usage?.cards.length&&<p className="model-usage-note">{usage?.cardsSupported?'暂无可用重置卡。':'原生接口尚未提供重置卡读取与兑换回执。'}</p>}{!canUse&&<p className="model-usage-note">重置卡由管理员确认使用。</p>}</RememberedDetails>;
+}

@@ -1,0 +1,11 @@
+{
+  "schemaVersion": 1,
+  "apiVersion": 1,
+  "id": "example.developer-api",
+  "name": "开发接口示例",
+  "version": "1.0.0",
+  "description": "服务包装、请求替换、新接口、局部界面与自定义事件",
+  "capabilities": ["host"],
+  "main": "main.mjs",
+  "renderer": "renderer.mjs"
+}

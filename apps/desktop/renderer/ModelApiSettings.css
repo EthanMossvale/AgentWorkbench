@@ -1,0 +1,88 @@
+.model-api-settings{max-width:760px}
+.model-api-intro{font-family:var(--font-ui,Georgia,"Noto Serif SC","SimSun",serif);font-size:1.538462rem;margin:4px 0 10px;line-height:1.6}
+.model-api-note,.model-api-footnote{color:var(--muted);font-size:0.923077rem;line-height:1.8}
+.model-api-heading{display:flex;align-items:center;justify-content:space-between;gap:12px;margin:25px 0 12px}
+.model-api-heading h2,.model-api-heading h3{font-size:1rem;margin:0;font-weight:600}
+.model-api-heading small{font-size:0.846154rem;color:var(--muted);font-weight:400;margin-left:10px}
+.model-api-heading .text-button,.model-api-add-mapping{display:inline-flex;align-items:center;gap:6px}
+.model-api-connections{border-top:1px solid var(--line)}
+.model-api-connections>article{border-bottom:1px solid var(--line)}
+.model-api-connections .model-api-source-row{min-width:0}
+.model-api-connections .model-api-source-warning{color:var(--warning)}
+.model-api-footnote{margin-top:25px}
+.model-api-empty{text-align:center;padding:50px 12px;color:var(--muted)}
+.model-api-empty p{font-family:var(--font-ui,Georgia,"Noto Serif SC",serif);font-size:1.307692rem;margin:12px 0}
+.model-api-empty small{font-size:0.923077rem}
+.model-api-toggle{border:0;padding:0;margin:0;flex:none}
+.model-api-toggle .toggle-row{padding:0;gap:0;min-height:0}
+.model-api-toggle .toggle-row>span{display:none}
+.model-api-toggle:disabled{opacity:.5}
+
+.modal.model-api-modal{width:min(640px,calc(100vw - 40px));max-width:640px;max-height:calc(100dvh - 48px);padding:27px 30px 22px;overflow:hidden;display:flex;flex-direction:column}
+.model-api-modal .modal-header{margin-bottom:24px;flex:none}
+.model-api-modal .modal-header h2{font-family:var(--font-ui,Georgia,"Noto Serif SC","SimSun",serif);font-size:1.692308rem;font-weight:550;letter-spacing:.5px}
+.model-api-modal .modal-header p{font-size:0.923077rem;margin-top:8px;color:var(--muted)}
+.model-api-editor{display:flex;flex-direction:column;min-height:0;flex:1 1 auto;overflow:hidden}
+.model-api-scroll{min-height:0;flex:1 1 auto;overflow-y:auto;scrollbar-width:thin;padding:2px 4px}
+.model-api-editor fieldset{border:0;padding:0;margin:0;min-width:0}
+.model-api-editor label:not(.model-api-choice){display:flex;flex-direction:column;gap:8px;font-size:0.846154rem;color:var(--muted);margin-bottom:17px;min-width:0}
+.model-api-editor input:not([type=checkbox]),.model-api-editor select{width:100%;min-width:0;font-size:0.923077rem;padding:10px 12px;background:var(--bg);color:var(--text);border:1px solid var(--line);border-radius:7px;min-height:40px}
+.model-api-editor input::placeholder{color:var(--muted);opacity:.8}
+.model-api-fields{display:grid;grid-template-columns:1fr 1fr;gap:16px}
+.model-api-key>span:first-child{display:flex;align-items:center;gap:9px}
+.model-api-key>span:first-child small{font-size:0.769231rem;opacity:.8}
+.model-api-key-input{display:flex;align-items:center;border:1px solid var(--line);border-radius:7px;background:var(--bg);padding-right:12px}
+.model-api-key-input input:not([type=checkbox]){border:0;background:none}
+.model-api-key-input .text-button{font-size:0.769231rem;white-space:nowrap;color:var(--muted)}
+.model-api-catalog{border-top:1px solid var(--line);margin-top:8px;padding-top:18px}
+.model-api-catalog>.model-api-heading{margin:0 0 12px}
+.model-api-catalog .text-button{font-size:0.846154rem}
+.model-api-catalog-actions{display:flex;align-items:center;gap:16px;flex:none}
+.model-api-catalog-actions>[data-testid=model-api-select-all]{color:var(--muted)}
+.model-api-search{display:flex;align-items:center;gap:8px;color:var(--muted);padding:0 1px 7px;border-bottom:1px solid var(--line)}
+.model-api-search input:not([type=checkbox]){padding:5px 0;min-height:30px;background:none;border:0;border-radius:0}
+.model-api-models{min-width:0}
+.model-api-model{border-bottom:1px solid var(--line)}
+.model-api-model:last-child{border-bottom:0}
+.model-api-model-row{display:flex;align-items:center;gap:14px;padding:11px 3px}
+.model-api-choice{display:flex;align-items:center;gap:11px;flex:1;min-width:0;cursor:pointer}
+.model-api-choice input{width:14px;height:14px;min-height:14px;flex:none;margin:0;accent-color:var(--accent)}
+.model-api-choice>span{min-width:0}
+.model-api-choice strong{font-size:0.923077rem;font-weight:500;overflow-wrap:anywhere;line-height:1.6}
+.model-api-choice small{display:block;font-size:0.769231rem;color:var(--muted);line-height:1.6;margin-top:2px;overflow-wrap:anywhere}
+.model-api-mapping-button{color:var(--muted);flex:none}
+.model-api-remove-mapping{flex:none;color:var(--muted);padding:4px}
+.model-api-remove-mapping:hover{color:var(--danger)}
+.model-api-mapping{margin:0 2px 13px 28px;padding:12px 13px;background:var(--bg);border:1px solid var(--line);border-radius:7px}
+.model-api-mapping .model-api-fields{gap:12px}
+.model-api-mapping label:not(.model-api-choice){margin-bottom:8px;font-size:0.769231rem}
+.model-api-mapping input:not([type=checkbox]){background:var(--surface);min-height:34px;padding:7px 9px;font-size:0.846154rem}
+.model-api-mapping .model-api-note{font-size:0.769231rem}
+.model-api-mapping-actions{display:flex;justify-content:space-between;margin-top:7px}
+.model-api-mapping-actions .text-button:first-child{color:var(--muted)}
+.model-api-add-mapping{margin:12px 0 3px;color:var(--muted)}
+.model-api-catalog-empty{text-align:center;padding:23px 10px 15px;color:var(--muted)}
+.model-api-catalog-empty>svg{opacity:.65}
+.model-api-catalog-empty p{font-family:var(--font-ui,Georgia,"Noto Serif SC","SimSun",serif);font-size:1.153846rem;margin:10px 0 6px}
+.model-api-catalog-empty small{font-size:0.846154rem}
+.model-api-no-results{padding:20px 0;text-align:center}
+.model-api-error{font-size:0.846154rem;color:var(--danger);line-height:1.7;overflow-wrap:anywhere}
+.model-api-editor>.model-api-error{flex:none;margin:12px 4px 0;padding:10px 12px;border-left:2px solid var(--danger);background:var(--bg);max-height:120px;overflow:auto}
+.model-api-editor-footer{display:flex;align-items:center;justify-content:space-between;gap:12px;flex:none;margin-top:17px;padding-top:16px;border-top:1px solid var(--line)}
+.model-api-editor-footer>small{font-size:0.769231rem;line-height:1.6;color:var(--muted)}
+.model-api-editor-footer>div{display:flex;gap:9px;flex:none}
+.model-api-editor-footer .button{font-size:0.923077rem;min-height:36px;padding:9px 14px}
+
+.api-model-controls{display:flex;align-items:center;gap:6px}
+.api-model-controls .composer-select-trigger{font-size:0.846154rem}
+.api-model-context{border:0;background:transparent;color:var(--muted);font-size:0.769231rem;cursor:help}
+.model-source-caption{font-size:0.769231rem!important;color:var(--muted)!important;max-width:300px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.model-child-link{font-size:0.846154rem;color:var(--muted);border:0;background:transparent;cursor:pointer;margin-right:10px}
+@media(max-height:720px){.modal.model-api-modal{padding-top:22px}.model-api-modal .modal-header{margin-bottom:16px}.model-api-editor label:not(.model-api-choice){margin-bottom:13px}.model-api-catalog-empty{padding-top:15px}}
+.model-api-reasoning{margin-top:12px;font-size:0.923077rem}.model-api-reasoning>span{display:flex;justify-content:space-between;gap:8px}.model-api-reasoning small{font-size:0.769231rem;color:var(--muted)}
+.model-api-effort-options{display:flex;flex-wrap:wrap;gap:7px 12px;margin-top:8px}.model-api-effort-options label{display:flex;flex-direction:row;align-items:center;gap:5px;font-size:0.846154rem}.model-api-effort-options input[type=checkbox]{width:12px;height:12px;min-height:0;flex:none;padding:0}
+.model-api-probe-notice{display:flex;align-items:center;justify-content:space-between;gap:12px;margin:8px 0}.model-api-probe-notice .model-api-note{font-size:0.769231rem;margin:0}.model-api-probe-notice .text-button{flex:none;font-size:0.769231rem}
+.model-api-reasoning>span{flex-wrap:wrap}.model-api-manual-mode{font-size:0.846154rem;margin-top:6px}
+.model-api-editor .model-api-effort-options label{margin:0;color:var(--text)}
+.model-api-editor label.model-api-manual-default{display:flex;flex-direction:row;align-items:center;gap:12px;margin:12px 0 8px;font-size:0.846154rem}
+.model-api-manual-default select{width:110px;min-height:30px;padding:5px 8px}

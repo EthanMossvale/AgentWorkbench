@@ -1,0 +1,31 @@
+/* Shared theme tokens keep cards and their contents on one quiet surface. */
+:is(.local-model-accounts,.provider-accounts) .model-account{background:transparent;border-color:color-mix(in srgb,var(--line) 78%,transparent);border-radius:14px;padding:0 16px;box-shadow:none}
+:is(.local-model-accounts,.provider-accounts) .model-account-row{min-height:72px;gap:6px}
+:is(.local-model-accounts,.provider-accounts) .model-account-detail{border-top-color:color-mix(in srgb,var(--line) 70%,transparent);padding:16px 0}
+:is(.local-model-accounts,.provider-accounts) .model-row-disclosure{gap:8px}
+:is(.local-model-accounts,.provider-accounts) .model-row-disclosure strong{font-weight:600;line-height:1.5}
+:is(.local-model-accounts,.provider-accounts) .model-row-disclosure small{line-height:1.5}
+:is(.local-model-accounts,.provider-accounts) .model-account-row>.icon-button{width:26px;height:28px;flex:none}
+:is(.local-model-accounts,.provider-accounts) .model-account-detail-toolbar{margin-bottom:18px;gap:8px 10px}
+:is(.local-model-accounts,.provider-accounts) .model-quota-windows{gap:18px;max-width:none}
+:is(.local-model-accounts,.provider-accounts) .model-quota-window>div{display:grid;grid-template-columns:1fr auto;gap:3px 8px;align-items:baseline}
+:is(.local-model-accounts,.provider-accounts) .model-quota-window>div>span{width:auto;font-size:.923077rem;color:var(--muted)}
+:is(.local-model-accounts,.provider-accounts) .model-quota-window strong{font-size:1.538462rem;font-weight:500;letter-spacing:-.035em;color:var(--text)}
+:is(.local-model-accounts,.provider-accounts) .model-quota-window small{grid-column:1 / -1;margin:0;color:var(--muted);font-size:.769231rem}
+:is(.local-model-accounts,.provider-accounts) .model-quota-window progress{height:5px;margin-top:8px}
+:is(.local-model-accounts,.provider-accounts) .model-quota-window progress::-webkit-progress-bar{background:color-mix(in srgb,var(--muted) 13%,transparent)}
+:is(.local-model-accounts,.provider-accounts) .model-quota-window progress::-webkit-progress-value{background:var(--accent)}
+:is(.local-model-accounts,.provider-accounts) .model-reset-cards{margin:16px 0 0;font-size:.846154rem}
+:is(.local-model-accounts,.provider-accounts) .model-account .model-usage-summary{background:transparent;border:0;border-radius:0;border-top:1px solid color-mix(in srgb,var(--line) 70%,transparent);padding:14px 0 0;margin:16px 0 0;box-shadow:none}
+:is(.local-model-accounts,.provider-accounts) .model-usage-toolbar>span{color:var(--muted);font-size:.846154rem}
+:is(.local-model-accounts,.provider-accounts) .model-periods{gap:1px}
+:is(.local-model-accounts,.provider-accounts) .model-periods button{border-radius:5px;font-size:.769231rem;padding:3px 5px}
+:is(.local-model-accounts,.provider-accounts) .model-periods button[aria-pressed=true]{background:var(--tint);color:var(--accent)}
+:is(.local-model-accounts,.provider-accounts) .model-usage-total{padding:12px 0 2px}
+:is(.local-model-accounts,.provider-accounts) .model-usage-total strong{font-weight:500;letter-spacing:-.035em;font-variant-numeric:tabular-nums}
+:is(.local-model-accounts,.provider-accounts) .model-usage-total small{font-size:.769231rem;color:var(--muted)}
+:is(.local-model-accounts,.provider-accounts) .model-usage-note{line-height:1.65;font-size:.846154rem}
+
+:is(.local-model-accounts,.provider-accounts) .model-quota-unknown{height:4px;width:100%;border-radius:3px;background:var(--border);opacity:.65}
+
+.provider-accounts .account-card .account-usage{margin-top:0}

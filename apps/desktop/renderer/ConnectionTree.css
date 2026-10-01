@@ -1,0 +1,19 @@
+.host-list.connection-host-tree{display:flex;flex-direction:column;gap:22px;min-width:0}
+.connection-tree-heading{font-size:0.846154rem;letter-spacing:1.5px;color:var(--muted);margin:0 9px}
+.connection-host-tree .host-family{min-width:0}.connection-host-tree .host-card{padding:11px 10px;border:0;border-radius:7px;background:transparent;min-width:0}
+.connection-host-tree .host-card.selected{background:var(--hover)}
+.connection-host-tree .host-card-select{display:flex;align-items:center;gap:9px;width:100%;min-width:0;border:0;padding:0;background:transparent;text-align:left}
+.connection-host-tree .host-card-select strong{font-size:1rem;font-weight:500;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.connection-host-tree .host-card-select svg{color:var(--accent);flex-shrink:0}
+.connection-host-tree .host-card .connection-address{margin:6px 0 0 24px}.connection-host-tree .host-card p{font-size:0.846154rem;margin:7px 0 0 24px}
+.connection-host-tree .host-children-label{display:flex;align-items:center;justify-content:space-between;width:100%;border:0;background:transparent;padding:15px 8px 10px;font-size:0.846154rem;color:var(--muted);gap:7px}
+.host-children-label>span:first-child{display:flex;gap:6px;align-items:center}.host-children-label[aria-expanded=false] svg{transform:rotate(-90deg)}
+.connection-host-tree .host-children{border-left:1px solid var(--line);margin-left:13px;padding-left:10px;display:grid;gap:4px;min-width:0}
+.connection-host-tree .remote-workspace-link{display:flex;gap:10px;align-items:flex-start;text-align:left;padding:11px 9px;border:0;border-radius:6px;background:transparent;font-size:1rem;width:100%;min-width:0}
+.remote-workspace-link:hover{background:var(--hover)}.remote-workspace-link>svg{margin-top:2px;flex-shrink:0;color:var(--muted)}.remote-workspace-link>span{overflow-wrap:anywhere}
+.remote-workspace-link small{display:block;font-size:0.769231rem;color:var(--muted);margin-top:5px}.host-children>.inline-note{padding:8px;font-size:0.846154rem}
+
+.connection-host-tree .host-card{position:relative;cursor:pointer;user-select:none}
+.connection-host-tree .host-card-select:after{content:"";position:absolute;inset:0;border-radius:7px;z-index:1}
+.connection-host-tree .host-card .address-eye{position:relative;z-index:2}
+.connection-host-tree .remote-workspace-link{user-select:none}
