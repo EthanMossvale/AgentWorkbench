@@ -10,6 +10,7 @@ import {ProcessSupervisor,decodeNativeFrame} from '../services/remote-supervisor
 import {PluginRegistry} from '../packages/plugins-core';
 import {encodeZip} from '../packages/native-resources/archive';
 import {draftRecovery} from '../packages/session-core/draft-recovery';
+import {nativeEventSemantics} from '../packages/native-events/semantics';
 import type {DraftPreview,Session} from '../packages/contracts';
 
 const input:DraftPreview={id:'input',original:'Exact original',translated:'Exact submitted',revision:1,sourceHash:'fixture',demo:false,bypass:true};
@@ -35,6 +36,25 @@ async function fixture(t:test.TestContext,runtime:'claude'|'codex'='claude',remo
   t.after(async()=>{await runner.dispose();await rm(root,{recursive:true,force:true});});
   return {root,store,runner,wires,connection,get:()=>store.snapshot().sessions[0]!,scans:()=>scans,contexts:()=>contextCalls,restorations:()=>restorations};
 }
+for(const [runtime,remote] of [['codex',false],['claude',false],['claude',true]] as const)test(`${remote?'SSH':'local'} ${runtime}: approved streaming policy batches writes and terminal barriers preserve exact text`,async t=>{
+ const f=await fixture(t,runtime,remote),plugins=new PluginRegistry(path.join(f.root,'plugins'));await plugins.initialize();plugins.services.register('native.event-semantics',nativeEventSemantics,{version:1});t.after(()=>plugins.dispose());
+ const manifest={schemaVersion:1,apiVersion:1,id:'qa.stream-policy',name:'Streaming policy',version:'1.0.0',description:'Synthetic streaming batch policy',capabilities:['host'],main:'main.mjs'},file=path.join(f.root,'policy.zip');
+ await writeFile(file,encodeZip([{name:'workbench.plugin.json',data:Buffer.from(JSON.stringify(manifest))},{name:'main.mjs',data:Buffer.from("export function activate(api){let calls=0;api.services.register('qa.stream-policy',{batchWindowMs:()=>{calls++;return 40;}},{version:1});api.services.override('native.event-semantics',api.services.get('qa.stream-policy'));api.registerCommand('calls',()=>calls);}")} ]));
+ await plugins.importZip(file);const plugin=(await plugins.list())[0]!;await assert.rejects(plugins.setEnabled(manifest.id,plugin.hash,true),/approval/i);await plugins.setEnabled(manifest.id,plugin.hash,true,true);
+ await f.runner.submit('chat',input);await until(()=>!!f.wires[0]?.writes.some(v=>v.type==='user'||v.method==='turn/start'));
+ const wire=f.wires[0]!;
+ if(runtime==='claude')wire.frame({type:'stream_event',session_id:'thread',event:{type:'message_start',message:{id:'answer'}}});
+ await delay(30);let writes=0;const update=f.store.update.bind(f.store);f.store.update=async change=>{writes++;return update(change);};
+ const chunks=Array.from({length:30},(_,i)=>' public-'+i);
+ for(const delta of chunks){wire.frame(runtime==='codex'?{method:'item/agentMessage/delta',params:{threadId:'thread',turnId:'turn',itemId:'answer',delta}}:{type:'stream_event',session_id:'thread',event:{type:'content_block_delta',index:0,delta:{type:'text_delta',text:delta}}});await delay(2);}
+ await until(()=>f.get().messages.some(m=>m.original===chunks.join('')));assert.ok(writes<=8,'Unexpected per-token persistence: '+writes);assert.ok(await plugins.command(manifest.id,'calls',{}) as number>0);
+ wire.frame(runtime==='codex'?{method:'item/agentMessage/delta',params:{threadId:'thread',turnId:'turn',itemId:'answer',delta:' final'}}:{type:'stream_event',session_id:'thread',event:{type:'content_block_delta',index:0,delta:{type:'text_delta',text:' final'}}});
+ const expected=chunks.join('')+' final';
+ if(runtime==='codex'){wire.frame({method:'item/completed',params:{threadId:'thread',turnId:'turn',item:{id:'answer',type:'agentMessage',phase:'final_answer',text:expected}}});wire.frame({method:'turn/completed',params:{threadId:'thread',turn:{id:'turn',status:'completed'}}});}
+ else{wire.frame({type:'assistant',session_id:'thread',uuid:'final',message:{id:'answer',content:[{type:'text',text:expected}]}});wire.frame({type:'result',session_id:'thread',subtype:'success',is_error:false});}
+ await until(()=>!f.runner.busy('chat'));assert.equal(f.get().messages.filter(m=>m.role==='assistant').at(-1)?.original,expected);
+ await plugins.setEnabled(manifest.id,plugin.hash,false);assert.equal(nativeEventSemantics.batchWindowMs(),32);await plugins.setEnabled(manifest.id,plugin.hash,true);assert.equal(nativeEventSemantics.batchWindowMs(),40);await plugins.setEnabled(manifest.id,plugin.hash,false);
+});
 for(const [runtime,remote] of [['claude',false],['codex',false],['claude',true]] as const)test(`${remote?'SSH':'local'} ${runtime}: preparation moves startup before explicit send without inference`,async t=>{
   const f=await fixture(t,runtime,remote,160),cold=performance.now();await Promise.all([f.runner.prepare('chat'),f.runner.prepare('chat')]);const preparationMs=performance.now()-cold;
   assert.equal(f.wires.length,1);assert.equal(f.runner.busy('chat'),false);assert.equal(f.get().status,'idle');assert.equal(f.get().messages.length,0);assert.equal(f.contexts(),0);

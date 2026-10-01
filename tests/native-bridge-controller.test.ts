@@ -174,6 +174,19 @@ test('accepted native submission streams exact public text, reviews native chang
   const messages=f.store.snapshot().sessions[0]!.messages;assert.equal(messages.length,2);assert.equal(messages[1]!.original,'Hello complete.');assert.ok(!JSON.stringify(messages).includes('PRIVATE REASONING'));
  }finally{await f.close();}
 });
+
+test('SSH Codex public deltas coalesce across event-loop deliveries and completion drains pending text',async()=>{
+ const f=await fixture();try{
+  await f.submit(await f.prepare());await wait(()=>!!f.store.snapshot().sessions[0]?.nativeTurnId);
+  let writes=0;const update=f.store.update.bind(f.store);f.store.update=async change=>update(state=>{const before=state.sessions[0]?.messages.at(-1)?.original;change(state);if(before!==state.sessions[0]?.messages.at(-1)?.original)writes++;});
+  const chunks=Array.from({length:30},(_,i)=>' delta-'+i);
+  for(const delta of chunks){f.emit('item/agentMessage/delta',{threadId:'native',turnId:'turn',itemId:'answer',delta});await new Promise(r=>setTimeout(r,2));}
+  await wait(()=>f.store.snapshot().sessions[0]?.messages.at(-1)?.original===chunks.join(''));assert.ok(writes<chunks.length/2,'Unexpected per-token writes: '+writes);
+  f.emit('item/agentMessage/delta',{threadId:'native',turnId:'turn',itemId:'answer',delta:' final'});
+  f.emit('turn/completed',{threadId:'native',turn:{id:'turn',status:'completed'}});await wait(()=>f.store.snapshot().sessions[0]?.status==='idle');
+  assert.equal(f.store.snapshot().sessions[0]!.messages.at(-1)!.original,chunks.join('')+' final');assert.equal(f.turns,1);
+ }finally{await f.close();}
+});
 test('Stop keeps the turn running until executor cleanup completes, even after a native interrupted event',async()=>{
  const f=await fixture();try{await f.submit(await f.prepare());await wait(()=>!!f.store.snapshot().sessions[0]?.nativeTurnId);
   const stopping=f.controller.call('session/stop',{sessionId:'session'});await new Promise(r=>setTimeout(r,30));assert.equal(f.store.snapshot().sessions[0]!.status,'running');

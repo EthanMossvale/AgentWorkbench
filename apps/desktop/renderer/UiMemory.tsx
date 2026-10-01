@@ -3,14 +3,14 @@ import {uiPreferences,useUiPreference,useUiPreferenceRead} from './ui-preference
 
 /** Stable, explicit identity; native details semantics and existing handlers stay intact. */
 export const UiMemoryScope=createContext('');
-export function RememberedDetails({memoryId,scope='',open=false,forceOpen=false,onToggle,...props}:ComponentProps<'details'>&{memoryId:string;scope?:string;forceOpen?:boolean}){
+export function RememberedDetails({memoryId,scope='',open=false,forceOpen=false,onToggle,body,...props}:ComponentProps<'details'>&{memoryId:string;scope?:string;forceOpen?:boolean;body?:()=>React.ReactNode}){
   const parent=useContext(UiMemoryScope);
   const key=JSON.stringify([parent,memoryId,scope]),read=useUiPreferenceRead('disclosure.open',key),effective=forceOpen||(read.saved?read.value as boolean:open);
   return <details {...props} data-ui-memory={memoryId} open={effective} onToggle={event=>{
     if(event.target!==event.currentTarget)return;
     if(!forceOpen&&event.currentTarget.open!==effective)uiPreferences.change('disclosure.open',event.currentTarget.open,key);
     onToggle?.(event);
-  }}/>;
+  }}>{props.children}{effective&&body?.()}</details>;
 }
 /** Persist only the resize handle's geometry, never textarea contents. */
 export function RememberedTextarea({memoryId,scope='',style,...props}:ComponentProps<'textarea'>&{memoryId:string;scope?:string}){

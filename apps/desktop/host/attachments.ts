@@ -9,6 +9,7 @@ const validId = (id: string) => /^[0-9a-f-]{36}$/.test(id);
 const credentialPath=(value:string)=>value.split(/[\\/]/).some(part=>['.ssh','.gnupg','.aws','.azure','.kube','.codex','.claude','.agent-workbench','.agentworkbench'].includes(part.toLowerCase()));
 const specialPath=(value:string)=>process.platform==='win32'&&(value.startsWith('\\\\')||value.slice(2).includes(':'));
 const samePath=(a:string,b:string)=>process.platform==='win32'?a.toLowerCase()===b.toLowerCase():a===b;
+const inside=(root:string,target:string)=>{const relative=path.relative(root,target);return !!relative&&relative!=='..'&&!relative.startsWith('..'+path.sep)&&!path.isAbsolute(relative);};
 const generatedPath=(item:Pick<Attachment,'id'|'path'|'generatedRoot'>)=>typeof item.generatedRoot==='string'&&path.isAbsolute(item.generatedRoot)&&!item.generatedRoot.split(/[\\/]/).some(v=>['.ssh','.gnupg','.aws','.azure','.kube','.codex','.claude'].includes(v.toLowerCase()))&&samePath(item.path,path.join(item.generatedRoot,'generated_images','image-'+item.id.replaceAll('-','')+'.png'));
 function mime(data: Buffer, name: string): string {
   if (data.subarray(0,8).equals(Buffer.from([137,80,78,71,13,10,26,10]))) return 'image/png';
@@ -77,7 +78,13 @@ export class AttachmentStore {
     try{await writeFile(temporary,data,{flag:'wx',mode:0o600});await rename(temporary,destination);}finally{await rm(temporary,{force:true});}
     return true;
   }
-  async import(inputs: AttachmentInput[]): Promise<AttachmentView[]> {
+  /** Display-only snapshots of a bound native view; never attached to a model turn. */
+  async importViewedImages(filePaths:string[],workspaceRoot:string):Promise<AttachmentView[]> {
+    const root=path.isAbsolute(workspaceRoot)?await realpath(workspaceRoot):undefined;
+    return this.importFiles(filePaths.map(filePath=>({filePath})),root,true);
+  }
+  async import(inputs: AttachmentInput[]): Promise<AttachmentView[]> {return this.importFiles(inputs);}
+  private async importFiles(inputs:AttachmentInput[],workspaceRoot?:string,viewed=false):Promise<AttachmentView[]> {
     if (!Array.isArray(inputs) || !inputs.length || inputs.length > MAX_ATTACHMENTS) throw Error('一次最多添加 10 个附件。');
     const staged: {item:Attachment;data:Buffer;source?:string}[] = []; let total=0;
     for (const input of inputs) {
@@ -86,11 +93,20 @@ export class AttachmentStore {
         if (!path.isAbsolute(input.filePath)) throw Error('附件必须是本机文件。');
         // Reject remote/device and credential locations before resolving or opening them.
         if(specialPath(input.filePath))throw Error('不支持网络共享、设备路径或备用数据流附件。');
-        if(credentialPath(input.filePath))throw Error('不能将原生凭据或私钥目录中的文件添加为附件。');
+        const workspaceImage=(value:string)=>{
+          if(!viewed||!workspaceRoot)return false;
+          const relative=path.relative(workspaceRoot,value);
+          if(!inside(workspaceRoot,value)||credentialPath(relative))return false;
+          // Only the workbench's managed task subtree is exempt from the profile
+          // guard. Selecting a credential/config directory never grants an exemption.
+          const parts=workspaceRoot.split(/[\\/]/),index=parts.findIndex(part=>['.agent-workbench','.agentworkbench'].includes(part.toLowerCase()));
+          return index>=0&&parts[index+1]==='workspaces'&&!!parts[index+2]&&!credentialPath(parts.slice(0,index).join('/'))&&!credentialPath(parts.slice(index+2).join('/'));
+        };
+        if(credentialPath(input.filePath)&&!workspaceImage(input.filePath))throw Error('ACTIVITY_IMAGE_PROTECTED: 不能将原生凭据或私钥目录中的文件添加为附件。');
         const source=await realpath(input.filePath);originalPath=source;
         if(specialPath(source))throw Error('不支持网络共享、设备路径或备用数据流附件。');
-        if(this.controlPaths.some(root=>{const relative=path.relative(root,source);return relative===''||(!relative.startsWith('..'+path.sep)&&relative!=='..'&&!path.isAbsolute(relative));}))throw Error('工作台配置与凭据文件不能添加为附件。');
-        if(credentialPath(source))throw Error('不能将原生凭据或私钥目录中的文件添加为附件。');
+        if(this.controlPaths.some(root=>(samePath(root,source)||inside(root,source))&&!(workspaceImage(source)&&inside(root,workspaceRoot!))))throw Error('ACTIVITY_IMAGE_PROTECTED: 工作台配置与凭据文件不能添加为附件。');
+        if(credentialPath(source)&&!workspaceImage(source))throw Error('ACTIVITY_IMAGE_PROTECTED: 不能将原生凭据或私钥目录中的文件添加为附件。');
         const file=await open(source,'r');
         try { const info=await file.stat(); if(!info.isFile()||info.nlink>1)throw Error('请添加普通文件，不能直接添加文件夹或硬链接。'); if(info.size>MAX_ATTACHMENT_BYTES)throw Error('单个附件不能超过 20 MB。'); data=Buffer.alloc(info.size);let offset=0;while(offset<data.length){const result=await file.read(data,offset,data.length-offset,offset);if(!result.bytesRead)throw Error('附件正在变化，请重新添加。');offset+=result.bytesRead;}const after=await file.stat();if(after.size!==info.size||after.mtimeMs!==info.mtimeMs||after.ctimeMs!==info.ctimeMs||await realpath(input.filePath)!==source)throw Error('附件正在变化，请重新添加。'); } finally { await file.close(); }
         name=path.basename(source);
@@ -102,7 +118,8 @@ export class AttachmentStore {
       total+=data.length;if(total>MAX_ATTACHMENT_TOTAL)throw Error('附件总大小不能超过 50 MB。');
       const hash=digest(data);if(staged.some(v=>v.item.sha256===hash&&v.item.name===name))continue;
       const id=randomUUID(),safe=name.replace(/[<>:"/\\|?*]/g,'_');
-      const type=mime(data,name),storage=this.options.nativePaths?(originalPath?'source':type.startsWith('image/')?'clipboard':'managed'):'managed';
+      const type=mime(data,name),storage=this.options.nativePaths&&!viewed?(originalPath?'source':type.startsWith('image/')?'clipboard':'managed'):'managed';
+      if(viewed&&!type.startsWith('image/'))throw Error('ACTIVITY_IMAGE_SOURCE_UNAVAILABLE');
       staged.push({item:{id,name,size:data.length,mime:type,sha256:hash,storage,createdAt:new Date().toISOString(),path:storage==='source'?originalPath!:path.join(storage==='clipboard'?this.temporaryDirectory:this.directory,id,'file-'+safe)},data,source:storage==='source'?originalPath:undefined});
     }
     try {

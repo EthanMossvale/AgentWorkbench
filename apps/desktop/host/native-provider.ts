@@ -1,4 +1,5 @@
 import type {NativeQuotaAccounting} from './quota-accounting';
+import {nativeEventSemantics} from '../../../packages/native-events/semantics';
 import { sessionPresentation } from '../../../packages/session-core/presentation';
 import {nativeContextState} from '../../../packages/model-api/context-state';
 import { nativeSessionTitles, type NativeTitleRefreshResult } from '../../../packages/session-core/native-titles';
@@ -67,6 +68,7 @@ interface Active {
   approvals: Map<RpcId, Record<string, any>>; gateway?: Awaited<ReturnType<typeof openNativeGateway>>;
   upstreamDiagnostic?:NativeProviderDiagnostic;
   textBatch?: Map<string, { chunks: string[]; phase?: 'commentary' | 'final' }>;
+  drainText?:()=>void;
   modelCatalog?:Awaited<ReturnType<typeof prepareCodexModelCatalog>>;
   children:NativeChildLifecycle; previewId?:string; finishingTurn?:boolean; startTurn?:(preview:DraftPreview)=>Promise<void>;
   runtimeFailure?:string; retryNotice?:string; retryPending?:boolean;
@@ -241,14 +243,21 @@ export class NativeProviderRunner {
     });
     return { started: true, runtime: session.binding.runtime };
   }
-  private enqueue(active: Active, work: () => Promise<unknown>) { active.textBatch = undefined; active.queue = active.queue.then(work).then(() => {}); active.queue.catch(() => active.abort.abort()); }
+  private enqueue(active: Active, work: () => Promise<unknown>) { active.drainText?.();active.textBatch = undefined; active.queue = active.queue.then(work).then(() => {}); active.queue.catch(() => active.abort.abort()); }
   private appendText(id: string, active: Active, itemId: string, text: string, phase?: 'commentary' | 'final') {
     if (!text) return;
     let batch = active.textBatch;
     if (!batch) {
       batch = new Map(); active.textBatch = batch;
       const current = batch;
+      const windowMs=nativeEventSemantics.batchWindowMs();
+      const ready=new Promise<void>(resolve=>{
+        if(!Number.isFinite(windowMs)||windowMs<=0){resolve();return;}
+        const drain=()=>{clearTimeout(timer);if(active.drainText===drain)active.drainText=undefined;resolve();};
+        const timer=setTimeout(drain,Math.min(windowMs,100));active.drainText=drain;
+      });
       active.queue = active.queue.then(async () => {
+        await ready;
         if (active.textBatch === current) active.textBatch = undefined;
         await this.update(id, session => {
           for (const [key, value] of current) {

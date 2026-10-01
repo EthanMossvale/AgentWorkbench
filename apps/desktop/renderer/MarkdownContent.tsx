@@ -1,4 +1,4 @@
-import { Fragment, useEffect, useMemo, useState, type ReactNode } from 'react';
+import { Fragment, memo, useEffect, useMemo, useState, type ReactNode } from 'react';
 import type { Token, Tokens } from 'marked';
 import { markdownTokens, markdownLink, markdownText, markdownCode, markdownMath, type MarkdownMathToken } from '../../../packages/message-markdown';
 import { fileReference, webReference, linkedText, type LinkedText } from '../../../packages/navigation/file-links';
@@ -31,7 +31,8 @@ function CodeBlock({ token, onCopy, onCopyError }: { token: Tokens.Code } & Pick
     try { await onCopy(markdownCode(token)); setCopied(true); } catch (error) { onCopyError?.(error); } finally { setBusy(false); }
   }}><Icon name={copied ? 'check' : 'copy'} size={13}/><span>{copied ? '已复制' : '复制'}</span></button></header><pre><SyntaxCode text={markdownCode(token)} language={token.lang??''}/></pre></div>;
 }
-export default function MarkdownContent({ text, sessionId, renderLink, onCopy, onCopyError }: MarkdownContentProps) {
+export default memo(function MarkdownContent({ text, sessionId, renderLink, onCopy, onCopyError }: MarkdownContentProps) {
+  const tokens=useMemo(()=>markdownTokens(text),[text]);
   const plain = (text: string, key: string) => linkedText(markdownText(text)).map((item, index) => item.url || item.reference ? renderLink(item, `${key}-${index}`) : <Fragment key={`${key}-${index}`}>{item.text}</Fragment>);
   const render = (tokens: Token[], parent = 'md'): ReactNode[] => tokens.map((token, index) => {
     const key = `${parent}-${index}`, inline = (items?: Token[]) => render(items ?? [], key);
@@ -64,5 +65,5 @@ export default function MarkdownContent({ text, sessionId, renderLink, onCopy, o
       default: return <span key={key}>{token.raw}</span>;
     }
   });
-  return <div className="message-text message-markdown" data-message-markdown>{render(markdownTokens(text))}</div>;
-}
+  return <div className="message-text message-markdown" data-message-markdown>{render(tokens)}</div>;
+});

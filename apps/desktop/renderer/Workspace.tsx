@@ -26,7 +26,7 @@ import {useComposerSize} from './useComposerSize';
 import './SessionControls.css';
 import './ComposerControls.css';
 import SessionMetrics from './SessionMetrics';
-import { useEffect, useLayoutEffect, useRef, useState } from 'react';
+import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import type { AppState, DraftPreview, Message, NewSessionDraft, PermissionMode, Session } from '../../../packages/contracts';
 import { useAttachments, AttachmentList } from './Attachments';
 import type { Attachment } from '../../../packages/attachments/types';
@@ -75,7 +75,12 @@ function pairBlocks(sourceText: string, chineseText?: string) {
   const source = paragraphs(sourceText); const translated = chineseText ? paragraphs(chineseText) : [];
   return translated.length && source.length === translated.length ? { source, translated, aligned: true } : { source: [sourceText], translated: [chineseText ?? ''], aligned: false };
 }
-const blocks = (message: Message) => message.role === 'user' ? pairBlocks(annotationBody(skillBody(message.submitted ?? message.original,message.skills),message.annotations), message.original) : pairBlocks(visibleReply(message.original), message.translation);
+const blockCache=new WeakMap<Message,ReturnType<typeof pairBlocks>>();
+const blocks = (message: Message) => {
+  let value=blockCache.get(message);
+  if(!value){value=message.role==='user'?pairBlocks(annotationBody(skillBody(message.submitted??message.original,message.skills),message.annotations),message.original):pairBlocks(visibleReply(message.original),message.translation);blockCache.set(message,value);}
+  return value;
+};
 const localDraftLabel = (text: string) => /\p{Script=Han}/u.test(text) ? '中文原稿 · 本地保存' : '用户原稿 · 本地保存';
 
 export default function Workspace({ repairDraft,onRepairDraftApplied,onRememberModel, state, session, active = true, draft, onDraftChange, onSwitchDraft, onCreateProject, ensureSession, onFork, forkingId, onOpenSource, focusMessageId, report, notify, refresh }: Props) {
@@ -160,7 +165,7 @@ export default function Workspace({ repairDraft,onRepairDraftApplied,onRememberM
   const trackingCurrent=useRef(trackingEnabled);trackingCurrent.current=trackingEnabled;
   useLayoutEffect(()=>{if(!trackingEnabled)setActiveBlock(null);},[trackingEnabled]);
   const childReaderSession=reader?.type==='child'?state?.sessions.find(item=>item.id===reader.sessionId):undefined;
-  const conversationEntries=session?conversationTimeline(session,state?.collaboration?.messages,state?.sessions):[];
+  const conversationEntries=useMemo(()=>session?conversationTimeline(session,state?.collaboration?.messages,state?.sessions):[],[session,state?.collaboration?.messages,state?.sessions]);
   const changeTurn=reader?.type==='changes'&&session?readingTurns(conversationEntries,session).find(turn=>turn.id===reader.turnId):undefined;
   const reviewChanges=changeTurn?mergeTurnFileChanges(changeTurn.answers.flatMap(item=>item.type==='changes'?[item.changes]:[]),changeTurn.id):undefined;
   const [migrating,setMigrating]=useState(false);

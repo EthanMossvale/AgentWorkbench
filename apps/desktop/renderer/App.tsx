@@ -1,4 +1,5 @@
 import DesktopUpdate from './DesktopUpdate';
+import {shareState} from './state-sharing';
 import {useUiPreference,UiPreferenceStatus} from './ui-preferences';
 import { useAppearance } from './appearance';
 import ImageViewerHost from './ImageViewerHost';
@@ -85,7 +86,7 @@ export default function App() {
       lastSelectedRuntime.current = runtime;lastModelTarget.current=next.lastModelTargetId;lastModelSelection.current=next.lastModelSelection;lastModelHost.current=next.lastModelHostId;
       setNewDraft(previous => ({ ...previous, runtime,permissionMode:rememberedPermission(next,previous.projectId,runtime),modelTargetId:next.lastModelTargetId,modelSelection:next.lastModelSelection,hostId:next.lastModelHostId }));
     }
-    startTransition(() => setState(next));
+    startTransition(() => setState(previous=>previous?shareState(previous,next):next));
   };
   const refresh = async () => { const next = await api<AppState>('state/get'); receiveState(next); return next; };
   const report = (e: unknown) => setError(errorText(e));

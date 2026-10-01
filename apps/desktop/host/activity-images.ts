@@ -20,9 +20,12 @@ export class ActivityImageReader implements ActivityImagesService {
     // A remote path is not evidence that the same path on this device is its image.
     const localMcp=session.binding.runtime==='claude'&&session.binding.accountRuntime==='native-owner'&&session.binding.executionId==='local-device'&&activity.toolName==='mcp__local_device__Read';
     if((session.binding.hostId||session.binding.egress==='vps')&&!localMcp)throw Error('ACTIVITY_IMAGE_REMOTE_UNAVAILABLE');
-    const paths=activity.imagePaths??(activity.runtime==='codex'&&activity.input?[activity.input]:[]);
-    if(!paths.length||paths.length>10||paths.some(value=>typeof value!=='string'||value.length>4096||!path.isAbsolute(value)))throw Error('ACTIVITY_IMAGE_SOURCE_UNAVAILABLE');
-    return {activity,paths,key:JSON.stringify([session.binding,paths])};
+    const raw=activity.imagePaths??(activity.runtime==='codex'&&activity.input?[activity.input]:[]);
+    const cwd=activity.cwd??session.projectPath;
+    if(!raw.length||raw.length>10||raw.some(value=>typeof value!=='string'||value.length>4096||!value||/[\x00-\x1f]/.test(value)))throw Error('ACTIVITY_IMAGE_SOURCE_UNAVAILABLE');
+    const paths=raw.map(value=>path.isAbsolute(value)?value:cwd&&path.isAbsolute(cwd)?path.resolve(cwd,value):value);
+    if(paths.some(value=>!path.isAbsolute(value)))throw Error('ACTIVITY_IMAGE_SOURCE_UNAVAILABLE');
+    return {activity,paths,workspaceRoot:session.projectPath??'',key:JSON.stringify([session.binding,session.projectPath,cwd,paths])};
   }
   private async load(input:ActivityImageRequest):Promise<AttachmentView[]> {
     const source=this.source(input);
@@ -31,7 +34,7 @@ export class ActivityImageReader implements ActivityImagesService {
       if(this.source(input).key!==source.key)throw Error('ACTIVITY_IMAGE_CHANGED');
       return views;
     }
-    const views=await this.attachments.import(source.paths.map(filePath=>({filePath})));
+    const views=await this.attachments.importViewedImages(source.paths,source.workspaceRoot);
     if(views.some(item=>!item.mime.startsWith('image/')))throw Error('ACTIVITY_IMAGE_SOURCE_UNAVAILABLE');
     await this.update(state=>{
       const current=this.source(input,state);if(current.key!==source.key)throw Error('ACTIVITY_IMAGE_CHANGED');

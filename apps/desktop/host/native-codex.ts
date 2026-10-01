@@ -1,4 +1,5 @@
 import { sessionPresentation } from '../../../packages/session-core/presentation';
+import {nativeEventSemantics} from '../../../packages/native-events/semantics';
 import { nativeContextState } from '../../../packages/model-api/context-state';
 import { recordAsyncQuestions } from '../../../packages/native-interactions/inbox';
 import { codexSkillInputs } from '../../../packages/native-skills/invocation';
@@ -28,7 +29,7 @@ interface Hooks {
  observe(sessionId:string,handle:NativeCodexHandle):Promise<unknown>;
  translate(sessionId:string,message:Message):void;
 }
-interface Tracked {handle:NativeCodexHandle;queue:Promise<void>;active:boolean;stopping:boolean;items:Map<string,Record<string,any>>;lease?:WriterLease;renew?:ReturnType<typeof setInterval>;}
+interface Tracked {handle:NativeCodexHandle;queue:Promise<void>;active:boolean;stopping:boolean;items:Map<string,Record<string,any>>;lease?:WriterLease;renew?:ReturnType<typeof setInterval>;textBatch?:((session:Session)=>void)[];drainText?:()=>void;}
 const record=(value:unknown):Record<string,any>=>value&&typeof value==='object'?value as Record<string,any>:{};
 const admissionReason=(code:string)=>({REMOTE_STORAGE_PRESSURE:'VPS 储存空间不足，已保留系统余量并暂缓新任务；请释放空间后主动重试。',REMOTE_MEMORY_PRESSURE:'VPS 可用内存不足，已暂缓新任务；请等待空闲回收或手动释放其他软件的内存。',ACCOUNT_RATE_LIMITED:'原生账号额度已耗尽。窗口刷新后请核实账号状态，再主动发送。',ACCOUNT_AUTHENTICATION_REQUIRED:'原生账号需要重新核实登录。',ACCOUNT_FORBIDDEN:'此空间的账号授权已变化，请刷新账号目录。',RUNTIME_NOT_ENABLED:'此空间尚未获准使用该运行时。',WORKSPACE_DISABLED:'此工作空间已停用。'} as Record<string,string>)[code]??'账号授权或运行策略未通过，请核实账号状态。';
 
@@ -61,7 +62,15 @@ export class NativeCodexRunner {
  assertAllowed(session:Session){if(!this.supports(session))throw Error('H 原生桥尚未完成该连接的工具/文件视图验收，提交已阻止。');}
  busy(id:string){return this.preparing.has(id)||!!this.tracked.get(id)?.active;}
  private updateSession(id:string,change:(session:Session)=>void){return this.hooks.update(state=>{const session=state.sessions.find(item=>item.id===id);if(session)change(session);});}
- private enqueue(id:string,tracked:Tracked,operation:()=>Promise<unknown>){tracked.queue=tracked.queue.then(operation).then(()=>{}).catch(async()=>{tracked.active=false;this.release(tracked);await this.updateSession(id,s=>{s.status='uncertain';s.nativeError='保存原生事件失败；不会自动重发。';}).catch(()=>{});void this.service.close(id);});}
+ private enqueue(id:string,tracked:Tracked,operation:()=>Promise<unknown>){tracked.drainText?.();tracked.textBatch=undefined;tracked.queue=tracked.queue.then(operation).then(()=>{}).catch(async()=>{tracked.active=false;this.release(tracked);await this.updateSession(id,s=>{s.status='uncertain';s.nativeError='保存原生事件失败；不会自动重发。';}).catch(()=>{});void this.service.close(id);});}
+ private appendText(id:string,tracked:Tracked,change:(session:Session)=>void){
+  if(tracked.textBatch){tracked.textBatch.push(change);return;}
+  const batch=[change],windowMs=nativeEventSemantics.batchWindowMs();
+  let drain:()=>void=()=>{};
+  const ready=new Promise<void>(resolve=>{if(!Number.isFinite(windowMs)||windowMs<=0){resolve();return;}drain=()=>{clearTimeout(timer);if(tracked.drainText===drain)tracked.drainText=undefined;resolve();};const timer=setTimeout(drain,Math.min(windowMs,100));});
+  this.enqueue(id,tracked,async()=>{await ready;if(tracked.textBatch===batch)tracked.textBatch=undefined;await this.updateSession(id,session=>{for(const apply of batch)apply(session);});});
+  tracked.textBatch=batch;tracked.drainText=drain;
+ }
  private release(tracked:Tracked){clearInterval(tracked.renew);if(tracked.lease){this.leases.revoke(tracked.lease.sessionId);tracked.lease=undefined;}}
  private async connect(session:Session,host:SshHost){
   const warm=this.warmKeys.get(session.id),cached=this.tracked.get(session.id);
@@ -122,10 +131,10 @@ export class NativeCodexRunner {
   if(v.method==='item/agentMessage/delta'||v.method==='item/plan/delta'||v.method==='item/completed'&&['agentMessage','plan'].includes(item.type)){
    const itemId=String(p.itemId??item.id??'');if(!itemId)return;
    const complete=v.method==='item/completed';const value=complete?item.text:p.delta;if(typeof value!=='string')return;
-   this.enqueue(id,t,async()=>{let result:Message|undefined;await this.updateSession(id,s=>{
+   let result:Message|undefined;const change=(s:Session)=>{
     let message=s.messages.find(m=>m.nativeItemId===itemId);if(!message){message={id:randomUUID(),nativeItemId:itemId,nativeOrder:frame.sequence,role:'assistant',original:'',demo:false,timestamp:frame.receivedAt,translationStatus:'off',modelSource:s.messages.filter(m=>m.role==='user').at(-1)?.modelSource??sourceLabel(s,this.hooks.snapshot())};s.messages.push(message);}
     if(complete&&item.type==='plan')message.planReview={receipt:randomUUID(),status:'pending'};message.original=complete?value:message.original+value;message.nativeTurnId=typeof p.turnId==='string'?p.turnId:s.nativeTurnId;message.nativeTurnEnd=false;if(complete){message.phase=item.type==='plan'||item.phase==='final_answer'?'final':item.phase==='commentary'?'commentary':undefined;message.memoryReferences=memoryCitations(value,item.type==='agentMessage'?item.memoryCitation:undefined);if(item.questions?.length){try{recordAsyncQuestions(s,message,questions(item.questions,'async'));}catch{s.nativeError='原生异步问题格式尚不支持，请在输入框直接回复。';}}}result=structuredClone(message);
-   });if(complete&&result)this.hooks.translate(id,{...result,phase:result.phase??'commentary'});});
+   };if(complete)this.enqueue(id,t,async()=>{await this.updateSession(id,change);if(result)this.hooks.translate(id,{...result,phase:result.phase??'commentary'});});else this.appendText(id,t,change);
   }else if(v.method==='thread/tokenUsage/updated'&&p.threadId===t.handle.threadId){
    const usage=parseContextUsage(p.tokenUsage,frame.receivedAt,typeof p.turnId==='string'?p.turnId:undefined);
    if(usage&&t.active)this.hooks.quota?.observe(id,p.tokenUsage);

@@ -1,4 +1,4 @@
-import { useEffect, useLayoutEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { fileMarkdownDestination, isShortFileReference, type FileReference, type LinkedText } from '../../../packages/navigation/file-links';
 import type { FileResolutionResult } from '../../../packages/navigation/file-resolution';
@@ -92,8 +92,12 @@ export function LinkMenu({ item, x, y, actions, onClose, mode = 'all' }: { item:
 }
 export default function MessageText({ text, ...actions }: { text: string } & LinkActions) {
   const [menu, setMenu] = useState<{ item: LinkedText; x: number; y: number } | null>(null);
-  const renderLink = (item: LinkedText, key: string, children?: React.ReactNode) => {
-    const activate = () => { if (item.url) void api('links/open', { url: item.url }).catch(actions.report); else actions.openFile(item.reference!); };
+  const current=useRef(actions);
+  useLayoutEffect(()=>{current.current=actions;});
+  const copy=useCallback((text:string)=>api('clipboard/write',{text}).then(()=>current.current.notify('已复制代码块内容')),[]);
+  const report=useCallback((error:unknown)=>current.current.report(error),[]);
+  const renderLink = useCallback((item: LinkedText, key: string, children?: React.ReactNode) => {
+    const activate = () => { if (item.url) void api('links/open', { url: item.url }).catch(report); else current.current.openFile(item.reference!); };
     const events = {
       onClick: (e: React.MouseEvent) => { e.preventDefault(); e.stopPropagation(); activate(); },
       onContextMenu: (e: React.MouseEvent) => { e.preventDefault(); e.stopPropagation(); setMenu({ item, x: e.clientX, y: e.clientY }); },
@@ -101,6 +105,6 @@ export default function MessageText({ text, ...actions }: { text: string } & Lin
     };
     return item.url ? <a key={key} className="message-link" href={item.url} {...events} onAuxClick={e => { e.preventDefault(); e.stopPropagation(); if (e.button === 1) activate(); }}>{children ?? item.text}</a>
       : <button key={key} type="button" role="link" className="message-link" data-workbench-file-link data-file-path={item.reference!.path} data-file-line={item.reference!.line} {...events}>{children ?? item.text}</button>;
-  };
-  return <><MarkdownContent text={text} sessionId={actions.sessionId} renderLink={renderLink} onCopy={text=>api('clipboard/write',{text}).then(()=>actions.notify('已复制代码块内容'))} onCopyError={actions.report}/>{menu && <LinkMenu {...menu} actions={actions} onClose={() => setMenu(null)} />}</>;
+  },[report]);
+  return <><MarkdownContent text={text} sessionId={actions.sessionId} renderLink={renderLink} onCopy={copy} onCopyError={report}/>{menu && <LinkMenu {...menu} actions={actions} onClose={() => setMenu(null)} />}</>;
 }

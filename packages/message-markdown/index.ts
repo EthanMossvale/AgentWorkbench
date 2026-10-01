@@ -5,7 +5,38 @@ import { mathExtensions, markdownMath, maskMathEmphasis } from './math';
 import { visualizationExtension } from '../visualizations';
 export { markdownMath, type MarkdownMathToken, type MarkdownMathResult } from './math';
 
+// CommonMark treats \\. and \\_ as escapes. In a native drive path they are
+// directory separators, so recover the destination before those escapes vanish.
+function nativeDestination(source: string): string | undefined {
+  const value=source.trimStart(),angled=value.startsWith('<'),rest=angled?value.slice(1):value;
+  if(!/^\/?[a-z]:\\/i.test(rest))return;
+  let end=0,depth=0;
+  for(;end<rest.length;end++){
+    const char=rest[end];
+    if(angled){if(char==='>')break;}
+    else {if(/\s/.test(char!))break;if(char==='(')depth++;if(char===')'){if(!depth)break;depth--;}}
+  }
+  return rest.slice(0,end);
+}
+function linkDestination(raw:string):string|undefined {
+  let depth=0;
+  for(let i=raw.startsWith('!')?1:0;i<raw.length;i++){
+    if(raw[i]==='\\'){i++;continue;}
+    if(raw[i]==='[')depth++;
+    if(raw[i]===']'&&--depth===0&&raw[i+1]==='(')return nativeDestination(raw.slice(i+2));
+  }
+}
 const parser = new Marked({ gfm: true, breaks: false, extensions: [...mathExtensions, visualizationExtension], tokenizer: {
+  link(source) {
+    const token=Tokenizer.prototype.link.call(this,source);
+    if(token){const href=linkDestination(token.raw);if(href)token.href=href;}
+    return token;
+  },
+  def(source) {
+    const token=Tokenizer.prototype.def.call(this,source);
+    if(token){const href=nativeDestination(token.raw.slice(token.raw.indexOf(']:')+2));if(href)token.href=href;}
+    return token;
+  },
   emStrong(source, maskedSource, previous) {
     if (!/^[_*]/.test(source)) return false;
     return Tokenizer.prototype.emStrong.call(this, source, maskMathEmphasis(source, maskedSource), previous);

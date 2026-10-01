@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import {mkdtemp,writeFile,rm} from 'node:fs/promises';
+import {mkdtemp,mkdir,writeFile,rm,symlink} from 'node:fs/promises';
 import path from 'node:path';
 import os from 'node:os';
 import {ActivityImageReader} from '../apps/desktop/host/activity-images';
@@ -38,11 +38,11 @@ test('native log preview reads only its bound local image and deduplicates simul
     const reader=new ActivityImageReader(()=>state,async change=>{change(state);},attachments),input={sessionId:'fixture',activityId:activity.id};
     assert.equal(activity.viewedAttachments,undefined);const [first,second]=await Promise.all([reader.read(input),reader.read(input)]);assert.equal(first[0]!.id,second[0]!.id);
     const retained=state.sessions[0]!.activities![0]!.viewedAttachments!;
-    assert.equal(first[0]!.path,file);assert.equal(retained[0]!.id,first[0]!.id);assert.equal('preview' in retained[0]!,false);
+    assert.equal(first[0]!.storage,'managed');assert.equal(retained[0]!.id,first[0]!.id);assert.equal('preview' in retained[0]!,false);
     assert.equal((await reader.read(input))[0]!.id,first[0]!.id);
     const services=new HostServiceRegistry();services.register('images.viewed',reader);const restore=services.override('images.viewed',{read:async()=>[]});assert.deepEqual(await services.get<ActivityImagesService>('images.viewed').read(input),[]);restore();assert.equal((await reader.read(input)).length,1);
     state.sessions[0]!.binding.hostId='remote-fixture';await assert.rejects(reader.read(input),/REMOTE_UNAVAILABLE/);delete state.sessions[0]!.binding.hostId;
-    await writeFile(file,'changed');await assert.rejects(reader.read(input),/变化/);
+    await writeFile(file,'changed');assert.equal((await reader.read(input))[0]!.id,first[0]!.id);
     activity.category='image-generation';await assert.rejects(reader.read(input),/NOT_FOUND/);
   }finally{await rm(root,{recursive:true,force:true});}
 });
@@ -50,7 +50,7 @@ test('native log preview reads only its bound local image and deduplicates simul
 test('late image preview does not write into a changed native activity',async()=>{
   const state=initialState(),activity={id:'view',runtime:'codex',category:'image',imagePaths:[path.resolve('fixture.png')]} as any;
   state.sessions.push({id:'fixture',binding:{runtime:'codex',egress:'runtime-managed'},activities:[activity]} as Session);
-  let finish!:(value:any[])=>void;const attachments={import:()=>new Promise<any[]>(resolve=>finish=resolve)} as unknown as AttachmentStore;
+  let finish!:(value:any[])=>void;const attachments={importViewedImages:()=>new Promise<any[]>(resolve=>finish=resolve)} as unknown as AttachmentStore;
   const reader=new ActivityImageReader(()=>state,async change=>{change(state);},attachments),pending=reader.read({sessionId:'fixture',activityId:'view'});
   activity.imagePaths=[path.resolve('different.png')];finish([{id:'fixture-image',mime:'image/png'}]);await assert.rejects(pending,/CHANGED/);assert.equal(activity.viewedAttachments,undefined);
 });
@@ -64,9 +64,36 @@ test('SSH Claude local-device MCP images preview locally but remote native reads
   const activity=tracker.observe(frame({type:'user',message:{content:[{type:'tool_result',tool_use_id:'read',content:[{type:'image',source:{type:'base64',data:'OMITTED'}}]}]}}))[0]!;
   const state=initialState();state.sessions.push({id:'fixture',binding:{runtime:'claude',hostId:'member',egress:'vps',executionId:'local-device',accountRuntime:'native-owner'},activities:[activity],messages:[]} as unknown as Session);
   const reader=new ActivityImageReader(()=>state,async change=>change(state),attachments),request={sessionId:'fixture',activityId:activity.id};
-  assert.equal((await reader.read(request))[0]!.path,file);
+  assert.equal((await reader.read(request))[0]!.name,'reference.png');
   activity.toolName='Read';await assert.rejects(reader.read(request),/REMOTE_UNAVAILABLE/);
   activity.toolName='mcp__other_device__Read';await assert.rejects(reader.read(request),/REMOTE_UNAVAILABLE/);
   activity.toolName='mcp__local_device__Read';state.sessions[0]!.binding.executionId='remote';await assert.rejects(reader.read(request),/REMOTE_UNAVAILABLE/);
+ }finally{await rm(root,{recursive:true,force:true});}
+});
+
+for(const runtime of ['codex','claude'] as const)test(`${runtime} managed task image preview stays local, bounded and restartable`,async()=>{
+ const root=await mkdtemp(path.join(os.tmpdir(),'awb-viewed-managed-'));
+ try{
+  const profile=path.join(root,'.agent-workbench'),workspace=path.join(profile,'workspaces','task'),file=path.join(workspace,'preview.png'),directory=path.join(profile,'attachments');
+  await mkdir(workspace,{recursive:true});await writeFile(file,png);
+  const attachments=new AttachmentStore(directory,undefined,[profile],undefined,{nativePaths:true});
+  const state=initialState(),activity={id:'view',runtime,category:'image',imagePaths:['preview.png'],status:'completed'} as any;
+  state.sessions.push({id:'fixture',projectPath:workspace,binding:{runtime,egress:'runtime-managed',executionId:'local-device'},activities:[activity],messages:[]} as unknown as Session);
+  const input={sessionId:'fixture',activityId:'view'},reader=new ActivityImageReader(()=>state,async change=>change(state),attachments);
+  const before=JSON.stringify(state.sessions[0]!.messages),first=await reader.read(input);
+  assert.match(first[0]!.preview!,/^data:image\/png;base64,/);assert.equal(first[0]!.storage,'managed');
+  assert.doesNotMatch(JSON.stringify(state),/base64|iVBORw0K|preview":/);assert.equal(JSON.stringify(state.sessions[0]!.messages),before);
+  assert.ok(JSON.stringify(state).length<8000);await rm(file);
+  const reopened=new ActivityImageReader(()=>structuredClone(state),async change=>change(state),new AttachmentStore(directory,undefined,[profile],undefined,{nativePaths:true}));
+  assert.equal((await reopened.read(input))[0]!.id,first[0]!.id);
+  for(const target of [path.join(profile,'config.png'),path.join(workspace,'.ssh','secret.png'),path.join(workspace,'..','other','preview.png')]){
+   await mkdir(path.dirname(target),{recursive:true});await writeFile(target,png);activity.imagePaths=[target];delete activity.viewedAttachments;
+   await assert.rejects(reader.read(input),/PROTECTED/);
+  }
+  const linked=path.join(workspace,'linked');await symlink(profile,linked,process.platform==='win32'?'junction':'dir');activity.imagePaths=[path.join(linked,'config.png')];
+  await assert.rejects(reader.read(input),/PROTECTED/);
+  activity.imagePaths=[path.join(workspace,'not-image.png')];await writeFile(activity.imagePaths[0],'text instead of pixels');
+  await assert.rejects(reader.read(input),/SOURCE_UNAVAILABLE/);
+  await assert.rejects(attachments.import([{filePath:path.join(profile,'config.png')}]),/凭据/);
  }finally{await rm(root,{recursive:true,force:true});}
 });

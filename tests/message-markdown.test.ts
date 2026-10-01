@@ -2,6 +2,19 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { markdownTokens, markdownBlocks, markdownCode, markdownLink, markdownText } from '../packages/message-markdown';
 
+test('Windows native links preserve separators before dotfiles and Markdown punctuation',()=>{
+ const target=String.raw`C:\Users\Example\.agent-workbench\workspaces\fixture\_result\pelican-bicycle.html`;
+ for(const source of [`[file](${target})`,`[file](<${target}>)`,`[file][result]\n\n[result]: ${target}`,`![preview](${target})`]){
+  const paragraph:any=markdownTokens(source)[0],token=paragraph.tokens[0];
+  assert.equal(token.href,target);assert.deepEqual(markdownLink(token.href,token.text)?.reference,{path:target});
+  assert.equal(markdownBlocks(source).join(''),source);
+ }
+ const spaces=String.raw`C:\My Project\.cache\report (final).html`;
+ assert.equal((markdownTokens(`[result](<${spaces}>)`)[0] as any).tokens[0].href,spaces);
+ assert.equal((markdownTokens('[web](https://example.invalid/a\\_b)')[0] as any).tokens[0].href,'https://example.invalid/a_b');
+ assert.equal(markdownTokens('```md\n[file]('+target+')\n```')[0]!.type,'code');
+});
+
 test('Markdown destinations preserve a percent-encoded literal percent and line ranges',()=>{
  assert.deepEqual(markdownLink('README.md#installation','guide')?.reference,{path:'README.md'});
  assert.deepEqual(markdownLink('file:///D:/README.md#installation','guide')?.reference,{path:'D:/README.md'});
