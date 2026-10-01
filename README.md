@@ -1,6 +1,12 @@
 # AgentWorkbench
 
-独立的多运行时 Agent 桌面工作台，以 Claude 工作流和双语阅读为主要设计方向。当前仓库版本为 **0.1.0 Alpha**；项目名称暂定。源码实现、合成测试、真实模型任务及远端部署的完成度分别记录，不互相替代。
+独立的多运行时 Agent 桌面工作台，以 Claude 工作流和双语阅读为主要设计方向。产品名称为 **AgentWorkbench**，程序及快捷方式没有测试后缀。源码实现、合成测试、真实模型任务及远端部署的完成度分别记录，不互相替代。
+
+## Windows 安装与更新
+
+从 [在线安装器页面](https://github.com/EthanMossvale/AgentWorkbench/releases/tag/installer) 下载 `AgentWorkbench-Install.exe`。安装器获取最新版并默认安装到当前用户目录，创建桌面和开始菜单快捷方式，无需安装 Git 或 Node.js。
+
+主分支推送经自动构建和部署成功后，已安装的工作台会在启动或后续定时检查时后台下载更新；左下角出现“更新并重启”后点击安装。应用更新从 GitHub Pages 获取，不需要逐版发布 Release。更新保留用户数据，普通退出不会自动安装。当前仅提供 Windows x64，安装器尚未配置代码签名。分发流程和限制见 [文档 38](docs/38-desktop-distribution.md)。
 
 ## 运行
 
