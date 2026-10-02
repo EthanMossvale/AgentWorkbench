@@ -6,6 +6,7 @@ import {atomicWrite} from '../../../packages/native-resources/files';
 import { PluginRecoveryStore, writeSafeMode, type RecoverySnapshot } from '../../../packages/plugins-core/recovery';
 import { recoveryPanelHtml } from './plugin-recovery-panel';
 import { ownedProcessTree, stopOwnedWorkbench } from './plugin-recovery-process';
+import { createRecoveryPresentationGate } from './plugin-recovery-presentation';
 import { buildPluginRepairPrompt, readRecoveryLanguage, recoveryDiagnostic, savePluginRepairDraft } from '../../../packages/plugins-core/repair-draft';
 
 const marker='--awb-plugin-recovery-guardian';
@@ -52,6 +53,7 @@ export async function runRecoveryGuardian(){
   let heartbeat=Date.now(),rendererAge=0,rendererMonitoring=false,hung=false,disconnected=false,stopping=false,requestId=0,restarting=false;
   const replies=new Map<number,{resolve:(value:unknown)=>void;reject:()=>void;timer:ReturnType<typeof setTimeout>}>();
   const locallyObserved=new Map<string,RecoverySnapshot['incidents'][number]>();
+  const presentation=createRecoveryPresentationGate();
   const seenIncidents=new Set<string>();let safeModeShown=false;
   const observed=()=>({...snapshot,incidents:[...snapshot.incidents,...locallyObserved.values()].slice(-50)});
   const show=async()=>{
@@ -60,15 +62,16 @@ export async function runRecoveryGuardian(){
     window=new BrowserWindow({width:780,height:730,minWidth:440,minHeight:420,show:false,title:'插件恢复 · AgentWorkbench',autoHideMenuBar:true,backgroundColor:'#faf9f6',webPreferences:{preload:path.join(__dirname,'preload.cjs'),contextIsolation:true,sandbox:true,nodeIntegration:false,webSecurity:true,backgroundThrottling:false,offscreen:!!process.env.AGENT_WORKBENCH_TEST_HIDDEN}});
     window.webContents.setWindowOpenHandler(()=>({action:'deny'}));window.webContents.on('will-navigate',event=>event.preventDefault());window.webContents.on('will-attach-webview',event=>event.preventDefault());
     await window.loadURL('data:text/html;charset=utf-8,'+encodeURIComponent(recoveryPanelHtml));if(!process.env.AGENT_WORKBENCH_TEST_HIDDEN)window.show();
-    window.on('close',event=>{if(!stopping){event.preventDefault();window?.hide();}});
+    window.on('close',event=>{if(!stopping){event.preventDefault();presentation.markDismissed();window?.hide();}});
   };
+  const showAutomatic=async()=>{if(presentation.consumeAutomatic())await show();};
   const record=(code:string,phase:'host'|'renderer'|'startup')=>{
     const candidates=snapshot.pending.filter(p=>phase==='startup'||p.phase===phase||phase==='host'&&p.phase==='cleanup');
     for(const candidate of candidates.length?candidates:[{id:'workbench.unknown',phase}]){
       const key=code+':'+candidate.id;if(locallyObserved.has(key))continue;
       locallyObserved.set(key,{...candidate,key,code,phase,certainty:candidates.length?'suspected':'unknown',at:new Date().toISOString(),hostVersion:snapshot.hostVersion,repairable:false});
     }
-    void show();
+    void showAutomatic();
   };
   const sendAction=(action:string)=>new Promise<unknown>((resolve,reject)=>{
     if(disconnected||!process.connected){reject(Error('PLUGIN_PARENT_UNAVAILABLE'));return;}
@@ -120,9 +123,9 @@ export async function runRecoveryGuardian(){
     }catch{return {ok:false,error:'PLUGIN_RECOVERY_ACTION_FAILED'};}
   });
   process.on('message',(value:Wire)=>{
-    if(value?.type==='snapshot'&&value.snapshot){snapshot=value.snapshot;const fresh=snapshot.incidents.some(i=>!seenIncidents.has(i.key));for(const incident of snapshot.incidents)seenIncidents.add(incident.key);if(fresh||snapshot.safeMode&&!safeModeShown)void show();if(snapshot.safeMode)safeModeShown=true;}
+    if(value?.type==='snapshot'&&value.snapshot){snapshot=value.snapshot;const fresh=snapshot.incidents.some(i=>!seenIncidents.has(i.key));for(const incident of snapshot.incidents)seenIncidents.add(incident.key);if(fresh||snapshot.safeMode&&!safeModeShown)void showAutomatic();if(snapshot.safeMode)safeModeShown=true;}
     if(value?.type==='heartbeat'){heartbeat=Date.now();rendererAge=value.rendererAge??0;rendererMonitoring=!!value.rendererMonitoring;if(hung&&rendererAge<timeoutMs())hung=false;}
-    if(value?.type==='show')void show();
+    if(value?.type==='show'){presentation.markExplicit();void show();}
     if(value?.type==='stop'){stopping=true;app.quit();}
     if(value?.type==='result'&&typeof value.request==='number'){const reply=replies.get(value.request);if(reply){clearTimeout(reply.timer);replies.delete(value.request);if(value.ok)reply.resolve(value.result);else reply.reject();}}
   });

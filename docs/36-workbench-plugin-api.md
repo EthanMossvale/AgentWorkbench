@@ -819,7 +819,7 @@ const restore = api.services.intercept('models.accounts', 'call',
 | 前置兼容检查 | `PluginManifest.requires` → `PluginRegistry.list/refresh` → 激活准入；`extensions/list` 返回 `origin:'third-party'`、`requestedEnabled`、`compatibility` | `tests/plugin-recovery.test.ts` |
 | 服务版本与迁移 | `api.services.register(id, service, contract?)`、`list()`、`get/override/intercept` 的已确认适配作用域；SDK v1 保留 | `tests/plugin-recovery.test.ts`、`tests/plugin-services.test.ts` |
 | 批量一键适配 | `plugin-recovery/repair`、`api.services.get('extensions.recovery').repair()`；按插件 ID/包摘要去重并逐项重检和激活，单项失败继续，返回部分结果 | `tests/plugin-compatibility-batch.test.ts`、`scripts/test-plugin-recovery-ui.mjs` |
-| 独立恢复 | `plugin-recovery/status/show`、普通 `extensions.recovery.status/show`、独立 guardian、菜单和 `--safe-mode` | `tests/plugin-recovery-process.test.ts`、`scripts/test-plugin-recovery-ui.mjs` |
+| 独立恢复 | `plugin-recovery/status/show`、普通 `extensions.recovery.status/show`、独立 guardian、菜单和 `--safe-mode`；自动故障通知在 guardian 生命周期内合并，显式 show 仍可重开 | `tests/plugin-recovery-process.test.ts`、`tests/plugin-recovery-presentation.test.ts`、`scripts/test-plugin-recovery-ui.mjs` |
 | 安全模式 | `PluginRecoveryStore.safeMode(enabled)` 用于受信宿主集成；用户窗口 `recovery/safe` / `recovery/normal` 触发实际重启；ZIP 无官方来源自声明豁免 | `tests/plugin-recovery.test.ts`、`scripts/test-plugin-recovery-ui.mjs` |
 | 修复草稿 | guardian 的 `recovery/copy-repair`、`plugin-recovery/repair-draft` 与 `/ack` → App 新草稿 → Workspace textarea；不调用模型 | `tests/plugin-repair-draft.test.ts`、`scripts/test-plugin-recovery-ui.mjs` |
 | 草稿语言 | `plugin-recovery/ui-language({language})`；跟随实际 HTML `lang`，中文模板 / 其他语言英文模板 | `tests/plugin-repair-draft.test.ts`、`scripts/test-plugin-recovery-ui.mjs` |
@@ -876,7 +876,7 @@ await api.call('plugin-recovery/show'); // Opens the independent core panel; no 
 
 `PluginRecoveryStore.subscribe(listener:(snapshot:RecoverySnapshot)=>void):()=>void` 支持多个独立监听者，立即回调当前快照，返回函数仅取消自身；核心启动完成观察与 guardian 不互相覆盖。监听通知仅表示诊断状态变化，不启动任务；测试见 `tests/plugin-recovery.test.ts`。
 
-guardian 通过 IPC 快照及心跳更新，界面每秒只读刷新；兼容修复沿用既有 `onExtensions` 通知。没有新增模型事件或后台任务。App 仅在安全模式读取草稿，新 Workspace 挂载时赋给 textarea，实际插入后确认；用户编辑不会被轮询覆盖。切换模型沿用用户主动的模型选择流程；未点击发送不调用 `session/create`、`draft/prepare`、`draft/submit` 或翻译。已有普通“复制诊断信息”不会创建修复草稿。一个草稿汇总所有仍保留的未解决目标，要求逐项修复并报告已修复／未解决／未检查；不因首项修复成功而结束。卡死前未执行的插件仍未检查，记录上限之外的插件需核对完整清单，不宣称全量健康。
+guardian 通过 IPC 快照及心跳更新，界面每秒只读刷新；兼容修复沿用既有 `onExtensions` 通知。自动故障通知在一个 guardian 生命周期内合并为一次展示；窗口已展示、用户关闭后，后续快照和心跳不会再次 `show()` 或抢占前台。`plugin-recovery/show`、菜单“查看诊断”和恢复面板内的显式请求仍可主动打开窗口。没有新增模型事件或后台任务。App 仅在安全模式读取草稿，新 Workspace 挂载时赋给 textarea，实际插入后确认；用户编辑不会被轮询覆盖。切换模型沿用用户主动的模型选择流程；未点击发送不调用 `session/create`、`draft/prepare`、`draft/submit` 或翻译。已有普通“复制诊断信息”不会创建修复草稿。一个草稿汇总所有仍保留的未解决目标，要求逐项修复并报告已修复／未解决／未检查；不因首项修复成功而结束。卡死前未执行的插件仍未检查，记录上限之外的插件需核对完整清单，不宣称全量健康。
 
 完整风险、开源发布前缺口与证据范围见 [预开源审计](plugin-preopen-audit-20260929.md)。Windows 桌面恢复已使用隔离故障注入；其他平台进程停止分支仅有源码，不能据此宣称已完成发行验收。
 <!-- plugin-recovery-audit:end -->

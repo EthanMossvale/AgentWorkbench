@@ -7,6 +7,7 @@ import {PluginRegistry, parseManifest, type PluginRegistryOptions} from '../pack
 import {PluginRecoveryStore, readSafeMode, writeSafeMode} from '../packages/plugins-core/recovery';
 import {checkCompatibility, validateRequirements} from '../packages/plugins-core/compatibility';
 import {encodeZip} from '../packages/native-resources/archive';
+import {createRecoveryPresentationGate} from '../apps/desktop/host/plugin-recovery-presentation';
 
 async function fixture(t:test.TestContext, source='export function activate(api){api.registerCommand("ping",()=>"ok");}', requires?:unknown, options:PluginRegistryOptions={}){
   const directory=await mkdtemp(path.join(os.tmpdir(),'awb-recovery-'));t.after(()=>rm(directory,{recursive:true,force:true,maxRetries:5,retryDelay:100}));
@@ -106,6 +107,18 @@ test('ready and clean exit do not create a false crash suspect',async t=>{
   const next=new PluginRecoveryStore(directory,'2.0.0');await next.initialize();assert.equal(next.snapshot().safeMode,false);assert.deepEqual(next.snapshot().pending,[]);assert.ok(!next.snapshot().incidents.some(i=>i.code==='PLUGIN_STARTUP_INTERRUPTED'));
 });
 test('malformed safe mode markers fail closed',async t=>{const {directory}=await fixture(t);await writeFile(path.join(directory,'plugin-safe-mode.json'),'{}');assert.equal(await readSafeMode(directory),true);});
+
+test('automatic recovery presentation is coalesced and does not refocus after dismissal',()=>{
+  const gate=createRecoveryPresentationGate();
+  assert.equal(gate.consumeAutomatic(),true);
+  assert.equal(gate.consumeAutomatic(),false);
+  gate.markDismissed();
+  assert.equal(gate.consumeAutomatic(),false);
+
+  const explicitlyOpened=createRecoveryPresentationGate();
+  explicitlyOpened.markExplicit();
+  assert.equal(explicitlyOpened.consumeAutomatic(),false);
+});
 
 test('corrupt recovery journal is retained byte-for-byte while core enters safe mode',async t=>{
   const {directory}=await fixture(t);const file=path.join(directory,'plugin-recovery.json');await writeFile(file,'{damaged');

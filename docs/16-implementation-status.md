@@ -1,5 +1,13 @@
 # 16 · 实现与验收记录
 
+<!-- recovery-presentation-20261002:start -->
+## Recovery panel focus coalescing (2026-10-02)
+
+The independent plugin-recovery guardian now separates automatic incident presentation from explicit user requests. Repeated snapshots, heartbeat-derived incidents and safe-mode notifications consume one automatic presentation per guardian lifetime; an existing panel is not repeatedly focused, and closing it suppresses later automatic refocus. `plugin-recovery/show`, the diagnosis menu and in-panel recovery actions still reopen it explicitly. No preference, profile or release payload changes.
+
+Validation: `tests/plugin-recovery-presentation.test.ts` executes the production guardian bundle with a synthetic BrowserWindow and confirms one automatic show, no show after dismissal, explicit reopen, safe hidden QA behavior and a fresh-process show; `npm run test:plugin-recovery` passed all 17 checks; typecheck, plugin, documentation and UI-preference gates passed. The probe is isolated process evidence, not visible installed-desktop acceptance.
+<!-- recovery-presentation-20261002:end -->
+
 <!-- startup-appearance-20261001:start -->
 ## Startup appearance restoration (2026-10-01)
 

@@ -1,5 +1,13 @@
 # 37 · UI preference persistence inventory
 
+<!-- recovery-presentation-20261002:start -->
+## Recovery window presentation (2026-10-02)
+
+The independent plugin-recovery window adds no adjustable preference, geometry key, zoom setting, tab, disclosure state or resizable editor. Automatic incident/safe-mode presentation is transient guardian process state: one notice may present the window, repeated snapshots and heartbeats do not refocus it, and a user close suppresses later automatic presentation for that guardian lifetime. Explicit `plugin-recovery/show`, menu diagnosis and in-panel recovery actions remain user commands and may reopen the existing window. No profile storage, shipped default, migration or reset path is introduced.
+
+The production guardian probe and `tests/plugin-recovery-presentation.test.ts` cover repeated notices, dismissal, explicit reopen, hidden QA behavior and a fresh guardian process. This is process/UI behavior evidence, not installed-desktop or release-package acceptance.
+<!-- recovery-presentation-20261002:end -->
+
 <!-- startup-appearance-20261001:start -->
 ## Startup appearance restoration (2026-10-01)
 
