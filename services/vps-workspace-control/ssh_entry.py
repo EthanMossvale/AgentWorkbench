@@ -61,6 +61,24 @@ def dispatch(request, connection, sources=None):
                 revision=0, workspaces=[], sshOnlyMembers=LinuxProvisioner().ssh_only_members(), connection=public_connection, enrollmentUrl='', transport='ssh')}
     if not os.path.lexists(ROOT) and request.get('method') != 'workspace/plan':
         raise ControlError('WORKSPACE_UNAVAILABLE')
+    if request.get('method') in ('quota/read', 'quota/observe', 'quota/check'):
+        # Both roles use the same loaded calculator and shared registry lock.
+        trusted_root_path(ROOT, directory=True, private=True)
+        trusted_root_path(POLICY_ROOT, directory=True)
+        if sources:
+            ensure_quota_service(config, sources)
+        endpoint = POLICY_ROOT + '/quota-v2.sock'
+        info = os.lstat(endpoint)
+        if not stat.S_ISSOCK(info.st_mode) or info.st_uid != 0:
+            raise ControlError('UNSAFE_DEPLOYMENT')
+        with socket.socket(socket.AF_UNIX) as channel:
+            channel.settimeout(90)
+            channel.connect(endpoint)
+            channel.sendall((json.dumps({'method': request['method'], 'params': request['params']})+'\n').encode())
+            raw = channel.makefile('rb').readline(2097153)
+            if len(raw) > 2097152:
+                raise ControlError('INVALID_REQUEST')
+            return json.loads(raw)
     directory(ROOT, 0o700)
     directory(POLICY_ROOT, 0o755)
     descriptor = os.open(ROOT+'/control.lock', os.O_CREAT|os.O_RDWR|os.O_NOFOLLOW, 0o600)
@@ -84,7 +102,7 @@ def dispatch(request, connection, sources=None):
 
 
 def ensure_quota_service(config, sources):
-    quota_socket = POLICY_ROOT + '/quota.sock'
+    quota_socket = POLICY_ROOT + '/quota-v2.sock'
     if os.path.lexists(quota_socket):
         info = os.lstat(quota_socket)
         if not stat.S_ISSOCK(info.st_mode) or info.st_uid != 0:
@@ -96,7 +114,7 @@ def ensure_quota_service(config, sources):
                 return
         except OSError:
             pass
-    runtime = ROOT + '/quota-runtime'
+    runtime = ROOT + '/quota-runtime-v2'
     directory(runtime, 0o700)
     for name in ('security', 'destruction', 'provisioner', 'quota_accounting', 'control', 'quota_service', 'quota_native'):
         target = runtime + '/' + name + '.py'

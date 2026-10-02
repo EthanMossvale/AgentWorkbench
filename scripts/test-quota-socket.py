@@ -36,13 +36,13 @@ with tempfile.TemporaryDirectory(prefix='awb-quota-fixture-', dir='/run') as tem
     control._commit(control.state)
     atomic_json(control_root / 'quota-service.json', config)
     (control_root / 'control.lock').touch(mode=0o600)
-    (control_root / 'quota-runtime').mkdir(mode=0o700)
-    (control_root / 'quota-runtime' / 'quota_native.py').write_text('raise RuntimeError("Fixture provider must be intercepted")\n')
-    (control_root / 'quota-runtime' / 'quota_native.py').chmod(0o600)
+    (control_root / 'quota-runtime-v2').mkdir(mode=0o700)
+    (control_root / 'quota-runtime-v2' / 'quota_native.py').write_text('raise RuntimeError("Fixture provider must be intercepted")\n')
+    (control_root / 'quota-runtime-v2' / 'quota_native.py').chmod(0o600)
     clock = time.time()
     provider = control_root / 'provider-fixture.json'
     atomic_json(provider, dict(ok=True, windows=[dict(window='weekly', usedPercent=0, resetsAt=clock + 604800)]))
-    endpoint = str(public / 'quota.sock')
+    endpoint = str(public / 'quota-v2.sock')
     launcher = '''import sys,types,json
 sys.path.insert(0,sys.argv[1])
 import quota_service
@@ -88,6 +88,25 @@ with socket.socket(socket.AF_UNIX) as channel:
         assert call('quota/observe', {'payload':payload,'refresh':True})['ok']
         assert call('quota/read', params)['value']['windows'][0]['debts'] == view['debts']
         checks.append('two independent member UIDs share one deduplicated loan ledger')
+        root_params = dict(params, authorityId='fixture', generation='g')
+        admin_view = call('quota/read', root_params, uid=0)['value']
+        import ssh_entry
+        ssh_entry.ROOT = str(control_root)
+        ssh_entry.POLICY_ROOT = str(public)
+        ssh_entry.SOCKET = str(public / 'absent-formal-control.sock')
+        host_key = control_root / 'host.pub'
+        host_key.write_text(key)
+        original_trust = ssh_entry.trusted_root_path
+        ssh_entry.trusted_root_path = lambda value, **options: str(host_key) if value == '/etc/ssh/ssh_host_ed25519_key.pub' else original_trust(value, **options)
+        forwarded = ssh_entry.dispatch(dict(protocol=1, method='quota/read', params=root_params), dict(hostname='fixture.invalid', port=22))
+        assert forwarded['ok'] and forwarded['value'] == admin_view
+        member_view = call('quota/read', params, uid=65533)['value']
+        assert admin_view['windows'] == member_view['windows']
+        assert admin_view['allocations'] == member_view['allocations']
+        assert set(member_view['allocations']) == {'alpha', 'beta', 'gamma'}
+        assert member_view['tokenTotals']['alpha'] == 4000
+        checks.append('administrator and member share all workspace rows and balances through one endpoint')
+
         atomic_json(provider, dict(ok=True, windows=[dict(window='weekly', usedPercent=0, resetsAt=clock+1209600)]))
         assert call('quota/observe', {'payload':params,'refresh':True})['ok']
         view = call('quota/read', params)['value']['windows'][0]

@@ -3,7 +3,7 @@ import type {SshHost} from '../contracts';
 
 const source = String.raw`import json,socket,stat,os,sys
 try:
-    path='/var/lib/agent-workbench-policy/quota.sock'
+    path='/var/lib/agent-workbench-policy/quota-v2.sock'
     parent=os.lstat('/var/lib/agent-workbench-policy');info=os.lstat(path)
     if not stat.S_ISDIR(parent.st_mode) or parent.st_uid!=0 or parent.st_mode&0o022 or not stat.S_ISSOCK(info.st_mode) or info.st_uid!=0:raise ValueError()
     with socket.socket(socket.AF_UNIX) as connection:

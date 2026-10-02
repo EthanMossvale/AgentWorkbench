@@ -24,7 +24,6 @@ export function nativeQuotaWindows(value: unknown): Observation[] {
  * There is no renderer API for observations or loans. Durable retries preserve
  * the same cumulative scope; the remote shared ledger performs deduplication. */
 export class NativeQuotaAccounting {
-  private views=new Map<string,{stamp:string;value:QuotaLedgerView|undefined}>();
   private bindings = new Map<string, Bound>();
   private queue: Promise<unknown> = Promise.resolve();
   private catalogs = new RemoteAccountCatalogService();
@@ -112,14 +111,15 @@ export class NativeQuotaAccounting {
     return job;
   }
   async read(host: SshHost, catalog: AccountCatalog, usage: AccountUsage, refresh=false): Promise<QuotaLedgerView | undefined> {
-    const key=JSON.stringify([workspaceHostIdentity(host),catalog.authorityId,catalog.generation,usage.accountId,catalog.accounts.find(a=>a.id===usage.accountId)?.generation]);
-    const stamp=JSON.stringify([usage.observedAt,catalog.revision,this.state().modelUsage,this.state().sessions?.map(s=>[s.id,s.metrics])]),cached=this.views.get(key);if(!refresh&&cached?.stamp===stamp)return structuredClone(cached.value);
-    const value=await this.readView(host,catalog,usage);this.views.set(key,{stamp,value});return structuredClone(value);
+    // Other devices may report without changing this desktop's usage revision.
+    return structuredClone(await this.readView(host,catalog,usage));
   }
   private async readView(host: SshHost, catalog: AccountCatalog, usage: AccountUsage): Promise<QuotaLedgerView | undefined> {
     if (usage.availability !== 'ready') return;
     if(host.role==='workspace'){
       const account=catalog.accounts.find(a=>a.id===usage.accountId);if(!account)return;
+      const admin=this.state().hosts.find(h=>h.role==='admin'&&h.ownerId===host.ownerId&&h.hostname.toLowerCase()===host.hostname.toLowerCase()&&h.port===host.port&&h.knownHostsFile===host.knownHostsFile);
+      if(admin)await this.remote.list(admin);
       const context=await this.member.request(host,'quota/context',{accountId:account.id});
       if(context.managed!==true)return;
       await this.queue;await this.retry(host);

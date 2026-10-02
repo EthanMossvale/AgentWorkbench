@@ -15,7 +15,7 @@ from provisioner import LinuxProvisioner
 from security import ControlError, require_id, trusted_root_path
 
 ROOT = '/var/lib/agent-workbench-ssh-control'
-SOCKET = '/var/lib/agent-workbench-policy/quota.sock'
+SOCKET = '/var/lib/agent-workbench-policy/quota-v2.sock'
 
 
 def member_request(control, uid, request):
@@ -90,7 +90,7 @@ class Handler(socketserver.StreamRequestHandler):
                 with open(ROOT + '/quota-service.json') as source:
                     config = json.load(source)
                 control = WorkspaceControl(config, LinuxProvisioner(), publish_policy=PolicyPublisher('/var/lib/agent-workbench-policy/workspaces.json'))
-                if request.get('method') == 'quota/observe':
+                if uid != 0 and request.get('method') == 'quota/observe':
                     params = request.get('params', {})
                     payload = params.get('payload', {})
                     if not isinstance(payload, dict):
@@ -101,7 +101,7 @@ class Handler(socketserver.StreamRequestHandler):
                     if runtime_source != 'native-owner':
                         raise ControlError('INVALID_REQUEST')
                     if params.pop('refresh', False):
-                        script = trusted_root_path(ROOT + '/quota-runtime/quota_native.py', private=True)
+                        script = trusted_root_path(ROOT + '/quota-runtime-v2/quota_native.py', private=True)
                         result = subprocess.run([sys.executable, '-B', script], input=json.dumps({'uid': uid, 'accountId': require_id(payload.get('accountId')), 'accountGeneration': require_id(payload.get('accountGeneration')), 'source': runtime_source}), text=True, capture_output=True, timeout=80, env={'PATH': '/usr/local/bin:/usr/bin:/bin', 'LANG': 'C.UTF-8'})
                         if result.returncode != 0 or len(result.stdout) > 65536:
                             raise ControlError('QUOTA_UNAVAILABLE')
@@ -111,7 +111,12 @@ class Handler(socketserver.StreamRequestHandler):
                         payload['windows'] = observed['windows']
                     else:
                         payload.pop('windows', None)
-                result = member_request(control, uid, request)
+                if uid == 0:
+                    if request.get('method') not in ('quota/read', 'quota/observe', 'quota/check'):
+                        raise ControlError('UNAUTHORIZED')
+                    result = control.dispatch(uid, dict(request, protocol=1))
+                else:
+                    result = member_request(control, uid, request)
             finally:
                 os.close(descriptor)
             response = {'ok': True, 'value': result}
@@ -128,7 +133,7 @@ def main():
     trusted_root_path(ROOT, directory=True, private=True)
     trusted_root_path(str(Path(SOCKET).parent), directory=True)
     # Hold an independent lifetime lock; upgrades never kill an active task.
-    lock = os.open(ROOT + '/quota-service.lock', os.O_CREAT | os.O_RDWR | os.O_NOFOLLOW, 0o600)
+    lock = os.open(ROOT + '/quota-service-v2.lock', os.O_CREAT | os.O_RDWR | os.O_NOFOLLOW, 0o600)
     try:
         fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
     except BlockingIOError:

@@ -579,3 +579,18 @@ result=send(1000,dict(accountId='account-one',accountGeneration='ag',scope='same
 assert result['tokenTotals']=={a:700,b:600}
 fail('UNAUTHORIZED',lambda:send(1000,dict(payload,workspaceId=b)))
 `);
+
+pythonCase('account IDs and generations isolate member history, windows and balances', QUOTA_SETUP+String.raw`
+from quota_service import member_request
+control.state['quotaLedger']=data
+report(a,1000,1000,10)
+report(used=0,account='account-two')
+assert view('account-two')['balances']=={a:10,b:60,c:30}
+assert ledger.summary('account-two','ag')['tokenTotals']=={}
+assert ledger.summary('account-one','new-generation')['windows']==[]
+assert ledger.summary('account-one','new-generation')['tokenTotals']=={}
+result=member_request(control,1001,dict(method='quota/read',params=dict(accountId='account-one',accountGeneration='ag')))
+assert set(result['allocations'])=={a,b,c}
+assert result['tokenTotals'][a]==1000 and result['currentWorkspaceId']==b
+assert result['windows']==ledger.summary('account-one','ag')['windows']
+`);

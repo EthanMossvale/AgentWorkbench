@@ -149,3 +149,14 @@ test('history-capable member service receives replay batches on the production r
   assert.equal(received.length,2);assert.deepEqual(received[0],received[1]);assert.equal(received[0].history[0].tokens,100);assert.equal(received[0].workspaceId,'space-one');
  }finally{await f.close();}
 });
+
+for(const runtime of ['codex','claude'] as const)test(runtime+' member cards retain other workspaces and reread remote changes without local activity',async()=>{
+ const f=await fixture();let service:NativeQuotaAccounting|undefined;try{
+  f.session.binding.runtime=runtime;
+  let tokens=100;const member={request:async(_h:any,m:string)=>m==='quota/context'?{managed:true,workspaceId:'space-one',allocation:{weeklyPercent:33}}:{accountId:f.account.id,mode:'estimated',coverage:'workbench-observed',historyVersion:1,windows:[],allocations:{'space-one':{weeklyPercent:33,fiveHourPercent:null},'space-two':{weeklyPercent:33,fiveHourPercent:null}},tokenTotals:{'space-two':tokens},workspaceNames:{'space-one':'A','space-two':'B'}}};
+  service=new NativeQuotaAccounting(f.directory,()=>f.state,{dispose:async()=>{}} as any,member as any);
+  const usage={accountId:f.account.id,availability:'ready' as const,observedAt:new Date().toISOString(),pools:[],cards:[],cardsSupported:false};
+  const before=await service.read(f.host,f.catalog,usage);assert.equal(before?.tokenTotals?.['space-two'],100);assert.equal(Object.keys(before!.allocations!).length,2);
+  tokens=250;const after=await service.read(f.host,f.catalog,usage);assert.equal(after?.tokenTotals?.['space-two'],250);assert.equal(after?.currentWorkspaceId,'space-one');
+ }finally{await service?.dispose();await f.close();}
+});
