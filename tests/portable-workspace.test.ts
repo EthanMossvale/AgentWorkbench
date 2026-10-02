@@ -7,6 +7,7 @@ import {PortableWorkspaceService} from '../packages/workspace-control/portable';
 import {publicKeyFingerprint} from '../packages/workspace-control/validation';
 import type {SshHost} from '../packages/contracts';
 import type {SshRunner} from '../packages/ssh-transport';
+import {SshTransportError} from '../packages/ssh-transport';
 
 const hostKey='ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4';
 async function fixture(port=22,managed=false,ttlSeconds=3600){
@@ -31,6 +32,20 @@ async function fixture(port=22,managed=false,ttlSeconds=3600){
  const service=new PortableWorkspaceService(directory,runner);await service.export(admin,member,file,ttlSeconds);
  return {directory,file,service,runner,get enrollments(){return enrollments;},get label(){return label;},failVerification:(value:boolean)=>{failVerification=value;},close:async()=>{await service.dispose();await rm(directory,{recursive:true,force:true});}};
 }
+for(const [stderr,code] of [
+ ['Connection timed out during banner exchange','HANDSHAKE_TIMEOUT'],
+ ['Host key verification failed','HOST_KEY'],
+ ['WARNING: UNPROTECTED PRIVATE KEY FILE! bad permissions','LOCAL_KEY'],
+ ['Could not resolve hostname secret-host.invalid','DNS'],
+ ['Connection refused','REFUSED'],
+])test('import reports '+code+' before consuming an invitation and retains the same device key',async()=>{
+ const f=await fixture();let offline=true;const importer=new PortableWorkspaceService(path.join(f.directory,'receiver'),async(...args)=>offline?{exitCode:255,signal:null,stdout:'',stderr:stderr+' PRIVATE_SENTINEL'}:f.runner(...args));
+ try{const preview=await importer.preview(f.file);await assert.rejects(importer.import(preview.previewId,'Device'),error=>error instanceof Error&&error.message.includes('WORKSPACE_IMPORT_PROBE_'+code)&&!error.message.includes('PRIVATE_SENTINEL')&&!error.message.includes('secret-host.invalid'));assert.equal(f.enrollments,0);const resumed=await importer.preview(f.file);assert.equal(resumed.resumeExistingDevice,true);offline=false;await importer.import(resumed.previewId,'Device');assert.equal(f.enrollments,1);}finally{await importer.dispose();await f.close();}
+});
+test('a lost enrollment response verifies the saved key once without replaying enrollment',async()=>{
+ const f=await fixture();const importer=new PortableWorkspaceService(path.join(f.directory,'receiver'),async(...args)=>{const result=await f.runner(...args);if(args[1]==='enroll')throw new SshTransportError('TIMEOUT','private error details');return result;});
+ try{const host=await importer.import((await importer.preview(f.file)).previewId,'Device');assert.ok(host.deviceId);assert.equal(f.enrollments,1);await assert.rejects(importer.preview(f.file),/文件已失效/);}finally{await importer.dispose();await f.close();}
+});
 for(const port of [22,2222])test(`SSH export authorizes once, preserves device name, and writes exact host pins on port ${port}`,async()=>{
  const f=await fixture(port);try{
   const preview=await f.service.preview(f.file);assert.ok(!JSON.stringify(preview).includes('PRIVATE KEY'));

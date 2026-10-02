@@ -3,11 +3,21 @@ import assert from 'node:assert/strict';
 import {spawnSync} from 'node:child_process';
 import path from 'node:path';
 import {NativeRuntimeControl} from '../packages/workspace-control/native-runtime';
+import {SshTransportError} from '../packages/ssh-transport';
 import type {AccountCatalog,SshHost} from '../packages/contracts';
 import {parseClaudeModels} from '../packages/runtime-claude/models';
 import {officialAccountLaunch} from '../packages/model-management/native';
 import {validateModelSelection} from '../packages/runtime-codex/models';
 import type {Session} from '../packages/contracts';
+test('SSH model discovery distinguishes transport failure from malformed service JSON without replay',async()=>{
+ const host:SshHost={id:'w',name:'Fixture',hostname:'fixture.invalid',port:22,role:'workspace',username:'member',ownerId:'fixture',workspaceGeneration:'wg',identityFile:'unused',knownHostsFile:'unused'};
+ const catalog:AccountCatalog={source:'native-owner',availability:'ready',authorityId:'a',generation:'g',workspaceId:'w',revision:1,selectionRevision:1,accounts:[{id:'c',generation:'cg',provider:'claude',status:'authenticated',observedAt:'now'}]};
+ for(const [stderr,code] of [['Connection timed out during banner exchange','HANDSHAKE_TIMEOUT'],['UNPROTECTED PRIVATE KEY FILE!','LOCAL_KEY'],['Permission denied (publickey).','AUTH_REJECTED']]){
+  let calls=0;const service=new NativeRuntimeControl('unused',async()=>{calls++;return {exitCode:255,signal:null,stdout:'',stderr:stderr+' PRIVATE_SENTINEL'};});await assert.rejects(service.models(host,catalog,'c'),error=>error instanceof Error&&error.message.includes('SSH_'+code)&&!error.message.includes('PRIVATE_SENTINEL')&&!error.message.includes('无效回执'));assert.equal(calls,1);
+ }
+ const timeout=new NativeRuntimeControl('unused',async()=>{throw new SshTransportError('TIMEOUT','PRIVATE_SENTINEL');});await assert.rejects(timeout.models(host,catalog,'c'),/SSH_TIMEOUT/);
+ const malformed=new NativeRuntimeControl('unused',async()=>({exitCode:0,signal:null,stdout:'not json',stderr:''}));await assert.rejects(malformed.models(host,catalog,'c'),/无效回执/);
+});
 
 test('Claude catalog keeps native variants distinct and Fast follows capability metadata',()=>{
  const models=parseClaudeModels([{value:'opus',displayName:'Opus version',supportedEffortLevels:['low','high'],supportsFastMode:true},{value:'opus[1m]',displayName:'Opus version',supportsFastMode:true,supportedEffortLevels:['high'],defaultEffort:'high'},{value:'other',supportsFastMode:false,contextWindow:1000000}]);

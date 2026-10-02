@@ -1,5 +1,11 @@
 # 37 · UI preference persistence inventory
 
+## SSH metadata and diagnostic repair (2026-10-02)
+
+This change adds no adjustable UI node or preference key. Existing model/account selections and the per-user profile locator retain their scope, storage, defaults, restart/update restoration and reset owners. `AppState.hosts.identityFile` and `knownHostsFile` are execution references: profile relocation remaps owned paths without changing endpoint, device/account identity, runtime choice or external SSH files. Owner-only filesystem permissions are a security invariant, not a user preference.
+
+Import/network diagnostics are transient results in the existing import dialog and model rows; they do not persist pending authorization or retry a task after restart. Existing missing-provider fallback, responsive layout and deliberate selection persistence are unchanged. Approved import service/surface lifecycle and complete process restart remain covered by `scripts/test-workspace-export-ui.mjs`; relocation/singleton tests cover retained profile selection. No profile, local repair backup or acceptance output belongs in a release payload. Contracts and validation boundaries are recorded in document 36.
+
 ## Source and installed profile continuity (2026-10-02)
 
 The existing version-1 per-user bootstrap locator remains the persistent owner of the selected data directory. Windows source launches now reuse that locator when present; fresh source-only launches keep the previous developer default, and explicit developer-home/QA overrides remain isolated. No preference is copied, reset or replaced by a new default. Window geometry/state, zoom, layouts, tabs, reading preferences and appearance continue to restore from the selected profile through their existing owners. No new adjustable UI state, responsive fitting behavior, storage format or reset action is added.

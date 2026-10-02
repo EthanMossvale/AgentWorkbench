@@ -8,6 +8,23 @@ import {createHash} from 'node:crypto';
 import {finishPendingRelocation,installedDataDirectory,legacyInstalledDataDirectory,readDataLocation,relocateAppData,relocateLegacyRuntimeData,relocateClipboardData,saveDataLocation,validateDataDestination} from '../packages/app-data/relocation';
 
 const fixture=()=>{const root=mkdtempSync(path.join(os.tmpdir(),'awb-relocate-')),source=path.join(root,'old'),target=path.join(root,'new'),locator=path.join(root,'location.json');mkdirSync(source);return {root,source,target,locator,close:()=>rmSync(root,{recursive:true,force:true})};};
+test('SSH managed identities and pins survive alias migration and a second move for both runtime bindings',()=>{const f=fixture();try{
+ const relative=path.join('workspace-devices','ssh-fixture'),alias=path.join(f.root,'retired-alias'),external=path.join(f.root,'external-ssh');
+ mkdirSync(path.join(f.source,relative),{recursive:true});mkdirSync(external);
+ for(const name of ['device-key','known_hosts']){writeFileSync(path.join(f.source,relative,name),'synthetic '+name);writeFileSync(path.join(external,name),'external '+name);}
+ const fields=(root:string)=>({identityFile:path.join(root,'device-key'),knownHostsFile:path.join(root,'known_hosts')});
+ const externalHost=fields(external),siblingHost=fields(f.source+'-sibling');
+ writeFileSync(path.join(f.source,'state.json'),JSON.stringify({hosts:[{id:'member',...fields(path.join(alias,relative))},externalHost,siblingHost],sessions:['codex','claude'].map(runtime=>({binding:{runtime,hostId:'member'}}))}));
+ relocateAppData(f.source,f.target,undefined,{[alias]:f.source});const second=path.join(f.root,'second');relocateAppData(f.target,second);
+ const saved=JSON.parse(readFileSync(path.join(second,'state.json'),'utf8'));assert.deepEqual(saved.hosts[0],{id:'member',...fields(path.join(second,relative))});assert.deepEqual(saved.hosts[1],externalHost);assert.deepEqual(saved.hosts[2],siblingHost);
+ for(const name of ['device-key','known_hosts']){assert.equal(readFileSync(path.join(second,relative,name),'utf8'),'synthetic '+name);assert.equal(readFileSync(path.join(external,name),'utf8'),'external '+name);}
+ assert.deepEqual(saved.sessions.map((s:any)=>s.binding),['codex','claude'].map(runtime=>({runtime,hostId:'member'})));assert.equal(existsSync(f.source),false);assert.equal(existsSync(f.target),false);
+}finally{f.close();}});
+test('old cleanup journals with unmapped SSH paths preserve both trees',()=>{const f=fixture();try{
+ const raw=JSON.stringify({hosts:[{identityFile:path.join(f.source,'device-key'),knownHostsFile:path.join(f.source,'known_hosts')}]});writeFileSync(path.join(f.source,'state.json'),raw);cpSync(f.source,f.target,{recursive:true});
+ const files={'':{kind:'directory'},'state.json':{kind:'file',hash:createHash('sha256').update(raw).digest('hex'),size:Buffer.byteLength(raw)}};const journal=JSON.stringify({version:1,source:f.source,target:f.target,phase:'cleanup',sourceFiles:files,targetFiles:files});writeFileSync(f.target+'.migration.json',journal);
+ assert.throws(()=>finishPendingRelocation(f.source,f.target),/APP_DATA_SSH_REFERENCE_UNMAPPED/);assert.equal(readFileSync(path.join(f.source,'state.json'),'utf8'),raw);assert.equal(readFileSync(path.join(f.target,'state.json'),'utf8'),raw);assert.equal(readFileSync(f.target+'.migration.json','utf8'),journal);
+}finally{f.close();}});
 test('packaged Windows data uses a short Local path and retains the old path only as a migration marker',()=>{const root=path.join('C:\\Users','Fixture'),appData=path.join(root,'AppData','Roaming'),executable=path.join(root,'AppData','Local','Programs','AgentWorkbench','AgentWorkbench.exe');assert.equal(installedDataDirectory(executable,root,appData),path.join(root,'AppData','Local','AgentWorkbench'));assert.equal(installedDataDirectory(executable,root),path.join(root,'AppData','Local','AgentWorkbench'));assert.match(legacyInstalledDataDirectory(executable,root),/[\\/]AgentWorkbenchData[\\/][0-9a-f]{16}$/i);});
 test('profile-owned clipboard bytes move with references while unrelated cache remains',()=>{const f=fixture();try{
  const id='00000000-0000-4000-8000-000000000001',temp=path.join(f.root,'clipboard'),file=path.join(temp,id,'file-paste.txt'),metadata=path.join(f.source,'attachments',id,'metadata.json');

@@ -5,6 +5,7 @@ import { lstat, mkdir, readFile, writeFile, rename } from 'node:fs/promises';
 import path from 'node:path';
 import type { SshHost } from '../contracts';
 import { buildSshEnvironment, runSsh, type SshRunner } from '../ssh-transport';
+import {restrictPrivatePath} from '../ssh-transport/private-files';
 import type { WorkspaceEnrollment, WorkspaceImportPreview, WorkspaceInvite } from './types';
 import { enrollment, identifier, invite, publicKey, publicKeyFingerprint, safeText } from './validation';
 
@@ -34,13 +35,7 @@ export async function privateDirectory(directory: string) {
   }
   await mkdir(directory, { recursive: true, mode: 0o700 });
   if ((await lstat(directory)).isSymbolicLink()) throw new Error('设备密钥目录不能是符号链接。');
-  if (process.platform === 'win32') {
-    const system32 = path.join(process.env.SystemRoot || 'C:\\Windows', 'System32');
-    const { stdout } = await execute(path.join(system32, 'whoami.exe'), ['/user', '/fo', 'csv', '/nh'], { windowsHide: true, env: buildSshEnvironment(), timeout: 10000 });
-    const sid = stdout.match(/S-1-5-(?:\d+-)*\d+/)?.[0];
-    if (!sid) throw new Error('无法核实当前设备的文件权限身份。');
-    await execute(path.join(system32, 'icacls.exe'), [directory, '/inheritance:r', '/grant:r', `*${sid}:(OI)(CI)F`], { windowsHide: true, env: buildSshEnvironment(), timeout: 10000 });
-  }
+  restrictPrivatePath(directory,'directory');
 }
 export class WorkspaceEnrollmentService {
   private previews = new Map<string, WorkspaceInvite>();
@@ -116,6 +111,7 @@ export class WorkspaceEnrollmentService {
       else await execute(keygen, ['-q', '-t', 'ed25519', '-N', '', '-C', '', '-f', identityFile], { windowsHide: true, env: buildSshEnvironment(), timeout: 15_000 });
     }
     const keyInfo = await lstat(identityFile); if (!keyInfo.isFile() || keyInfo.isSymbolicLink()) throw new Error('本机设备密钥文件不可用。');
+    restrictPrivatePath(identityFile,'file');
     const key = publicKey((await readSmall(identityFile + '.pub', 16384)).trim(), true);
     const keyFingerprint = publicKeyFingerprint(key);
     if (journal.keyFingerprint && journal.keyFingerprint !== keyFingerprint) throw new Error('本机设备公钥与原导入记录不一致，不能重新登记。');

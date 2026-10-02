@@ -4,22 +4,35 @@ import {promisify} from 'node:util';
 import {readFile,writeFile,lstat,rename,unlink} from 'node:fs/promises';
 import path from 'node:path';
 import type {SshHost} from '../contracts';
-import {runSsh,buildSshEnvironment,type SshRunner} from '../ssh-transport';
+import {runSsh,buildSshEnvironment,type SshRunner,type SshResult} from '../ssh-transport';
 import {privateDirectory} from './enrollment';
 import {publicKey,publicKeyFingerprint,safeText} from './validation';
 import {PORTABLE_ENROLL,portablePrepareScript} from './portable-script';
 import type {WorkspaceImportPreview} from './types';
 import {workspaceExportTtl} from './export-policy';
+import {restrictPrivatePath} from '../ssh-transport/private-files';
+import {sshFailure} from '../ssh-transport/diagnostics';
 
 const execute=promisify(execFile);
 const keygen=process.platform==='win32'?path.join(process.env.SystemRoot||'C:\\Windows','System32/OpenSSH/ssh-keygen.exe'):'/usr/bin/ssh-keygen';
 const python=(source:string)=>`exec /usr/bin/python3 -c "import base64;exec(base64.b64decode('${Buffer.from(source).toString('base64')}'))"`;
 const digest=(value:string)=>createHash('sha256').update(value).digest('hex');
 export const INVALID_WORKSPACE_FILE='文件已失效，请向管理员重新获取。';
+type ImportStage='PROBE'|'ENROLL'|'VERIFY';
+/** Classify locally; remote output, addresses and key material never become UI diagnostics. */
+function importFailure(stage:ImportStage,result?:SshResult,error?:unknown){
+ const failure=sshFailure(result,error);
+ let code=failure?.code??'REPLY_UNCONFIRMED',reason=failure?.message??'未收到符合预期的服务器回执，请管理员检查 SSH 登记命令。';
+ if(code==='AUTH_REJECTED'&&stage==='ENROLL')reason=INVALID_WORKSPACE_FILE;
+ else if(result?.stdout.includes('ENROLLMENT_FAILED')){code='ENROLLMENT_REJECTED';reason=INVALID_WORKSPACE_FILE;}
+ else if(result?.exitCode===0){code='REPLY_INVALID';reason='服务器返回的登记或身份回执不匹配，请管理员检查成员身份和登录脚本。';}
+ const title=stage==='VERIFY'?'设备登记已返回，但新密钥的 SSH 校验尚未通过。':'设备登记尚未确认。';
+ return new Error(`${title}${reason} 本机密钥已保留；请在同一台电脑重新选择原文件恢复。诊断码：WORKSPACE_IMPORT_${stage}_${code}`);
+}
 type Bundle={schema:'agent-workbench-ssh-invite';version:1;inviteId:string;expiresAt:string;workspaceName:string;username:string;uid:number;root:string;hostname:string;port:number;hostPublicKeys:string[];bootstrapKey:string;bootstrapPublicKey:string;authorityId?:string;authorityGeneration?:string;workspaceId?:string;workspaceGeneration?:string};
 async function small(file:string){const s=await lstat(file);if(!s.isFile()||s.isSymbolicLink()||s.size>65536)throw new Error('工作空间文件类型或大小不正确。');return readFile(file,'utf8');}
 async function atomic(file:string,value:string){const temp=file+'.'+randomUUID()+'.tmp';await writeFile(temp,value,{flag:'wx',mode:0o600});try{await rename(temp,file);}catch(e){await unlink(temp).catch(()=>{});throw e;}}
-async function generate(file:string){await execute(keygen,['-t','ed25519','-N','','-C','','-f',file],{windowsHide:true,env:buildSshEnvironment(),timeout:10000});}
+async function generate(file:string){await execute(keygen,['-t','ed25519','-N','','-C','','-f',file],{windowsHide:true,env:buildSshEnvironment(),timeout:10000});restrictPrivatePath(file,'file');}
 function bundle(value:unknown):Bundle{
  const b=value as Bundle;
  if(!b||b.schema!=='agent-workbench-ssh-invite'||b.version!==1||!/^[-a-f0-9]{36}$/.test(b.inviteId)||!Number.isFinite(Date.parse(b.expiresAt))||!safeText(b.workspaceName,256)||!b.workspaceName||!safeText(b.hostname,253)||!/^[a-zA-Z0-9][a-zA-Z0-9.:-]*$/.test(b.hostname)||!Number.isInteger(b.port)||b.port<1||b.port>65535||!Number.isInteger(b.uid)||b.uid<1000||!/^\/[a-zA-Z0-9_./-]+$/.test(b.root)||b.root.split('/').includes('..')||!/^[-a-z_][-a-z_0-9]{0,31}$/.test(b.username)||b.username==='root'||!Array.isArray(b.hostPublicKeys)||b.hostPublicKeys.length!==1||typeof b.bootstrapKey!=='string'||!/^-----BEGIN OPENSSH PRIVATE KEY-----\r?\n[A-Za-z0-9+/=\r\n]+-----END OPENSSH PRIVATE KEY-----\r?\n?$/.test(b.bootstrapKey)||b.bootstrapKey.length>4096)throw new Error('工作空间邀请格式无效。');
@@ -66,23 +79,32 @@ export class PortableWorkspaceService{
   catch(e){if((e as NodeJS.ErrnoException).code!=='ENOENT')throw e;for(const file of [identityFile,identityFile+'.pub']){try{await lstat(file);throw new Error('此目录已有未绑定的设备密钥，不能覆盖。');}catch(cause){if((cause as NodeJS.ErrnoException).code!=='ENOENT')throw cause;}}saved={digest:binding,hostId:randomUUID()};await atomic(bindingFile,JSON.stringify(saved));}
   try{const info=await lstat(identityFile);if(!info.isFile()||info.isSymbolicLink()||info.nlink!==1)throw new Error('设备密钥文件无效。');}catch(e){if((e as NodeJS.ErrnoException).code!=='ENOENT')throw e;await generate(identityFile);}
   const devicePublic=publicKey((await small(identityFile+'.pub')).trim(),true);
+  restrictPrivatePath(identityFile,'file');
   const host:SshHost={id:saved.hostId,name:b.workspaceName+' · '+label,hostname:b.hostname,port:b.port,username:b.username,role:'workspace',identityFile,knownHostsFile,ownerId:'local-owner',workspaceGeneration:b.workspaceGeneration??b.inviteId,remoteWorkspaceId:b.workspaceId??b.username,deviceId:'ssh-'+b.inviteId,...(b.authorityId?{authorityId:b.authorityId,authorityGeneration:b.authorityGeneration}:{})};
   const knownName=b.port===22?b.hostname:`[${b.hostname}]:${b.port}`;
   await atomic(knownHostsFile,b.hostPublicKeys.map(key=>`${knownName} ${key}\n`).join(''));
   const complete=async()=>{await atomic(path.join(directory,'completed.json'),JSON.stringify({hostId:host.id,completedAt:new Date().toISOString()}));await unlink(bootstrapFile).catch(()=>{});return host;};
-  const verify=async()=>{const r=await this.runner(host,'id -un && id -u',{timeoutMs:15000,maxOutputBytes:1024});return r.exitCode===0&&r.stdout.trim()===`${b.username}\n${b.uid}`;};
+  const verify=async():Promise<{verified:boolean;result?:SshResult;error?:unknown}>=>{try{const r=await this.runner(host,'id -un && id -u',{timeoutMs:15000,maxOutputBytes:1024});return {verified:r.exitCode===0&&r.stdout.trim()===`${b.username}\n${b.uid}`,result:r};}catch(error){return {verified:false,error};}};
   // A newly generated key cannot authenticate before enrollment. A previous success can
   // recover a lost reply using that exact device key, even after the invitation expires.
-  if(await verify())return complete();
+  const previous=await verify();if(previous.verified)return complete();
+  const probeFailure=sshFailure(previous.result,previous.error);
+  if(previous.error||previous.result?.exitCode===0||probeFailure&&!['AUTH_REJECTED','PROCESS_FAILED'].includes(probeFailure.code))throw importFailure('PROBE',previous.result,previous.error);
   this.assertOpen(); // Only the issuing SSH server decides expiry; client clocks are untrusted.
   await atomic(bootstrapFile,b.bootstrapKey);
+  restrictPrivatePath(bootstrapFile,'file');
   const derived=await execute(keygen,['-y','-f',bootstrapFile],{windowsHide:true,env:buildSshEnvironment(),timeout:10000});
   if(publicKey(derived.stdout.trim(),true)!==b.bootstrapPublicKey)throw new Error('邀请密钥与公钥不匹配。');
-  const result=await this.runner({...host,identityFile:bootstrapFile},'enroll',{stdin:JSON.stringify({publicKey:devicePublic,deviceLabel:label})+'\n',timeoutMs:20000,maxOutputBytes:4096});
-  let receipt;try{receipt=JSON.parse(result.stdout);}catch{}
-  if(result.exitCode!==0||receipt?.inviteId!==b.inviteId||receipt?.username!==b.username||receipt?.uid!==b.uid||receipt?.fingerprint!==publicKeyFingerprint(devicePublic)){
-   if(!await verify())throw new Error(/Permission denied \(publickey\)|ENROLLMENT_FAILED/.test(result.stderr+' '+result.stdout)?INVALID_WORKSPACE_FILE:'设备登记尚未确认；请检查网络后用此文件恢复。本机密钥已保留。');
-  }else if(!await verify())throw new Error('设备登记已返回，但新密钥的 SSH 校验尚未通过；请再次导入恢复。');
+  let result:SshResult|undefined,failure:unknown;
+  try{result=await this.runner({...host,identityFile:bootstrapFile},'enroll',{stdin:JSON.stringify({publicKey:devicePublic,deviceLabel:label})+'\n',timeoutMs:20000,maxOutputBytes:4096});}catch(error){failure=error;}
+  let receipt;try{receipt=JSON.parse(result?.stdout??'');}catch{}
+  // A lost enrollment reply can still be confirmed with this device's saved key.
+  // This is a read-only identity probe, never a second enrollment request.
+  const current=await verify();
+  if(!current.verified){
+   const valid=result?.exitCode===0&&receipt?.inviteId===b.inviteId&&receipt?.username===b.username&&receipt?.uid===b.uid&&receipt?.fingerprint===publicKeyFingerprint(devicePublic);
+   throw valid?importFailure('VERIFY',current.result,current.error):importFailure('ENROLL',result,failure);
+  }
   return complete();
  }
 }

@@ -32,6 +32,8 @@ try{
    if(['extensions/renderers','runtime/catalog'].includes(method))return ok([]);if(method==='extensions/appearance')return ok({variables:{}});
    if(method==='local-cli/list')return ok([{runtime:'claude',installed:true,version:'fixture',busy:false}]);
    if(method==='accounts/list')return ok(catalog);
+   if(method==='desktop-updates/status')return ok({supported:false,phase:'idle'});
+   if(method==='runtime/models')return {ok:false,error:'Synthetic direct model reader unavailable; use the discovered target catalog.'};
    if(method==='theme/set'){state.theme=p.theme;publish();return ok(state);}
    if(method==='model-targets/list')return ok(h.failure?[{id:'ssh/member/claude/c',name:'Claude Code',description:'A · A · SSH',runtime:'claude',ready:false,binding,unavailableReason:'远端服务不支持此请求，请核对账号服务版本。'}]:['Fixture Sonnet','Fixture Opus'].map((name,i)=>({id:'ssh/member/claude/c/model/'+i,name,description:'A · A · SSH'+(h.ready?' · 官方 MCP 工具':''),runtime:'claude',ready:h.ready,binding,selection:{model:'fixture-'+i},...(h.ready?{}:{unavailableReason:'Claude 本机文件和工具执行桥尚未接通'})})));
    h.unexpected.push(method);return {ok:false,error:'Unmocked operation blocked: '+method};
@@ -60,6 +62,7 @@ try{
   assert.equal(await page.getByRole('menuitemradio',{name:/Fixture Sonnet/}).isDisabled(),false);assert.equal(await page.getByRole('menuitemradio',{name:/Fixture Opus/}).isDisabled(),false);
   assert.equal(await page.locator('.model-catalog-source').textContent(),'A · A · SSH');assert.equal(await page.locator('.model-catalog-list small').count(),0);await page.screenshot({path:path.join(output,'claude-mcp-ready.png')});
  });
- const requests=await app.evaluate(()=>globalThis.__catalogQA.requests);assert.ok(!requests.some(r=>['draft/prepare','draft/submit','session/create','runtime/models'].includes(r.method)));assert.deepEqual(await app.evaluate(()=>globalThis.__catalogQA.unexpected),[]);assert.deepEqual(errors,[]);
+ // runtime/models is a read-only catalog request, not model generation.
+ const requests=await app.evaluate(()=>globalThis.__catalogQA.requests);assert.ok(!requests.some(r=>['draft/prepare','draft/submit','session/create'].includes(r.method)));assert.deepEqual(await app.evaluate(()=>globalThis.__catalogQA.unexpected),[]);assert.deepEqual(errors,[]);
 }catch(error){failure={message:error.message,stack:error.stack};if(app)failure.unexpected=await app.evaluate(()=>globalThis.__catalogQA?.unexpected??[]).catch(()=>[]);if(page)await page.screenshot({path:path.join(output,'failure.png')}).catch(()=>{});throw error;}
 finally{if(app)await app.close();await writeFile(path.join(output,'report.json'),JSON.stringify({syntheticOnly:true,checks,errors,...(failure?{failure}:{})},null,2));}

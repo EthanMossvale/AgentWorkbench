@@ -2,6 +2,7 @@ import {createHash,randomUUID} from 'node:crypto';
 import {execFileSync} from 'node:child_process';
 import {cpSync,existsSync,lstatSync,mkdirSync,openSync,readFileSync,readSync,closeSync,readdirSync,renameSync,rmdirSync,rmSync,writeFileSync} from 'node:fs';
 import path from 'node:path';
+import {restrictPrivatePath} from '../ssh-transport/private-files';
 
 interface LocationFile {version:1;directory:string;pending?:string;defaultDirectory?:string}
 const same=(a:string,b:string)=>process.platform==='win32'?path.resolve(a).toLowerCase()===path.resolve(b).toLowerCase():path.resolve(a)===path.resolve(b);
@@ -48,7 +49,7 @@ export function saveDataLocation(file:string,value:LocationFile){
   mkdirSync(path.dirname(file),{recursive:true});const temporary=file+'.'+randomUUID()+'.tmp';
   writeFileSync(temporary,JSON.stringify(value));renameSync(temporary,file);
 }
-const pathKeys=new Set(['path','paths','projectPath','cwd','root','repositoryRoot','sourceDirectory','directory','file','receipt','generatedRoot','pending','codexInstallDirectory']);
+const pathKeys=new Set(['path','paths','projectPath','cwd','root','repositoryRoot','sourceDirectory','directory','file','receipt','generatedRoot','pending','codexInstallDirectory','identityFile','knownHostsFile']);
 const remapPath=(value:string,source:string,target:string)=>{
     const prefix=value.slice(0,source.length);
     return same(prefix,source)&&(value.length===source.length||['/','\\'].includes(value[source.length]!))?target+value.slice(source.length):value;
@@ -73,6 +74,14 @@ const validateRelocatedMemoryReceipts=(staging:string,target:string)=>{
   const ledger=JSON.parse(readFileSync(file,'utf8')) as {deliveries?:{id?:unknown;receipt?:unknown}[]};
   if(!Array.isArray(ledger.deliveries)||ledger.deliveries.some(delivery=>!delivery||typeof delivery.id!=='string'||!/^[a-f\d-]{36}$/.test(delivery.id)||delivery.receipt!==path.join(target,'memory-exchange','receipts',delivery.id+'.json')))throw Error('APP_DATA_MEMORY_RECEIPT_UNMAPPED');
 };
+/** A resumed old journal must not retire the files its SSH connections still reference. */
+const validateRelocatedSshReferences=(directory:string,retiredRoots:string[])=>{
+  const file=path.join(directory,'state.json');if(!existsSync(file))return;
+  const state=JSON.parse(readFileSync(file,'utf8')) as {hosts?:{identityFile?:unknown;knownHostsFile?:unknown}[]};
+  for(const host of state.hosts??[])for(const key of ['identityFile','knownHostsFile'] as const){
+    const value=host[key];if(typeof value==='string'&&retiredRoots.some(root=>inside(root,value)))throw Error('APP_DATA_SSH_REFERENCE_UNMAPPED');
+  }
+};
 /** Resume only when the copied tree is still byte-for-byte equivalent to the source. */
 export function finishPendingRelocation(source:string,target:string){
   if(!path.isAbsolute(source)||!path.isAbsolute(target)||inside(source,target)||inside(target,source)||same(source,path.parse(source).root)||same(target,path.parse(target).root))throw Error('APP_DATA_PATH_INVALID');
@@ -84,6 +93,7 @@ export function finishPendingRelocation(source:string,target:string){
   if(journal.version!==1||!same(journal.source,source)||!same(journal.target,target)||journal.phase!=='cleanup')throw Error('APP_DATA_MIGRATION_RECOVERY_REQUIRED');
   verifyInventory(target,journal.targetFiles);
   validateRelocatedMemoryReceipts(target,target);
+  validateRelocatedSshReferences(target,[source,...(journal.external??[]).map(entry=>entry.source)]);
   for(const entry of journal.external??[]){
     if(!path.isAbsolute(entry.source)||inside(source,entry.source)||inside(entry.source,source)||same(entry.source,path.parse(entry.source).root)||!inside(target,entry.target))throw Error('APP_DATA_MIGRATION_RECOVERY_REQUIRED');
     if(present(entry.source))verifyInventory(entry.source,entry.files,true);
@@ -127,6 +137,9 @@ export function relocateAppData(source:string,target:string,commit:()=>void=()=>
   const external:NonNullable<MigrationJournal['external']>=[];
   try{
     const sourceFiles=inventory(source);
+    // Node copy does not preserve Windows ACLs. Inherit owner-only access from
+    // the new root before any opaque credentials or device keys are copied.
+    mkdirSync(staging,{mode:0o700});restrictPrivatePath(staging,'directory');
     cpSync(source,staging,{recursive:true,errorOnExist:true,force:false,dereference:false});
     verifyCopy(source,staging);
     const worktreeFile=path.join(staging,'worktree-state.json');
@@ -156,6 +169,7 @@ export function relocateAppData(source:string,target:string,commit:()=>void=()=>
     const mappings=[[source,target],...external.map(entry=>[entry.source,entry.target]),...Object.entries(aliases).map(([alias,origin])=>[alias,remapPath(origin,source,target)])];
     for(const [before,after] of mappings)for(const file of rewrittenFiles)rewriteJson(path.join(staging,file),before!,after!);
     validateRelocatedMemoryReceipts(staging,target);
+    validateRelocatedSshReferences(staging,mappings.map(([before])=>before!));
     const attachments=path.join(staging,'attachments');
     if(existsSync(attachments))for(const entry of readdirSync(attachments)){const metadata=path.join(attachments,entry,'metadata.json');if(existsSync(metadata))for(const [before,after] of mappings)rewriteJson(metadata,before!,after!);}
     const journal:MigrationJournal={version:1,source,target,phase:'prepared',sourceFiles,targetFiles:inventory(staging),external};
