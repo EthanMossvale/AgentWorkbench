@@ -1,5 +1,13 @@
 # 16 · 实现与验收记录
 
+## Program updates preserve the current data location (2026-10-03)
+
+The installed bootstrap unconditionally attempted to relocate old workspace/tool directories. Coexisting old and current Claude tool-profile directories, including empty ones, could raise APP_DATA_LEGACY_MIGRATION_FAILED before the renderer opened. A program update is not authorization to move data. Startup now reuses the selected or recognized existing profile in place, leaves auxiliary directories and aliases untouched, and creates a default only for a fresh installation. Automatic conversion of old generated profile locations is removed. Explicit pending user-requested relocation retains its existing transactional path.
+
+Scope: packages/app-data/index.ts and its bootstrap tests; public contracts and the UI preference inventory are reviewed in documents 36 and 37. No account credentials, chat stores, native CLI installations or remote configuration are edited. Validation distinguishes synthetic bootstrap and approved-plugin coverage from an installed desktop reaching its actual main renderer.
+
+Validation passed: 25 focused data-directory tests, including approved ZIP activation/replacement/disable/reenable; seven real Electron bootstrap checks; typecheck/build, plugin contracts, public documentation and UI-preference checks. The updated Windows package passed six isolated account-selector checks for Claude and Codex. Installed executable/archive hashes matched that package. Two complete launches of the installed desktop reached a visible main renderer with loaded state; the selected data directory and location-file bytes remained unchanged. No paid model request, other-device acceptance, remote deployment or push is claimed.
+
 ## SSH paths, Windows ACLs and truthful connection errors (2026-10-02)
 
 The prior profile migration remapped general file paths but omitted host `identityFile` and `knownHostsFile`; Node copies also inherited destination Windows ACLs. A copied key could therefore be both referenced at a retired location and rejected by OpenSSH for excess access. Migration now rewrites both owned references and copies into an owner-only staging root; old cleanup journals refuse to delete a still-referenced source. Portable import/export and legacy enrollment explicitly protect application-owned key files and directories, including resumed devices. External user-selected keys and remote policy are unchanged.

@@ -1,5 +1,17 @@
 # 36 · 工作台插件开发接口
 
+## Preserve data locations during startup and updates (2026-10-03)
+
+This correction supersedes earlier automatic bootstrap relocation behavior. Pre-implementation review covers the version-1 location file, initializeAppData, desktop/data-directory, desktop/data-directory/choose, desktop/data-directory/migrate, the desktop.data-directory service and data-directory-settings surface. Startup and program updates reuse the saved directory, including old generated defaults. With no locator, a recognized existing profile is reused in place; only a fresh installation creates a default. Explicit development overrides select a location without importing another profile. Startup no longer relocates legacy workspaces, Claude tool profiles, sibling attachments or clipboard caches, or removes their aliases. Coexisting directories, even conflicting nonempty ones, cannot themselves trigger a move.
+
+| Capability | Call | Register / replace / cleanup | Production evidence |
+| --- | --- | --- | --- |
+| Inspect and explicitly relocate a profile | Existing desktop/data-directory commands and DataDirectoryApi retain their types and results | Approved plugins intercept or override desktop.data-directory; data-directory-settings supports current and later mounts with disposal. Filesystem paths are user choices, not a registrable option catalog. | tests/app-data-service.test.ts loads an approved ZIP through activation, replacement, disable and reenable; bootstrap tests exercise the real consumer and restart. |
+
+An already persisted pending relocation still completes before stores open; ordinary startup never creates a pending relocation. Explicit migrate(target) retains idle admission, flush, validation, restart, journal recovery and error behavior. Startup is earlier than plugin activation, so a runtime plugin cannot intercept it before its own profile has been located; the named service remains the supported replacement point for user-requested moves. No new event, permission, resource, selector, surface, signature or persisted format is introduced; contract snapshot review requires no refresh. Missing selected directories and damaged location files still report errors rather than silently choosing an empty profile. No user data is copied into packages.
+
+Example: an approved plugin obtains desktop.data-directory via api.services.get, calls get() to inspect the active directory and invokes migrate(target) only for an explicit relocation action; disabling the plugin removes overrides without moving any data. Coverage: tests/app-data.test.ts, tests/app-data-service.test.ts, tests/app-data-relocation.test.ts, scripts/test-data-bootstrap.mjs and scripts/test-data-relocation-bootstrap.mjs. Both Claude and Codex retain their existing profile paths. No native CLI or remote server configuration changes.
+
 ## SSH continuity and import diagnostics (2026-10-02)
 
 Pre-implementation review: the version-1 bootstrap locator, owned SSH paths in `AppState.hosts`, `desktop.data-directory`, `accounts/list`, `accounts/usage`, `runtime/models`, `model-targets/list`, `studio/import-preview` and `studio/import`; named surfaces remain `data-directory-settings`, `workspace-import` and the existing model menu. No new resource directory, selector option, event, permission or adjustable UI state is introduced.

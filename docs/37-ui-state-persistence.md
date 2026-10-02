@@ -1,5 +1,9 @@
 # 37 · UI preference persistence inventory
 
+## Update without automatic data relocation (2026-10-03)
+
+Startup and updates retain the existing location-file directory and all preferences stored there, including historical generated defaults. No adjustable UI node, key, scope, default, renderer surface or reset action changes. Existing missing/corrupt selected locations remain visible errors; temporary fallback never overwrites the chosen location. Only an explicit data-directory migration request writes a pending move. The existing typed desktop.data-directory service and data-directory-settings surface remain the call/replacement contract, with approved activation/disable/reenable coverage in tests/app-data-service.test.ts. Bootstrap tests cover first launch, legacy-profile reuse, conflicting old tool directories, process restart, selected locations and corrupt locators; monitor and responsive layout behavior are unchanged. Development and acceptance profiles stay outside release payloads.
+
 ## SSH metadata and diagnostic repair (2026-10-02)
 
 This change adds no adjustable UI node or preference key. Existing model/account selections and the per-user profile locator retain their scope, storage, defaults, restart/update restoration and reset owners. `AppState.hosts.identityFile` and `knownHostsFile` are execution references: profile relocation remaps owned paths without changing endpoint, device/account identity, runtime choice or external SSH files. Owner-only filesystem permissions are a security invariant, not a user preference.

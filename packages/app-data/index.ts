@@ -1,7 +1,7 @@
-import {existsSync,lstatSync,realpathSync,readlinkSync,mkdirSync,renameSync,symlinkSync,unlinkSync,rmdirSync,readdirSync} from 'node:fs';
+import {existsSync,lstatSync,statSync,realpathSync,readlinkSync,mkdirSync,renameSync,symlinkSync,unlinkSync,rmdirSync,readdirSync} from 'node:fs';
 import path from 'node:path';
 import {createHash} from 'node:crypto';
-import {completeRelocation,finishPendingRelocation,readDataLocation,relocateAppData,relocateLegacyRuntimeData,relocateClipboardData,saveDataLocation,installedDataDirectory,legacyInstalledDataDirectory} from './relocation';
+import {completeRelocation,finishPendingRelocation,readDataLocation,relocateAppData,saveDataLocation,installedDataDirectory,legacyInstalledDataDirectory} from './relocation';
 
 /** Source and installed launches share an existing selection; only an installed first launch creates one. */
 export function resolveAppDataInstallation(options:{platform:NodeJS.Platform;packaged:boolean;executable:string;home:string;appData:string}){
@@ -24,22 +24,17 @@ export function initializeAppData(host:AppDataHost,override?:string,installed?:{
   if(!host.requestSingleInstanceLock())return null;
   try{
     let result:AppDataLocation;
-    if(!installed||override)result=prepareAppData(home,legacy,override);
+    if(!installed||override){
+      const preferred=path.join(home,'.agentworkbench');
+      const directory=override??(present(preferred)?preferred:populated(legacy)?legacy:preferred);
+      result=openExistingOrCreate(home,legacy,directory,preferred);
+    }
     else{
       const saved=readDataLocation(installed.locator),defaultDirectory=path.join(home,'.agentworkbench');
-      const current=saved?.directory??(present(defaultDirectory)?defaultDirectory:present(installed.directory)?installed.directory:installed.legacyDirectory&&present(installed.legacyDirectory)?installed.legacyDirectory:undefined);
+      const current=saved?.directory??(present(defaultDirectory)?defaultDirectory:present(installed.directory)?installed.directory:installed.legacyDirectory&&present(installed.legacyDirectory)?installed.legacyDirectory:populated(legacy)?legacy:undefined);
       if(!current){
-        if(present(legacy)){
-          const old=prepareAppData(home,legacy);
-          saveDataLocation(installed.locator,{version:1,directory:old.directory,pending:installed.directory,defaultDirectory:installed.directory});
-          relocateAppData(old.directory,installed.directory,undefined,legacyAliases(legacy,old.directory));
-          saveDataLocation(installed.locator,{version:1,directory:installed.directory,defaultDirectory:installed.directory});
-          completeRelocation(installed.directory);removeLegacyAliases(legacy,old.directory);
-          result={directory:installed.directory,legacyDirectory:legacy,defaultDirectory:installed.directory,migrated:true,compatibilityLinks:[]};
-        }else{
-          mkdirSync(installed.directory,{recursive:true});saveDataLocation(installed.locator,{version:1,directory:installed.directory,defaultDirectory:installed.directory});
-          result={directory:installed.directory,legacyDirectory:legacy,defaultDirectory:installed.directory,migrated:false,compatibilityLinks:[]};
-        }
+        result=openExistingOrCreate(home,legacy,installed.directory,installed.directory);
+        saveDataLocation(installed.locator,{version:1,directory:installed.directory,defaultDirectory:installed.directory});
       }else if(saved?.pending){
         const target=saved.pending;
         if(present(target))finishPendingRelocation(current,target);
@@ -47,33 +42,12 @@ export function initializeAppData(host:AppDataHost,override?:string,installed?:{
         saveDataLocation(installed.locator,{version:1,directory:target,defaultDirectory:installed.directory});
         completeRelocation(target);removeLegacyAliases(legacy,current);
         result={directory:target,legacyDirectory:legacy,defaultDirectory:installed.directory,migrated:true,compatibilityLinks:[]};
-      }else if(saved||same(current,installed.directory)){
-        const oldPackagedDefault=!saved?.defaultDirectory&&((!!installed.legacyDirectory&&same(current,installed.legacyDirectory))||generatedLegacyDefault(current))&&!same(current,installed.directory);
-        if(!present(current))throw Error('APP_DATA_SOURCE_MISSING');
-        if(oldPackagedDefault){
-          const target=installed.directory;
-          saveDataLocation(installed.locator,{version:1,directory:current,pending:target,defaultDirectory:target});
-          relocateAppData(current,target,undefined,legacyAliases(legacy,current));
-          saveDataLocation(installed.locator,{version:1,directory:target,defaultDirectory:target});
-          completeRelocation(target);removeLegacyAliases(legacy,current);
-          result={directory:target,legacyDirectory:legacy,defaultDirectory:target,migrated:true,compatibilityLinks:[]};
-        }else{
-          result={directory:current,legacyDirectory:legacy,defaultDirectory:installed.directory,migrated:false,compatibilityLinks:[]};
-        }
-        if(!saved&&!oldPackagedDefault)saveDataLocation(installed.locator,{version:1,directory:current,defaultDirectory:installed.directory});
       }else{
-        if(!saved&&same(current,defaultDirectory)&&present(legacy)&&!lstatSync(legacy).isSymbolicLink())prepareAppData(home,legacy);
-        const target=installed.directory;
-        if(!same(current,target)){
-          saveDataLocation(installed.locator,{version:1,directory:current,pending:target,defaultDirectory:installed.directory});
-          relocateAppData(current,target,undefined,legacyAliases(legacy,current));
-        }
-        saveDataLocation(installed.locator,{version:1,directory:target,defaultDirectory:installed.directory});
-        completeRelocation(target);removeLegacyAliases(legacy,current);
-        result={directory:target,legacyDirectory:legacy,defaultDirectory:installed.directory,migrated:true,compatibilityLinks:[]};
+        if(!present(current))throw Error('APP_DATA_SOURCE_MISSING');
+        result=openExistingOrCreate(home,legacy,current,installed.directory);
+        if(!saved)saveDataLocation(installed.locator,{version:1,directory:current,defaultDirectory:installed.directory});
       }
     }
-    if(installed&&!override){relocateLegacyRuntimeData(home,result.directory);relocateClipboardData(result.directory,path.join(host.getPath('temp'),'agentworkbench-clipboard'));removeLegacyAliases(legacy,path.join(home,'.agentworkbench'));}
     host.setPath('userData',result.directory);return result;
   }
   catch(error){host.releaseSingleInstanceLock();throw error;}
@@ -94,7 +68,14 @@ function removeLegacyAliases(legacy:string,previous:string){
 }
 const same=(a:string,b:string)=>process.platform==='win32'?a.toLowerCase()===b.toLowerCase():a===b;
 const present=(file:string)=>{try{lstatSync(file);return true;}catch(error){if((error as NodeJS.ErrnoException).code==='ENOENT')return false;throw error;}};
-const generatedLegacyDefault=(directory:string)=>path.basename(path.dirname(directory)).toLowerCase()==='agentworkbenchdata'&&/^[a-f0-9]{16}$/i.test(path.basename(directory));
+const populated=(directory:string)=>present(directory)&&statSync(directory).isDirectory()&&readdirSync(directory).length>0;
+/** Starting or upgrading the program never grants permission to relocate user data. */
+function openExistingOrCreate(home:string,legacyDirectory:string,directory:string,defaultDirectory:string):AppDataLocation{
+  if(!path.isAbsolute(directory)||directory.includes('\0')||same(path.resolve(directory),path.parse(directory).root)||same(path.resolve(directory),path.resolve(home)))throw Error('APP_DATA_PATH_INVALID');
+  if(present(directory)){if(!statSync(directory).isDirectory())throw Error('APP_DATA_DESTINATION_INVALID');}
+  else mkdirSync(directory,{recursive:true});
+  return {directory,legacyDirectory,defaultDirectory,migrated:false,compatibilityLinks:[]};
+}
 /** Run once under the app single-instance lock, before Electron readiness or any store opens. Payload files stay opaque. */
 export function prepareAppData(home:string,legacyDirectory:string,override?:string):AppDataLocation{
   const defaultDirectory=path.join(home,'.agentworkbench'),directory=override??defaultDirectory;

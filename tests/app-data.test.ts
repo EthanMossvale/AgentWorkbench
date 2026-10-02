@@ -40,8 +40,19 @@ test('installed startup preserves the selected directory across subsequent launc
  assert.equal(initializeAppData(host,undefined,installed)?.directory,chosen);
  assert.equal(existsSync(installed.directory),false);
 }finally{f.close();}});
-test('installed startup moves the previous generated hash directory to the short default once',()=>{const f=fixture();try{
+test('installed startup reuses the previous generated hash directory without moving it',()=>{const f=fixture();try{
  const old=path.join(f.root,'old-program','AgentWorkbenchData','0123456789abcdef'),target=path.join(f.root,'AppData','Local','AgentWorkbench');mkdirSync(old,{recursive:true});writeFileSync(path.join(old,'payload'),'kept');const locator=path.join(f.root,'location.json');saveDataLocation(locator,{version:1,directory:old});
  const host={getPath:(name:'home'|'userData'|'temp')=>name==='home'?f.home:name==='temp'?f.root:f.legacy,setPath:()=>{},requestSingleInstanceLock:()=>true,releaseSingleInstanceLock:()=>{}};
- const result=initializeAppData(host,undefined,{directory:target,legacyDirectory:path.join(f.root,'new-program','AgentWorkbenchData','0123456789abcdef'),locator});assert.equal(result?.directory,target);assert.equal(existsSync(old),false);assert.equal(readFileSync(path.join(target,'payload'),'utf8'),'kept');assert.equal(readDataLocation(locator)?.directory,target);assert.equal(readDataLocation(locator)?.defaultDirectory,target);
+ const result=initializeAppData(host,undefined,{directory:target,legacyDirectory:path.join(f.root,'new-program','AgentWorkbenchData','0123456789abcdef'),locator});assert.equal(result?.directory,old);assert.equal(result?.migrated,false);assert.equal(readFileSync(path.join(old,'payload'),'utf8'),'kept');assert.equal(existsSync(target),false);assert.equal(readDataLocation(locator)?.directory,old);assert.equal(readDataLocation(locator)?.defaultDirectory,undefined);
+}finally{f.close();}});
+test('installed restart leaves conflicting old tool directories and profile data untouched',()=>{const f=fixture();try{
+ const installed={directory:path.join(f.root,'installed'),locator:path.join(f.root,'location.json')};
+ const oldTool=path.join(f.home,'.agent-workbench','claude-tool-profiles'),currentTool=path.join(installed.directory,'claude-tool-profiles');
+ mkdirSync(oldTool,{recursive:true});mkdirSync(currentTool,{recursive:true});
+ writeFileSync(path.join(oldTool,'old'),'old');writeFileSync(path.join(currentTool,'current'),'current');
+ saveDataLocation(installed.locator,{version:1,directory:installed.directory,defaultDirectory:installed.directory});
+ const host={getPath:(name:'home'|'userData'|'temp')=>name==='home'?f.home:name==='temp'?f.root:f.legacy,setPath:()=>{},requestSingleInstanceLock:()=>true,releaseSingleInstanceLock:()=>{}};
+ for(let i=0;i<2;i++)assert.equal(initializeAppData(host,undefined,installed)?.directory,installed.directory);
+ assert.equal(readFileSync(path.join(oldTool,'old'),'utf8'),'old');
+ assert.equal(readFileSync(path.join(currentTool,'current'),'utf8'),'current');
 }finally{f.close();}});
