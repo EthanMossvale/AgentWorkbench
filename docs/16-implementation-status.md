@@ -1,5 +1,11 @@
 # 16 · 实现与验收记录
 
+## Complete native observation snapshot optimization (2026-10-03)
+
+The earlier streaming optimization left the Codex observer snapshot guard outside its scoped commit. This follow-up includes that guard and direct regression coverage: threadless reasoning deltas retain bounded audit receipts without per-frame full-state reads, while local and SSH observers continue checking explicit thread identities and reject foreign frames. The existing Claude performance regression remains in scope. No account, SSH authorization, data location, UI preference or public contract changes. Interface and lifecycle review is recorded in document 36.
+
+Validation passed: 70 focused tests across native observation performance, child conversations, generated images, the SSH Claude controller, native event routing, event semantics and event audit. Coverage includes approved synthetic plugin activation and policy restoration. Typecheck, plugin contracts, public documentation and UI-preference checks passed. Review found no new core-only extension branch, hardcoded catalog, named surface or persisted format. No desktop installation, real-model task or remote execution is implied.
+
 ## Program updates preserve the current data location (2026-10-03)
 
 The installed bootstrap unconditionally attempted to relocate old workspace/tool directories. Coexisting old and current Claude tool-profile directories, including empty ones, could raise APP_DATA_LEGACY_MIGRATION_FAILED before the renderer opened. A program update is not authorization to move data. Startup now reuses the selected or recognized existing profile in place, leaves auxiliary directories and aliases untouched, and creates a default only for a fresh installation. Automatic conversion of old generated profile locations is removed. Explicit pending user-requested relocation retains its existing transactional path.

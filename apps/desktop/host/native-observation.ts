@@ -79,10 +79,12 @@ export function attachNativeObservation(sessionId: string, source: Pick<EventEmi
     if (event.sessionId !== sessionId || !event.raw) return;
     const frame = event.raw as NativeFrame;
     const p=frame.value.params as {threadId?:string;thread?:{id?:string};item?:{type?:string}}|undefined;
-    const nativeId=initial.session.binding.runtime==='codex'?snapshot().sessions.find(s=>s.id===sessionId)?.binding.nativeSessionId:undefined;
     // Explicit child channels own their frames. Unrelated native identities never
     // become parent activity, even when their event type is new.
     const threadId=p?.threadId??(frame.value.method==='thread/started'?p?.thread?.id:undefined);
+    // Only thread-bearing envelopes need an ownership read. Token deltas without
+    // an identity must not clone the entire application merely to inspect it.
+    const nativeId=initial.session.binding.runtime==='codex'&&threadId?snapshot().sessions.find(s=>s.id===sessionId)?.binding.nativeSessionId:undefined;
     if(initial.session.binding.runtime==='codex'&&nativeId&&threadId&&threadId!==nativeId){
       // The image sink records an explicit ownership rejection before any file write.
       // Preserve that visible failure without admitting unrelated frames to the audit.
