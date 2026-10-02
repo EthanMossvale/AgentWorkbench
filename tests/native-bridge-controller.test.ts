@@ -7,6 +7,8 @@ import path from 'node:path';
 import os from 'node:os';
 import {createHash} from 'node:crypto';
 import {StateStore,SecretStore} from '../apps/desktop/host/store';
+import {NativeQuotaAccounting} from '../apps/desktop/host/quota-accounting';
+import {sharedAccountRef} from '../packages/account-selection';
 import {WorkbenchController} from '../apps/desktop/host/controller';
 import {SharedMemoryStore} from '../packages/memory-core';
 import {SharedSkillsStore} from '../packages/skills-core';
@@ -116,6 +118,15 @@ async function fixture(cold=false,quotaAccounting?:any,translationFetcher?:typeo
  const dir=await mkdtemp(path.join(os.tmpdir(),'aw-native-controller-')),store=new StateStore(dir);await store.load();
  const host:SshHost={id:'host',hostname:'localhost',port:22,username:'member',role:'workspace',identityFile:path.join(dir,'key-reference'),knownHostsFile:path.join(dir,'hosts-reference'),ownerId:'owner',workspaceGeneration:'generation',name:'Fixture'};
  const session:Session={id:'session',projectId:null,projectPath:dir,binding:{runtime:'codex',provider:'openai',hostId:'host',executionId:'local-device',egress:'vps',accountRef:'fixture-account'},createdAt:new Date().toISOString(),status:'idle',messages:[],title:'Fixture',pinned:false,archived:false,group:''};
+ let releaseQuota=()=>{};
+ if(quotaAccounting==='advisory'){
+  const account={id:'account',generation:'ag',provider:'codex' as const,status:'authenticated' as const,observedAt:new Date().toISOString()};
+  const catalog={source:'native-owner' as const,availability:'ready' as const,authorityId:'a',generation:'g',workspaceId:'fixture',revision:1,selectionRevision:1,accounts:[account]};
+  session.binding.accountRuntime='native-owner';session.binding.accountRef=sharedAccountRef(catalog,account);
+  await store.update(s=>{s.accountCatalogs={[host.id]:catalog};});
+  const stalled=new Promise<void>(resolve=>{releaseQuota=resolve;});
+  quotaAccounting=new NativeQuotaAccounting(dir,()=>store.snapshot(),{dispose:async()=>{}} as any,{request:async()=>{await stalled;throw Error('Synthetic ledger outage');}} as any);
+ }
  const evidence:any={runtime:'codex',runtimeVersion:'0.155.1',hostId:host.id,executionId:'local-device',accountRef:session.binding.accountRef,checks:Object.fromEntries(missingBridgeChecks('codex').map(k=>[k,'verified']))};
  await store.update(s=>{s.hosts=[host];s.sessions=[session];s.plugins={translation:{enabled:false}};s.profiles=[{version:1,id:'profile',hostId:host.id,ownerId:host.ownerId,observedAt:new Date().toISOString(),validUntil:new Date(Date.now()+60000).toISOString(),guarantee:'projected',fields:{}}];});
  const transport:any=new EventEmitter();let turns=0,handle:any,ownerReceipt:any,rejection:any,releaseStop:()=>void=()=>{},settingsUpdate:(()=>Promise<void>)|undefined;const turnParams:any[]=[];const settingsParams:any[]=[];const submitted:string[]=[];const replies:any[]=[];const commands:string[]=[];
@@ -139,7 +150,7 @@ async function fixture(cold=false,quotaAccounting?:any,translationFetcher?:typeo
   if(m.method==='turn/start')emit('turn/started',{threadId:'native',turn:{id:'turn'}});
  };
  transport.stop=async()=>{transport.emit('disconnect');return {};};
- const service:NativeCodexService={supports:(h,s)=>h.id===host.id&&s.binding.runtime==='codex'&&s.binding.accountRef==='fixture-account',defaultDirectory:()=>dir,models:async()=>['fixture-model','second-model'].map(model=>({id:model,model,name:model,isDefault:model==='fixture-model',efforts:['low','high'],serviceTiers:[{id:'priority',name:'Fast',description:'Fixture'}]})),connect:async(_h,s,options)=>{
+ const service:NativeCodexService={supports:(h,s)=>h.id===host.id&&s.binding.runtime==='codex'&&s.binding.accountRef===session.binding.accountRef,defaultDirectory:()=>dir,models:async()=>['fixture-model','second-model'].map(model=>({id:model,model,name:model,isDefault:model==='fixture-model',efforts:['low','high'],serviceTiers:[{id:'priority',name:'Fast',description:'Fixture'}]})),connect:async(_h,s,options)=>{
   if(handle){handle.adapter.setPermissionMode(s.permissionMode??'default');return handle;}
   const rpc=new CodexRpcClient(transport,s.id);await rpc.initialize();
   const adapter=new CodexNativeAdapter(rpc,s.binding,{environmentId:'local-device',cwd:dir},evidence,'0.155.1',s.binding.nativeSessionId?{}:options.context,s.permissionMode??'default');
@@ -152,8 +163,18 @@ async function fixture(cold=false,quotaAccounting?:any,translationFetcher?:typeo
  const controller=new WorkbenchController(store,new SecretStore(dir,{encrypt:value=>Buffer.from(value),decrypt:value=>value.toString()}),{translationFetcher,attachments:new AttachmentStore(path.join(dir,'attachments')),quotaAccounting,nativeCodex:service,copy:()=>{},openPath:async()=>{},pickDirectory:async()=>null,nativeCapabilities:()=>[]},()=>{},shared);
  const prepare=()=>controller.call('draft/prepare',{sessionId:session.id,text:'Exact user task'}) as Promise<DraftPreview>;
  const submit=(p:DraftPreview)=>controller.call('draft/submit',{sessionId:session.id,id:p.id,sourceHash:p.sourceHash});
- return {dir,store,controller,prepare,submit,emit,submitted,replies,turnParams,settingsParams,session,host,evidence,commands,setSettingsUpdate:(handler:(()=>Promise<void>)|undefined)=>{settingsUpdate=handler;},setTurnRejection:(value:any)=>{rejection=value;},setOwnerReceipt:(receipt:any)=>{ownerReceipt=receipt;},get turns(){return turns;},releaseStop:()=>releaseStop(),disconnect:()=>{transport.emit('disconnect');handle=undefined;},close:async()=>{await controller.dispose();await rm(dir,{recursive:true,force:true});}};
+ return {dir,store,controller,prepare,submit,emit,submitted,replies,turnParams,settingsParams,session,host,evidence,commands,setSettingsUpdate:(handler:(()=>Promise<void>)|undefined)=>{settingsUpdate=handler;},setTurnRejection:(value:any)=>{rejection=value;},setOwnerReceipt:(receipt:any)=>{ownerReceipt=receipt;},get turns(){return turns;},releaseStop:()=>releaseStop(),disconnect:()=>{transport.emit('disconnect');handle=undefined;},close:async()=>{releaseQuota();await controller.dispose();await rm(dir,{recursive:true,force:true});}};
 }
+
+test('SSH Codex submits consecutive turns while production quota accounting is stalled',async()=>{
+ const f=await fixture(false,'advisory');try{
+  await f.submit(await f.prepare());assert.equal(f.turns,1);
+  f.emit('thread/tokenUsage/updated',{threadId:'native',turnId:'turn',tokenUsage:{last:{totalTokens:100},total:{totalTokens:100}}});
+  f.emit('turn/completed',{threadId:'native',turn:{id:'turn',status:'completed'}});
+  await wait(()=>f.store.snapshot().sessions[0]?.status==='idle');
+  await f.submit(await f.prepare());assert.equal(f.turns,2);
+ }finally{await f.close();}
+});
 
 test('accepted native submission streams exact public text, reviews native changes and never duplicates a turn',async()=>{
  const f=await fixture();try{

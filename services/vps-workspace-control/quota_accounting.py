@@ -288,7 +288,7 @@ class QuotaAccounting:
 
     @staticmethod
     def recovered_percent(window):
-        if window['samplePercent'] < 2 or window['sampleTokens'] <= 0:
+        if window['samplePercent'] <= 0 or window['sampleTokens'] <= 0:
             return {}
         recovered = {}
         for row in window.get('historyTokens', {}).values():
@@ -312,7 +312,7 @@ class QuotaAccounting:
         for key, window in state['windows'].items():
             if key not in WINDOWS:
                 continue
-            total = window['sampleTokens'] * 100 / window['samplePercent'] if window['samplePercent'] >= 2 else None
+            total = window['sampleTokens'] * 100 / window['samplePercent'] if window['samplePercent'] > 0 and window['sampleTokens'] > 0 else None
             recovered = {}
             for row in window.get('historyTokens', {}).values():
                 recovered[row['workspaceId']] = recovered.get(row['workspaceId'], 0) + row['tokens']

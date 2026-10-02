@@ -17,8 +17,10 @@ async function fixture() {
   const state = {hosts:[host], accountCatalogs:{[host.id]:catalog}} as AppState;
   const requests: {host:SshHost; method:string; params:any}[] = [];
   let allowed = true, managed = true, failFinish = false;
+  let stalled: Promise<void> | undefined;
   const member = {request:async(h:SshHost,method:string,params:any) => {
     requests.push({host:structuredClone(h),method,params:structuredClone(params)});
+    await stalled;
     if (method === 'quota/context') return {managed,workspaceId:'space-one',allocation:{weeklyPercent:33,fiveHourPercent:33,allowOverage:true}};
     if (method === 'quota/check') return {allowed,reason:allowed?undefined:'QUOTA_ALLOCATION_EXHAUSTED'};
     if (failFinish && params.payload?.phase === 'finish') {failFinish=false;throw Error('Fixture transport disconnected');}
@@ -27,17 +29,39 @@ async function fixture() {
   const remote = {list:async()=>{throw Error('Member must not require an administrator key');},quota:async()=>{throw Error('Unexpected admin request');},dispose:async()=>{}};
   const make = () => new NativeQuotaAccounting(directory,()=>state,remote as any,member as any);
   const service = make(), handle = {threadId:'thread-one'} as any;
-  return {directory,host,account,catalog,session,state,requests,service,handle,make,setAllowed:(v:boolean)=>{allowed=v;},setManaged:(v:boolean)=>{managed=v;},failNextFinish:()=>{failFinish=true;},close:async()=>{await service.dispose();await rm(directory,{recursive:true,force:true});}};
+  return {directory,host,account,catalog,session,state,requests,service,handle,make,flush:()=>flush(service),stall:(p:Promise<void>)=>{stalled=p;},setAllowed:(v:boolean)=>{allowed=v;},setManaged:(v:boolean)=>{managed=v;},failNextFinish:()=>{failFinish=true;},close:async()=>{await service.dispose();await rm(directory,{recursive:true,force:true});}};
 }
+async function flush(service: NativeQuotaAccounting) {await (service as any).journal;await (service as any).queue;}
 
-test('member-only quota preflight checks the bound account before opening a producer',async()=>{
+for (const runtime of ['codex','claude'] as const) test(runtime+' stalled ledger never delays submission or durable completion', async () => {
+  const f = await fixture();let release!:()=>void;
+  const blocked = new Promise<void>(resolve=>{release=resolve;});
+  f.stall(blocked);f.session.binding.runtime=runtime;
+  try {
+    await f.service.begin(f.session,f.handle);
+    f.service.observe(f.session.id,{total:{totalTokens:100},last:{totalTokens:100}});
+    await f.service.finish(f.session.id,f.handle);
+    const target=path.join(f.directory,'quota-outbox',(await readdir(path.join(f.directory,'quota-outbox')))[0]!);
+    assert.equal(JSON.parse(await readFile(target,'utf8')).payload.lastTokens,100);
+    await f.service.begin(f.session,f.handle);
+    f.service.observe(f.session.id,{total:{totalTokens:150},last:{totalTokens:50}});
+    await f.service.finish(f.session.id,f.handle);
+    assert.equal(JSON.parse(await readFile(target,'utf8')).payload.lastTokens,150);
+    release();await f.flush();
+    assert.deepEqual(await readdir(path.dirname(target)),[]);
+    assert.ok(f.requests.every(r=>r.method!=='quota/check'));
+  } finally {release();await f.close();}
+});
+
+test('member-only accounting reports in the background without an admission check',async()=>{
   const f=await fixture();try {
     await f.service.begin(f.session,f.handle);
-    assert.deepEqual(f.requests.map(r=>r.method),['quota/context','quota/observe','quota/check','quota/observe']);
+    await f.flush();
+    assert.deepEqual(f.requests.map(r=>r.method),['quota/observe']);
     assert.ok(f.requests.every(r=>r.host.role==='workspace'&&r.host.identityFile===f.host.identityFile));
-    assert.equal(f.requests[1]!.params.refresh,true);
-    assert.equal(f.requests[2]!.params.accountGeneration,'ag');
-    assert.equal(f.requests[3]!.params.payload.phase,'begin');
+    assert.equal(f.requests[0]!.params.refresh,true);
+    assert.equal(f.requests[0]!.params.payload.accountGeneration,'ag');
+    assert.equal(f.requests[0]!.params.payload.phase,'begin');
     await f.service.finish(f.session.id,f.handle);
   } finally {await f.close();}
 });
@@ -45,7 +69,7 @@ test('member-only quota preflight checks the bound account before opening a prod
 test('managed native quota refresh preserves runtime source at begin and finish',async()=>{
  const f=await fixture();try{
   f.catalog.source='native-owner';f.session.binding.accountRuntime='native-owner';
-  await f.service.begin(f.session,f.handle);await f.service.finish(f.session.id,f.handle);
+  await f.service.begin(f.session,f.handle);await f.service.finish(f.session.id,f.handle);await f.flush();
   const refresh=f.requests.filter(r=>r.params.refresh);assert.equal(refresh.length,2);assert.ok(refresh.every(r=>r.params.accountRuntime==='native-owner'));
  }finally{await f.close();}
 });
@@ -55,6 +79,7 @@ test('verified session migration preserves the legacy numeric deduplication scop
   const previous='vps-account:old-authority/old-generation/codex/account-one/ag';
   f.session.accountMigration={id:'a'.repeat(64),previousAccountRef:previous,migratedAt:new Date().toISOString()};
   await f.service.begin(f.session,f.handle);
+  await f.flush();
   const begin=f.requests.find(r=>r.params.payload?.phase==='begin')!.params.payload;
   assert.equal(begin.scope,createHash('sha256').update(previous+'\0'+f.session.id+'\0'+f.handle.threadId).digest('hex'));
   assert.equal(begin.accountId,'account-one');assert.equal(begin.accountGeneration,'ag');
@@ -72,20 +97,23 @@ test('quota coordinator accumulates numeric notifications and ignores duplicates
     assert.equal(f.requests.filter(r=>r.params.payload?.phase==='finish').length,0);
     await f.service.finish(f.session.id,f.handle);observe(99999,100);
     await f.service.finish(f.session.id,f.handle);
+    await f.flush();
     const finished=f.requests.filter(r=>r.params.payload?.phase==='finish');
     assert.equal(finished.length,1);assert.equal(finished[0]!.params.payload.totalTokens,10200);assert.equal(finished[0]!.params.payload.lastTokens,300);
     assert.ok(!JSON.stringify(finished).includes('privateText'));
     await f.service.begin(f.session,f.handle);observe(10300,100);await f.service.finish(f.session.id,f.handle);
+    await f.flush();
     assert.equal(f.requests.at(-1)!.params.payload.lastTokens,100);
   } finally {await f.close();}
 });
 
-test('denied preflight never opens a producer or emits a phantom finish record',async()=>{
+test('estimated ledger exhaustion cannot deny a native model turn',async()=>{
   const f=await fixture();try {
-    f.setAllowed(false);await assert.rejects(f.service.begin(f.session,f.handle),/配给与可借份额已用尽/);
+    f.setAllowed(false);await f.service.begin(f.session,f.handle);
     await f.service.finish(f.session.id,f.handle);
-    assert.ok(f.requests.every(r=>!r.params.payload?.phase));
-    assert.equal(f.requests.at(-1)!.method,'quota/check');
+    await f.flush();
+    assert.ok(f.requests.every(r=>r.method!=='quota/check'));
+    assert.equal(f.requests.at(-1)!.params.payload.phase,'finish');
   } finally {await f.close();}
 });
 
@@ -93,33 +121,36 @@ test('numeric outbox survives coordinator restart and retries the same scope wit
   const f=await fixture();let resumed:NativeQuotaAccounting|undefined;try {
     await f.service.begin(f.session,f.handle);
     f.service.observe(f.session.id,{total:{totalTokens:9000},last:{totalTokens:500}});
-    f.failNextFinish();await assert.rejects(f.service.finish(f.session.id,f.handle),/Fixture transport/);
+    f.failNextFinish();await f.service.finish(f.session.id,f.handle);await f.flush();
     const folder=path.join(f.directory,'quota-outbox'),files=await readdir(folder);assert.equal(files.length,1);
     const persisted=JSON.parse(await readFile(path.join(folder,files[0]!),'utf8'));
     assert.deepEqual(Object.keys(persisted).sort(),['hostIdentity','payload']);
     await f.service.dispose();resumed=f.make();const start=f.requests.length;
     await resumed.begin(f.session,f.handle);
+    await flush(resumed);
     const replay=f.requests.slice(start).find(r=>r.params.payload?.phase==='finish')!;
     assert.equal(replay.params.payload.scope,persisted.payload.scope);assert.equal(replay.params.payload.totalTokens,9000);
     assert.equal('windows' in replay.params.payload,false);assert.equal('refresh' in replay.params,false);
     assert.deepEqual(await readdir(folder),[]);
-    assert.ok(f.requests.slice(start).findIndex(r=>r.params.payload?.phase==='finish')<f.requests.slice(start).findIndex(r=>r.method==='quota/check'));
+    assert.ok(f.requests.slice(start).findIndex(r=>r.params.payload?.phase==='finish')<f.requests.slice(start).findIndex(r=>r.params.payload?.phase==='begin'));
     await resumed.finish(f.session.id,f.handle);
   } finally {await resumed?.dispose();await f.close();}
 });
 
-test('shared account generation mismatch and missing catalog fail closed before quota requests',async()=>{
+test('unresolved accounting identity skips attribution without blocking native authorization',async()=>{
   const f=await fixture();try {
-    f.session.binding.accountRef+='-stale';await assert.rejects(f.service.begin(f.session,f.handle),/身份已变更/);
-    delete f.state.accountCatalogs;await assert.rejects(f.service.begin(f.session,f.handle),/身份尚未核实/);
+    f.session.binding.accountRef+='-stale';await f.service.begin(f.session,f.handle);
+    delete f.state.accountCatalogs;await f.service.begin(f.session,f.handle);
+    await f.service.finish(f.session.id,f.handle);
     assert.equal(f.requests.length,0);
   } finally {await f.close();}
 });
 
-test('unconfigured native workspace remains usable without creating a ledger producer',async()=>{
+test('unconfigured workspace does not require quota context for model use',async()=>{
   const f=await fixture();try {
     f.setManaged(false);await f.service.begin(f.session,f.handle);await f.service.finish(f.session.id,f.handle);
-    assert.deepEqual(f.requests.map(r=>r.method),['quota/context']);
+    await f.flush();
+    assert.ok(f.requests.every(r=>r.method==='quota/observe'));
   } finally {await f.close();}
 });
 

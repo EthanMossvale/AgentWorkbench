@@ -7,10 +7,9 @@ import {parseQuotaLedger, type QuotaLedgerView} from '../../../packages/account-
 import {sharedAccountRef} from '../../../packages/account-selection';
 import {MemberQuotaControl} from '../../../packages/workspace-control/member-quota';
 import {RemoteWorkspaceControl, workspaceHostIdentity} from '../../../packages/workspace-control';
-import {RemoteAccountCatalogService} from '../../../packages/remote-account-catalog';
 import {quotaHistory, quotaScope} from './quota-history';
 
-interface Bound {host: SshHost; workspaceId: string; accountId: string; accountGeneration: string; accountRuntime: 'existing-codex'|'native-owner'; scope: string; threadId: string; active: boolean; turnTokens?: number; observed?: {totalTokens: number; lastTokens: number}}
+interface Bound {host: SshHost; workspaceId?: string; accountId: string; accountGeneration: string; accountRuntime: 'existing-codex'|'native-owner'; scope: string; threadId: string; active: boolean; turnTokens?: number; observed?: {totalTokens: number; lastTokens: number}}
 interface Observation {window: 'weekly' | 'fiveHour'; usedPercent: number; resetsAt: number}
 const record = (v: any): Record<string, any> => v && typeof v === 'object' && !Array.isArray(v) ? v : {};
 export function nativeQuotaWindows(value: unknown): Observation[] {
@@ -26,63 +25,64 @@ export function nativeQuotaWindows(value: unknown): Observation[] {
 export class NativeQuotaAccounting {
   private bindings = new Map<string, Bound>();
   private queue: Promise<unknown> = Promise.resolve();
-  private catalogs = new RemoteAccountCatalogService();
+  private journal: Promise<unknown> = Promise.resolve();
   constructor(private directory: string, private state: () => AppState, private remote = new RemoteWorkspaceControl(), private member = new MemberQuotaControl()) {}
-  private async identity(session: Session) {
+  private identity(session: Session) {
     const state = this.state(), hostId = session.binding.hostId;
     if (!hostId) return;
     const member = state.hosts.find(h => h.id === hostId);
-    let catalog = state.accountCatalogs?.[hostId];
+    const catalog = state.accountCatalogs?.[hostId];
     // A newly available central directory must not silently migrate old sessions
     // or replace the account used by their quota journal.
     const source = session.binding.accountRuntime ?? 'existing-codex';
-    if(source!=='native-owner')throw Error('请先完成原生账号迁移，再读取该会话的配给。');
-    if(member&&catalog&&((catalog.source??'existing-codex')!==source))catalog=await this.catalogs.list(member,source);
-    if (!member || !catalog) {
-      if (session.binding.accountRef.startsWith('vps-account:')) throw Error('共享账号身份尚未核实，无法检查配给。');
-      return;
-    }
+    if(source!=='native-owner'||!member||!catalog||(catalog.source??'existing-codex')!==source)return;
     const account = catalog.accounts.find(a => sharedAccountRef(catalog, a) === session.binding.accountRef);
-    if (!account && session.binding.accountRef.startsWith('vps-account:')) throw Error('共享账号身份已变更，请重新选择账号。');
     const admin = state.hosts.find(h => h.role === 'admin' && h.ownerId === member.ownerId && h.hostname.toLowerCase() === member.hostname.toLowerCase() && h.port === member.port && h.knownHostsFile === member.knownHostsFile);
     return account && {member, account, admin};
   }
   private send(host: SshHost, method: 'quota/observe' | 'quota/read' | 'quota/check', params: Record<string, unknown>, source:'existing-codex'|'native-owner'='existing-codex') {
     return host.role === 'workspace' ? this.member.request(host, method, method === 'quota/observe' && Object.hasOwn(record(params.payload), 'windows') ? {...params, refresh: true, accountRuntime:source} : params) : this.remote.quota(host, method, params);
   }
+  private journalJob<T>(run: () => Promise<T>): Promise<T> {
+    const job = this.journal.then(run);
+    this.journal = job.catch(() => {});
+    return job;
+  }
+  private acknowledge(target: string, content: string) {
+    return this.journalJob(async () => {
+      try {if (await readFile(target, 'utf8') === content) await unlink(target);}
+      catch (error) {if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error;}
+    });
+  }
   private async retry(host: SshHost) {
     const folder = path.join(this.directory, 'quota-outbox');
     let files: string[]; try {files = await readdir(folder);} catch (error) {if ((error as NodeJS.ErrnoException).code === 'ENOENT') return; throw error;}
     for (const file of files.filter(f => /^[a-f0-9]{64}\.json$/.test(f))) {
-      const saved = JSON.parse(await readFile(path.join(folder, file), 'utf8'));
+      const target = path.join(folder, file);
+      const content = await this.journalJob(() => readFile(target, 'utf8'));
+      const saved = JSON.parse(content);
       if (saved.hostIdentity !== workspaceHostIdentity(host)) continue;
       // Recovered token totals are safe to deduplicate; stale official windows
       // must be reread, not replayed as fresh quota observations.
       const {windows: _windows, ...payload} = saved.payload;
       await this.send(host, 'quota/observe', {payload});
-      await unlink(path.join(folder, file));
+      await this.acknowledge(target, content);
     }
   }
   async begin(session: Session, handle: Pick<NativeCodexHandle,'threadId'>) {
-    await this.queue;
-    const identity = await this.identity(session);
-    if (!identity) return;
-    // An administrator refresh revives the workbench-owned local socket after a
-    // VPS reboot. Other devices use only their own member key and kernel UID.
-    if (identity.admin) await this.remote.list(identity.admin);
-    const context = await this.member.request(identity.member, 'quota/context', {accountId: identity.account.id});
-    if (context.managed !== true || !context.allocation || context.allocation.weeklyPercent === null) {this.bindings.delete(session.id); return;}
-    if (typeof context.workspaceId !== 'string' || !/^[A-Za-z0-9][A-Za-z0-9_.:-]{0,127}$/.test(context.workspaceId)) throw Error('无效的共享额度归属。');
-    await this.retry(identity.member);
-    const bound: Bound = {host: structuredClone(identity.member), workspaceId: context.workspaceId, accountId: identity.account.id, accountGeneration: identity.account.generation, accountRuntime:session.binding.accountRuntime??'existing-codex', threadId: handle.threadId, active: true, scope: quotaScope(session,handle.threadId)};
-    const windows: Observation[] = []; // the shared authority reads the native provider itself
-    await this.send(bound.host, 'quota/observe', {payload: {accountId: bound.accountId, accountGeneration: bound.accountGeneration, windows}},bound.accountRuntime);
-    const check = await this.send(bound.host, 'quota/check', {accountId: bound.accountId, accountGeneration: bound.accountGeneration, workspaceId: bound.workspaceId}) as {allowed?: boolean; reason?: string};
-    if (check.allowed !== true) throw Error(({WORKSPACE_UNAVAILABLE:'此工作空间或账号授权已停用。',QUOTA_OBSERVATION_REQUIRED:'未允许超限，请先核实本空间的当前配给余额。',QUOTA_ALLOCATION_EXHAUSTED:'此账号的空间配给与可借份额已用尽，等待窗口刷新。'} as Record<string,string>)[check.reason ?? ''] ?? '此账号的空间配给暂不可用。');
+    const identity = this.identity(session);
+    if (!identity) {this.bindings.delete(session.id);return;}
+    const bound: Bound = {host: structuredClone(identity.member), accountId: identity.account.id, accountGeneration: identity.account.generation, accountRuntime:session.binding.accountRuntime??'existing-codex', threadId: handle.threadId, active: true, scope: quotaScope(session,handle.threadId)};
     const previous = this.bindings.get(session.id);
     if (previous?.scope === bound.scope) bound.observed = previous.observed;
     this.bindings.set(session.id, bound);
-    await this.send(bound.host, 'quota/observe', {payload: {accountId: bound.accountId, accountGeneration: bound.accountGeneration, workspaceId: bound.workspaceId, scope: bound.scope, phase: 'begin'}});
+    // Accounting is advisory. Native execution owns authorization and provider
+    // limits; neither a stalled ledger nor its estimates may gate a model turn.
+    this.queue = this.queue.then(async () => {
+      if (identity.admin) await this.remote.list(identity.admin);
+      await this.retry(bound.host);
+      await this.send(bound.host, 'quota/observe', {payload: {accountId: bound.accountId, accountGeneration: bound.accountGeneration, scope: bound.scope, phase: 'begin', windows: []}}, bound.accountRuntime);
+    }).catch(() => {});
   }
   observe(sessionId: string, usage: unknown) {
     const bound = this.bindings.get(sessionId), value = record(usage), total = record(value.total).totalTokens, last = record(value.last).totalTokens;
@@ -98,16 +98,25 @@ export class NativeQuotaAccounting {
     if (!bound?.active || bound.threadId !== handle.threadId) return Promise.resolve();
     bound.active = false;
     const value = structuredClone(bound);
-    const job = this.queue.then(async () => {
+    const job = this.journalJob(async () => {
       const windows: Observation[] = [];
       const payload = {accountId: value.accountId, accountGeneration: value.accountGeneration, workspaceId: value.workspaceId, scope: value.scope, phase: 'finish', ...value.observed, windows};
       const folder = path.join(this.directory, 'quota-outbox'), target = path.join(folder, value.scope + '.json');
       await mkdir(folder, {recursive: true});
-      await writeFile(target + '.tmp', JSON.stringify({hostIdentity: workspaceHostIdentity(value.host), payload}), {mode: 0o600}); await rename(target + '.tmp', target);
-      await this.send(value.host, 'quota/observe', {payload},value.accountRuntime);
-      await unlink(target);
+      try {
+        const prior = JSON.parse(await readFile(target, 'utf8')).payload;
+        if (Number.isSafeInteger(prior.totalTokens) && Number.isSafeInteger(prior.lastTokens)) {
+          payload.totalTokens = Math.max(payload.totalTokens ?? 0, prior.totalTokens);
+          payload.lastTokens = prior.lastTokens + payload.totalTokens - prior.totalTokens;
+        }
+      } catch (error) {if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error;}
+      const content = JSON.stringify({hostIdentity: workspaceHostIdentity(value.host), payload});
+      await writeFile(target + '.tmp', content, {mode: 0o600}); await rename(target + '.tmp', target);
+      this.queue = this.queue.then(async () => {
+        await this.send(value.host, 'quota/observe', {payload},value.accountRuntime);
+        await this.acknowledge(target, content);
+      }).catch(() => {});
     });
-    this.queue = job.catch(() => {});
     return job;
   }
   async read(host: SshHost, catalog: AccountCatalog, usage: AccountUsage, refresh=false): Promise<QuotaLedgerView | undefined> {
@@ -124,7 +133,7 @@ export class NativeQuotaAccounting {
       if(context.managed!==true)return;
       await this.queue;await this.retry(host);
       let raw=await this.member.request(host,'quota/read',{accountId:account.id,accountGeneration:account.generation});
-      if(raw.historyVersion===1&&!raw.windows?.length)raw=await this.send(host,'quota/observe',{payload:{accountId:account.id,accountGeneration:account.generation,windows:[]}},'native-owner');
+      if(raw.historyVersion===1)raw=await this.send(host,'quota/observe',{payload:{accountId:account.id,accountGeneration:account.generation,windows:[]}},'native-owner');
       const history=quotaHistory(this.state(),host,sharedAccountRef(catalog,account),raw.windows?.find((w:any)=>w.window==='weekly'));
       if(raw.historyVersion===1)for(let offset=0;offset<history.length;offset+=100)raw=await this.member.request(host,'quota/observe',{payload:{accountId:account.id,accountGeneration:account.generation,workspaceId:context.workspaceId,history:history.slice(offset,offset+100)}});
       const view=parseQuotaLedger(raw,account.id);
@@ -150,5 +159,5 @@ export class NativeQuotaAccounting {
     const windows = nativeQuotaWindows({rateLimits: {primary: pool?.primary && {...pool.primary, windowDurationMins: pool.primary.windowMinutes}, secondary: pool?.secondary && {...pool.secondary, windowDurationMins: pool.secondary.windowMinutes}}});
     return parseQuotaLedger(await this.remote.quota(host, 'quota/observe', {payload: {accountId: account.id, accountGeneration: account.generation, windows}}), account.id);
   }
-  async dispose() {await this.queue; await this.remote.dispose();await this.catalogs.dispose();}
+  async dispose() {await this.journal; await this.queue; await this.remote.dispose();}
 }

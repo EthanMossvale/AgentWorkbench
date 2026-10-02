@@ -7,6 +7,7 @@ import os from 'node:os';
 import {randomUUID} from 'node:crypto';
 import {WorkbenchController,type HostActions} from '../apps/desktop/host/controller';
 import {StateStore,SecretStore} from '../apps/desktop/host/store';
+import {NativeQuotaAccounting} from '../apps/desktop/host/quota-accounting';
 import {NativeResources} from '../apps/desktop/host/native-resources';
 import {SharedMemoryStore} from '../packages/memory-core';
 import {SharedSkillsStore} from '../packages/skills-core';
@@ -34,7 +35,7 @@ class SshFixture extends ProcessSupervisor{
  result(){this.frame({type:'assistant',session_id:this.thread,uuid:randomUUID(),message:{content:[{type:'text',text:'Synthetic remote answer'}]}});this.frame({type:'result',session_id:this.thread,subtype:'success',is_error:false});}
  async stop(reason='fixture'){this.state='closed';const result={code:0,signal:null,reason};this.emit('disconnect',result);return result;}
 }
-async function fixture(){
+async function fixture(accounting=false){
  const directory=await mkdtemp(path.join(os.tmpdir(),'awb-claude-controller-')),store=new StateStore(directory);await store.load();
  const host:SshHost={id:'member',name:'Fixture',hostname:'fixture.invalid',port:22,username:'member',role:'workspace',ownerId:'fixture',authorityId:'a',authorityGeneration:'g',remoteWorkspaceId:'w',workspaceGeneration:'wg',identityFile:path.join(directory,'unused-key'),knownHostsFile:path.join(directory,'unused-hosts')};
  const catalog:AccountCatalog={source:'native-owner',availability:'ready',authorityId:'a',generation:'g',workspaceId:'w',revision:1,selectionRevision:1,selectedClaudeAccountId:'c',accounts:[{id:'c',generation:'cg',provider:'claude',status:'authenticated',observedAt:'now'}]};
@@ -47,6 +48,9 @@ async function fixture(){
  let execution='local-mcp-required',imports=0;
  const actions:HostActions={pickDirectory:async()=>null,copy:()=>{},openPath:async()=>{},nativeCapabilities:()=>[],nativeClaude:bridge,nativeAccounts:{status:async()=>({accountId:'c',provider:'claude',installed:true,authenticated:true,versionMatched:true,execution:execution as any,block:null}),createClaude:forbidden,loginCommand:forbidden,models:async()=>[{id:'native',model:'native',name:'Native Claude',isDefault:true,efforts:['low','high'],serviceTiers:[]}]},accountCatalog:{list:async()=>structuredClone(catalog),select:forbidden,start:forbidden,status:forbidden,cancel:forbidden,dispose:async()=>{}},modelFetcher:forbidden,translationFetcher:forbidden};
  const plugins=new PluginRegistry(path.join(directory,'synthetic-plugins'));await plugins.initialize();actions.runtimeExtensions=plugins.runtimes;
+ let releaseQuota!:()=>void;
+ const quotaWait=new Promise<void>(resolve=>{releaseQuota=resolve;});
+ if(accounting)actions.quotaAccounting=new NativeQuotaAccounting(directory,()=>store.snapshot(),{dispose:async()=>{}} as any,{request:async()=>{await quotaWait;throw Error('Synthetic unavailable ledger');}} as any);
  actions.workspaceManagement={import:async()=>{imports++;return structuredClone(host);},importPreview:async()=>null,list:forbidden,plan:forbidden,apply:forbidden,operation:forbidden,exportInvite:forbidden,busy:()=>false,dispose:async()=>{}};
  const controller=new WorkbenchController(store,new SecretStore(directory,{encrypt:()=>{throw Error('No credentials');},decrypt:()=>{throw Error('No credentials');}}),actions,()=>{},{native,memory:new SharedMemoryStore(directory),skills:new SharedSkillsStore(directory)});
  for(const [id,value] of Object.entries(controller.developmentServices()))if(value)plugins.services.register(id,value,{version:1});plugins.connectHost(({method,payload})=>controller.call(method,payload));
@@ -55,8 +59,21 @@ async function fixture(){
  const create=async()=>{const target=(await targets()).find(t=>t.selection?.model==='native')!;assert.ok(target.ready,target.unavailableReason);return controller.call('session/create',{modelTargetId:target.id,projectPath:directory,modelSelection:{model:'native',effort:'high'}}) as Promise<Session>;};
  const submit=async(s:Session)=>{const draft=await controller.call('draft/prepare',{sessionId:s.id,text:'Synthetic fixture only',bypass:true}) as DraftPreview;await controller.call('draft/submit',{sessionId:s.id,id:draft.id,sourceHash:draft.sourceHash});await until(()=>!!ssh?.writes.some(v=>v.type==='user'&&v.uuid===draft.id));};
  const install=async(id:string,source:string)=>{const file=path.join(directory,id+'.zip'),manifest={schemaVersion:1,apiVersion:1,id,name:id,version:'1.0.0',description:'Isolated Claude SSH synthetic acceptance',capabilities:['host'],main:'main.mjs'};await writeFile(file,encodeZip([{name:'workbench.plugin.json',data:Buffer.from(JSON.stringify(manifest))},{name:'main.mjs',data:Buffer.from(source)}]));await plugins.importZip(file);return (await plugins.list()).find(p=>p.manifest.id===id)!;};
- return {controller,store,directory,plugins,install,targets,create,submit,bridge,native,host,actions,get imports(){return imports;},get ssh(){return ssh;},get closed(){return closed;},get opened(){return opened;},oldBroker(){execution='local-tools-unverified';},readyBroker(){execution='local-mcp-required';},async close(){await plugins.dispose();await controller.dispose();await rm(directory,{recursive:true,force:true});}};
+ return {controller,store,directory,plugins,install,targets,create,submit,bridge,native,host,actions,get imports(){return imports;},get ssh(){return ssh;},get closed(){return closed;},get opened(){return opened;},oldBroker(){execution='local-tools-unverified';},readyBroker(){execution='local-mcp-required';},async close(){releaseQuota();await plugins.dispose();await controller.dispose();await rm(directory,{recursive:true,force:true});}};
 }
+
+test('approved quota service extension observes real Claude sends while the ledger is stalled and restores on disable',async()=>{
+ const f=await fixture(true);try{
+  const plugin=await f.install('fixture.quota-advisory',`export function activate(api){let count=0;api.services.register('fixture.quota-observer',{record:()=>{count++;}},{version:1});const observer=api.services.get('fixture.quota-observer');api.services.intercept('actions.quota-accounting','begin',(next,...args)=>{observer.record();return next(...args);});api.registerCommand('count',()=>count);}`);
+  await assert.rejects(f.plugins.setEnabled(plugin.manifest.id,plugin.hash,true),/approval/i);
+  await f.plugins.setEnabled(plugin.manifest.id,plugin.hash,true,true);
+  const send=async()=>{const s=await f.create();await f.submit(s);f.ssh.result();await until(()=>!f.controller.hasActiveSessionWork());};
+  await send();assert.equal(await f.plugins.command(plugin.manifest.id,'count',{}),1);
+  await f.plugins.setEnabled(plugin.manifest.id,plugin.hash,false);await send();
+  await f.plugins.setEnabled(plugin.manifest.id,plugin.hash,true);await send();
+  assert.equal(await f.plugins.command(plugin.manifest.id,'count',{}),1);
+ }finally{await f.close();}
+});
 
 test('approved observation scheduling admits custom frames and releases its policy without losing audit',async()=>{
  const f=await fixture();try{

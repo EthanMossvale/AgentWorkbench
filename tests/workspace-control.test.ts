@@ -568,6 +568,20 @@ ledger=QuotaAccounting(data,control.state['workspaces'])
 assert view()['balances']=={a:10,b:60,c:30}
 `);
 
+pythonCase('first positive aligned sample calibrates automatically after three concurrent members finish', QUOTA_SETUP+String.raw`
+data.clear();report(used=6)
+ledger.observe(dict(accountId='account-one',accountGeneration='ag',workspaceId=a,history=[dict(scope='history',tokens=600,baselineTokens=600,resetsAt=end)]),at)
+report(a,phase='begin');report(b,phase='begin');report(c,phase='begin')
+report(a,100,100,6.2,phase='finish');report(b,200,200,6.5,phase='finish')
+assert view()['samples']==0 and view()['recoveredPercent']=={}
+report(c,300,300,6.6,phase='finish')
+w=view();assert w['samples']==1 and abs(w['estimatedTotalTokens']-100000)<0.001
+assert abs(w['recoveredPercent'][a]-.6)<0.001
+assert abs(w['balances'][a]-9.3)<0.001
+assert abs(w['balances'][b]-59.8)<0.001 and abs(w['balances'][c]-29.7)<0.001
+report(c,300,300,6.6,phase='finish');assert view()['samples']==1
+`);
+
 pythonCase('member history uses the same authenticated namespace as live observations', String.raw`
 from quota_service import member_request
 spaces=[adopt(name) for name in ('one','two')];a,b=[w['id'] for w in spaces]

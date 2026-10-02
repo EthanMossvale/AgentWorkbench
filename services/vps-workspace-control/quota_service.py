@@ -101,14 +101,21 @@ class Handler(socketserver.StreamRequestHandler):
                     if runtime_source != 'native-owner':
                         raise ControlError('INVALID_REQUEST')
                     if params.pop('refresh', False):
-                        script = trusted_root_path(ROOT + '/quota-runtime-v2/quota_native.py', private=True)
-                        result = subprocess.run([sys.executable, '-B', script], input=json.dumps({'uid': uid, 'accountId': require_id(payload.get('accountId')), 'accountGeneration': require_id(payload.get('accountGeneration')), 'source': runtime_source}), text=True, capture_output=True, timeout=80, env={'PATH': '/usr/local/bin:/usr/bin:/bin', 'LANG': 'C.UTF-8'})
-                        if result.returncode != 0 or len(result.stdout) > 65536:
+                        try:
+                            script = trusted_root_path(ROOT + '/quota-runtime-v2/quota_native.py', private=True)
+                            result = subprocess.run([sys.executable, '-B', script], input=json.dumps({'uid': uid, 'accountId': require_id(payload.get('accountId')), 'accountGeneration': require_id(payload.get('accountGeneration')), 'source': runtime_source}), text=True, capture_output=True, timeout=80, env={'PATH': '/usr/local/bin:/usr/bin:/bin', 'LANG': 'C.UTF-8'})
+                            if result.returncode != 0 or len(result.stdout) > 65536:
+                                raise ControlError('QUOTA_UNAVAILABLE')
+                            observed = json.loads(result.stdout)
+                            if observed.get('ok') is not True:
+                                raise ControlError('QUOTA_UNAVAILABLE')
+                            payload['windows'] = observed['windows']
+                        except Exception:
+                            # Persist completed numeric usage and close the producer
+                            # even when provider telemetry is temporarily unavailable.
+                            payload.pop('windows', None)
+                            member_request(control, uid, request)
                             raise ControlError('QUOTA_UNAVAILABLE')
-                        observed = json.loads(result.stdout)
-                        if observed.get('ok') is not True:
-                            raise ControlError('QUOTA_UNAVAILABLE')
-                        payload['windows'] = observed['windows']
                     else:
                         payload.pop('windows', None)
                 if uid == 0:

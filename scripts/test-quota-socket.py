@@ -112,6 +112,22 @@ with socket.socket(socket.AF_UNIX) as channel:
         view = call('quota/read', params)['value']['windows'][0]
         assert view['debts'] == [] and view['balances'] == dict(alpha=26,beta=41,gamma=33)
         checks.append('a provider-verified refresh repays exactly the original lender')
+
+        assert call('quota/observe', {'payload':dict(**params, scope='retry', phase='begin')})['ok']
+        atomic_json(provider, dict(ok=False))
+        receipt = dict(**params, scope='retry', phase='finish', totalTokens=100, lastTokens=100)
+        assert call('quota/observe', {'payload':receipt, 'refresh':True})['error'] == 'QUOTA_UNAVAILABLE'
+        failed = call('quota/read', params)['value']
+        assert failed['tokenTotals']['alpha'] == 4100
+        with open(control_root / 'state.json') as stream:
+            saved = json.load(stream)
+        assert all(not account['active'] for account in saved['quotaLedger'].values())
+        atomic_json(provider, dict(ok=True, windows=[dict(window='weekly', usedPercent=.5, resetsAt=clock+1209600)]))
+        assert call('quota/observe', {'payload':receipt, 'refresh':True})['ok']
+        recovered = call('quota/read', params)['value']
+        assert recovered['tokenTotals']['alpha'] == 4100
+        assert recovered['windows'][0]['estimatedTotalTokens'] == 20000
+        checks.append('provider failure retains numeric finish, closes producer and calibrates on retry without duplicate usage')
     finally:
         process.terminate()
         process.wait(timeout=5)
