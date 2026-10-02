@@ -5,6 +5,7 @@ import os from 'node:os';
 import {mkdtemp,mkdir,writeFile,readFile,rm,cp,symlink} from 'node:fs/promises';
 import {NativeMemoryService} from '../packages/native-memory';
 import {prepareAppData} from '../packages/app-data';
+import {relocateAppData,completeRelocation} from '../packages/app-data/relocation';
 import {digest} from '../packages/native-resources/files';
 
 const put=async(file:string,text:string)=>{await mkdir(path.dirname(file),{recursive:true});await writeFile(file,text);};
@@ -71,3 +72,24 @@ for(const mutation of ['other-root','wrong-name','wrong-token','duplicate-id','u
     await assert.rejects(f.open(location.directory),/invalid delivery/);assert.deepEqual(await readFile(ledger),before);
   });
 }
+
+for(const acknowledged of [false,true])test(`consecutive installed profile moves preserve ${acknowledged?'acknowledged':'pending'} receipt ownership`,async t=>{
+  const f=await fixture(t);if(acknowledged){await nativeReceipt(f);await f.session.finish();}await f.service.dispose();
+  const before=await load(f.ledger),archive=path.join('memory-exchange','archives',f.batch.entries[0].archiveId+'.md'),archiveBefore=await readFile(path.join(f.legacy,archive));
+  let source=f.legacy;
+  for(const name of ['installed-profile','short-profile']){
+    const target=path.join(f.root,name);relocateAppData(source,target);completeRelocation(target);
+    const service=await f.open(target),after=await load(path.join(target,'memory-exchange','ledger.json'));
+    assert.deepEqual(after.events,before.events);assert.equal(after.deliveries[0].receipt,path.join(target,'memory-exchange','receipts',f.batch.deliveryId+'.json'));
+    assert.deepEqual(await readFile(path.join(target,archive)),archiveBefore);assert.equal((await service.status()).acknowledgedCount,acknowledged?1:0);
+    await service.dispose();source=target;
+  }
+});
+
+test('unmapped historical receipts stop a move before the source is retired',async t=>{
+  const f=await fixture(t);await f.service.dispose();const state=await load(f.ledger);
+  state.deliveries[0].receipt=path.join(f.root,'already-removed-profile','memory-exchange','receipts',f.batch.deliveryId+'.json');
+  await put(f.ledger,JSON.stringify(state));const before=await readFile(f.ledger),target=path.join(f.root,'next-profile');
+  assert.throws(()=>relocateAppData(f.legacy,target),error=>error instanceof Error&&error.message==='APP_DATA_MIGRATION_FAILED'&&(error.cause as Error)?.message==='APP_DATA_MEMORY_RECEIPT_UNMAPPED');
+  assert.deepEqual(await readFile(f.ledger),before);await assert.rejects(readFile(path.join(target,'memory-exchange','ledger.json')),/ENOENT/);
+});

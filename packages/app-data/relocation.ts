@@ -66,6 +66,13 @@ const rewriteJson=(file:string,source:string,target:string)=>{
 };
 
 const rewrittenFiles=new Set(['state.json','worktree-state.json',path.join('memory-exchange','ledger.json'),'memory-background.json']);
+/** Never retire the source while the copied ledger still points at a previous receipt root. */
+const validateRelocatedMemoryReceipts=(staging:string,target:string)=>{
+  const file=path.join(staging,'memory-exchange','ledger.json');
+  if(!existsSync(file))return;
+  const ledger=JSON.parse(readFileSync(file,'utf8')) as {deliveries?:{id?:unknown;receipt?:unknown}[]};
+  if(!Array.isArray(ledger.deliveries)||ledger.deliveries.some(delivery=>!delivery||typeof delivery.id!=='string'||!/^[a-f\d-]{36}$/.test(delivery.id)||delivery.receipt!==path.join(target,'memory-exchange','receipts',delivery.id+'.json')))throw Error('APP_DATA_MEMORY_RECEIPT_UNMAPPED');
+};
 /** Resume only when the copied tree is still byte-for-byte equivalent to the source. */
 export function finishPendingRelocation(source:string,target:string){
   if(!path.isAbsolute(source)||!path.isAbsolute(target)||inside(source,target)||inside(target,source)||same(source,path.parse(source).root)||same(target,path.parse(target).root))throw Error('APP_DATA_PATH_INVALID');
@@ -76,6 +83,7 @@ export function finishPendingRelocation(source:string,target:string){
   const journal=JSON.parse(readFileSync(journalFile,'utf8')) as MigrationJournal;
   if(journal.version!==1||!same(journal.source,source)||!same(journal.target,target)||journal.phase!=='cleanup')throw Error('APP_DATA_MIGRATION_RECOVERY_REQUIRED');
   verifyInventory(target,journal.targetFiles);
+  validateRelocatedMemoryReceipts(target,target);
   for(const entry of journal.external??[]){
     if(!path.isAbsolute(entry.source)||inside(source,entry.source)||inside(entry.source,source)||same(entry.source,path.parse(entry.source).root)||!inside(target,entry.target))throw Error('APP_DATA_MIGRATION_RECOVERY_REQUIRED');
     if(present(entry.source))verifyInventory(entry.source,entry.files,true);
@@ -147,6 +155,7 @@ export function relocateAppData(source:string,target:string,commit:()=>void=()=>
     verifyInventory(source,sourceFiles);
     const mappings=[[source,target],...external.map(entry=>[entry.source,entry.target]),...Object.entries(aliases).map(([alias,origin])=>[alias,remapPath(origin,source,target)])];
     for(const [before,after] of mappings)for(const file of rewrittenFiles)rewriteJson(path.join(staging,file),before!,after!);
+    validateRelocatedMemoryReceipts(staging,target);
     const attachments=path.join(staging,'attachments');
     if(existsSync(attachments))for(const entry of readdirSync(attachments)){const metadata=path.join(attachments,entry,'metadata.json');if(existsSync(metadata))for(const [before,after] of mappings)rewriteJson(metadata,before!,after!);}
     const journal:MigrationJournal={version:1,source,target,phase:'prepared',sourceFiles,targetFiles:inventory(staging),external};

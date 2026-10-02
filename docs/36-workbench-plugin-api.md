@@ -1,5 +1,18 @@
 # 36 · 工作台插件开发接口
 
+## Shared startup profile and receipt migration integrity (2026-10-02)
+
+Pre-implementation review covers the bootstrap locator, `desktop/data-directory`, `desktop/data-directory/choose`, `desktop/data-directory/migrate`, `desktop.data-directory`, `native-memory/get`, the memory exchange initializer, and the existing `data-directory-settings` and `memory` settings surfaces. Source launches on Windows now honor an existing saved installation locator; a fresh source-only launch keeps its original default. Explicit developer-home and isolated QA overrides bypass the installation locator. This avoids recreating an empty developer profile after an installed migration. No runtime/model execution, new selector, resource, permission, event or adjustable UI node is introduced.
+
+| Capability | Call | Register | Replace and release |
+| --- | --- | --- | --- |
+| Selected profile and migration | `api.call('desktop/data-directory')`, `api.call('desktop/data-directory/migrate',{target})`; the existing typed `DataDirectoryApi` | Approved host plugins can register commands that call the production service; no new profile-provider catalog is introduced because this repair preserves one per-user locator | `api.services.intercept/override('desktop.data-directory', ...)` and the named `data-directory-settings` surface remain the fine-grained replacement paths; activation-scoped handles release on disable/failure/uninstall |
+| Memory receipt ownership during relocation | The production migration validates rewritten receipt paths before publishing the target or deleting the source; `native-memory/get` retains its existing status contract | Existing memory executor/writer registration is unchanged; bootstrap path integrity cannot be overridden by an unapproved plugin before stores are open | Existing `native.memory` service replacement and `memory` settings registration remain available after initialization; no new recovery action grants permission to rewrite arbitrary records |
+
+Return types and plugin SDK declarations are unchanged; the contract snapshot requires no refresh after semantic/lifecycle review. Migration now rejects unresolved or malformed receipt paths with `APP_DATA_MIGRATION_FAILED` whose cause is `APP_DATA_MEMORY_RECEIPT_UNMAPPED`. A new move preserves the source ledger and removes only its own incomplete target. Resuming an older cleanup journal also revalidates receipt ownership before deletion and reports `APP_DATA_MEMORY_RECEIPT_UNMAPPED` directly while retaining both trees and the journal. Pending receipts may be absent on disk; their paths must still be owned by the destination and match the delivery ID. Receipt tokens, archive contents, acknowledgements and native provenance are never inferred or reset. Existing invalid delivery validation remains strict. Already damaged local metadata requires an evidence-backed, backed-up repair; this patch does not silently accept arbitrary historical paths.
+
+Compatibility and evidence: `tests/app-data.test.ts`, `tests/app-data-relocation.test.ts`, `tests/memory-migration.test.ts`, `scripts/test-data-relocation-bootstrap.mjs`, and `scripts/test-data-directory-ui.mjs`. Coverage includes consecutive moves, pending/acknowledged deliveries, retained archive bytes, corrupt locators, explicit overrides, source/installed singleton ownership, full process restart, and approved ZIP service/surface activation, disable and reenable. No old DOM locator or saved preference key changes. No development plugin is installed into a real user profile.
+
 <!-- startup-appearance-20261001:start -->
 ## First-window appearance readiness (2026-10-01)
 

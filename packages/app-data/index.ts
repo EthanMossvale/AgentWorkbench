@@ -1,7 +1,15 @@
 import {existsSync,lstatSync,realpathSync,readlinkSync,mkdirSync,renameSync,symlinkSync,unlinkSync,rmdirSync,readdirSync} from 'node:fs';
 import path from 'node:path';
 import {createHash} from 'node:crypto';
-import {completeRelocation,finishPendingRelocation,readDataLocation,relocateAppData,relocateLegacyRuntimeData,relocateClipboardData,saveDataLocation} from './relocation';
+import {completeRelocation,finishPendingRelocation,readDataLocation,relocateAppData,relocateLegacyRuntimeData,relocateClipboardData,saveDataLocation,installedDataDirectory,legacyInstalledDataDirectory} from './relocation';
+
+/** Source and installed launches share an existing selection; only an installed first launch creates one. */
+export function resolveAppDataInstallation(options:{platform:NodeJS.Platform;packaged:boolean;executable:string;home:string;appData:string}){
+  const {platform,packaged,executable,home,appData}=options;
+  const locator=path.join(appData,'AgentWorkbench-location.json');
+  if(platform!=='win32'||!packaged&&!existsSync(locator))return;
+  return {directory:installedDataDirectory(executable,home,appData),legacyDirectory:legacyInstalledDataDirectory(executable,home),locator};
+}
 
 export interface AppDataLocation {directory:string;legacyDirectory:string;defaultDirectory:string;migrated:boolean;compatibilityLinks:string[]}
 export interface AppDataHost {getPath(name:'home'|'userData'|'temp'):string;setPath(name:'userData',value:string):void;requestSingleInstanceLock():boolean;releaseSingleInstanceLock():void}

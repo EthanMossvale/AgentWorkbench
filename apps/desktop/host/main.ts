@@ -10,8 +10,8 @@ import {NativeSessionStorage} from '../../../packages/remote-account-catalog/ses
 import {RemoteResourceService} from '../../../packages/remote-account-catalog/resources';
 import { HtmlPreviewService } from './html-preview';
 import { WorktreeService } from '../../../packages/worktrees';
-import {initializeAppData,type AppDataLocation} from '../../../packages/app-data';
-import {installedDataDirectory,legacyInstalledDataDirectory,relocateAppData} from '../../../packages/app-data/relocation';
+import {initializeAppData,resolveAppDataInstallation,type AppDataLocation} from '../../../packages/app-data';
+import {relocateAppData} from '../../../packages/app-data/relocation';
 import {DataDirectoryService} from '../../../packages/app-data/service';
 import { AttachmentStore } from './attachments';
 import { protocol, nativeImage, app, BrowserWindow, ipcMain, dialog, clipboard, ClipboardItem, safeStorage, shell, nativeTheme, session as electronSession } from 'electron';
@@ -52,11 +52,7 @@ const userDataOverride=process.env.AGENT_WORKBENCH_TEST_DATA;
 const testRelocation=!!userDataOverride&&process.env.AGENT_WORKBENCH_TEST_RELOCATION==='1';
 if(!isRecoveryGuardian&&userDataOverride&&/^\d{4,5}$/.test(process.env.AGENT_WORKBENCH_TEST_APP_PORT??''))app.commandLine.appendSwitch('remote-debugging-port',process.env.AGENT_WORKBENCH_TEST_APP_PORT!);
 const hiddenQa=!!userDataOverride&&process.env.AGENT_WORKBENCH_TEST_HIDDEN==='1';
-const installedLocation=app.isPackaged&&process.platform==='win32'&&!userDataOverride?{
- directory:installedDataDirectory(process.execPath,app.getPath('home'),app.getPath('appData')),
- legacyDirectory:legacyInstalledDataDirectory(process.execPath,app.getPath('home')),
- locator:path.join(app.getPath('appData'),'AgentWorkbench-location.json'),
-}:undefined;
+const installedLocation=userDataOverride||process.env.AGENT_WORKBENCH_HOME?undefined:resolveAppDataInstallation({platform:process.platform,packaged:app.isPackaged,executable:process.execPath,home:app.getPath('home'),appData:app.getPath('appData')});
 let pendingLink=process.argv.find(argument=>argument.startsWith('agent-workbench:'));
 let receiveLink:((url:string)=>void)|undefined;
 app.on('open-url',(event,url)=>{if(url.startsWith('agent-workbench:')){event.preventDefault();pendingLink=url;receiveLink?.(url);}});

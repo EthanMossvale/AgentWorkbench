@@ -2,9 +2,22 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import {mkdtempSync,mkdirSync,writeFileSync,readFileSync,realpathSync,existsSync,rmSync} from 'node:fs';
 import os from 'node:os';import path from 'node:path';
-import {initializeAppData,prepareAppData} from '../packages/app-data';
+import {initializeAppData,prepareAppData,resolveAppDataInstallation} from '../packages/app-data';
 import {readDataLocation,saveDataLocation} from '../packages/app-data/relocation';
 const fixture=()=>{const root=mkdtempSync(path.join(os.tmpdir(),'awb-data-')),home=path.join(root,'home'),legacy=path.join(home,'AppData','Roaming','AgentWorkbench');mkdirSync(legacy,{recursive:true});return {root,home,legacy,close:()=>rmSync(root,{recursive:true,force:true})};};
+test('source launch follows a saved installed profile without recreating or moving the old developer default',()=>{const f=fixture();try{
+ const appData=path.dirname(f.legacy),options={platform:'win32' as const,packaged:false,executable:path.join(f.root,'source','electron.exe'),home:f.home,appData};
+ assert.equal(resolveAppDataInstallation(options),undefined,'Fresh source-only installations keep their original default');
+ const installed=resolveAppDataInstallation({...options,packaged:true})!,chosen=path.join(f.root,'selected-profile');mkdirSync(chosen);writeFileSync(path.join(chosen,'payload'),'retained');
+ saveDataLocation(installed.locator,{version:1,directory:chosen,defaultDirectory:installed.directory});
+ const resolved=resolveAppDataInstallation(options)!;assert.equal(resolved.locator,installed.locator);
+ const host={getPath:(name:'home'|'userData'|'temp')=>name==='home'?f.home:name==='temp'?f.root:f.legacy,setPath:()=>{},requestSingleInstanceLock:()=>true,releaseSingleInstanceLock:()=>{}};
+ for(let i=0;i<2;i++)assert.equal(initializeAppData(host,undefined,resolved)?.directory,chosen);
+ assert.equal(existsSync(path.join(f.home,'.agentworkbench')),false);assert.equal(readFileSync(path.join(chosen,'payload'),'utf8'),'retained');
+ const override=path.join(f.home,'explicit-dev');assert.equal(initializeAppData(host,override,resolved)?.directory,override);assert.equal(readDataLocation(installed.locator)?.directory,chosen);
+ writeFileSync(installed.locator,'invalid');assert.throws(()=>initializeAppData(host,undefined,resolveAppDataInstallation(options)),SyntaxError);assert.equal(readFileSync(installed.locator,'utf8'),'invalid');
+ assert.equal(resolveAppDataInstallation({...options,platform:'linux'}),undefined);
+}finally{f.close();}});
 test('data migration moves opaque stores and old sibling worktrees while preserving legacy path aliases',()=>{const f=fixture();try{
  const opaque=Buffer.from([0,255,19,22,31]);writeFileSync(path.join(f.legacy,'opaque.bin'),opaque);mkdirSync(f.legacy+'-worktrees');writeFileSync(path.join(f.legacy+'-worktrees','fixture.txt'),'unchanged');
  const result=prepareAppData(f.home,f.legacy);assert.equal(result.directory,path.join(f.home,'.agentworkbench'));assert.equal(result.migrated,true);assert.deepEqual(readFileSync(path.join(result.directory,'opaque.bin')),opaque);assert.equal(realpathSync(f.legacy),realpathSync(result.directory));assert.equal(readFileSync(path.join(result.directory,'worktrees','fixture.txt'),'utf8'),'unchanged');assert.equal(realpathSync(f.legacy+'-worktrees'),realpathSync(path.join(result.directory,'worktrees')));

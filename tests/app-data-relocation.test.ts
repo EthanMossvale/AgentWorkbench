@@ -44,12 +44,13 @@ test('cleanup resumes after partial deletion but never deletes changed files or 
 test('only owned path fields and receipt locations are rewritten, never message text or plugin data',()=>{const f=fixture();try{
  const original=path.join(f.source,'workspaces','one');
  writeFileSync(path.join(f.source,'state.json'),JSON.stringify({sessions:[{projectPath:original,messages:[{text:original,attachments:[{path:original}]}]}]}));
- mkdirSync(path.join(f.source,'memory-exchange'));writeFileSync(path.join(f.source,'memory-exchange','ledger.json'),JSON.stringify({deliveries:[{receipt:path.join(f.source,'memory-exchange','receipts','id.json')}]}));
+ const id='00000000-0000-4000-8000-000000000001';
+ mkdirSync(path.join(f.source,'memory-exchange'));writeFileSync(path.join(f.source,'memory-exchange','ledger.json'),JSON.stringify({deliveries:[{id,receipt:path.join(f.source,'memory-exchange','receipts',id+'.json')}]}));
  writeFileSync(path.join(f.source,'plugin-user-data.json'),JSON.stringify({path:original}));
  relocateAppData(f.source,f.target);
  const saved=JSON.parse(readFileSync(path.join(f.target,'state.json'),'utf8'));
  assert.equal(saved.sessions[0].messages[0].text,original);assert.equal(saved.sessions[0].projectPath,path.join(f.target,'workspaces','one'));
- assert.equal(JSON.parse(readFileSync(path.join(f.target,'memory-exchange','ledger.json'),'utf8')).deliveries[0].receipt,path.join(f.target,'memory-exchange','receipts','id.json'));
+ assert.equal(JSON.parse(readFileSync(path.join(f.target,'memory-exchange','ledger.json'),'utf8')).deliveries[0].receipt,path.join(f.target,'memory-exchange','receipts',id+'.json'));
  assert.equal(JSON.parse(readFileSync(path.join(f.target,'plugin-user-data.json'),'utf8')).path,original);
 }finally{f.close();}});
 
@@ -94,6 +95,17 @@ test('pending relocation removes only an unchanged source and can finish after c
  assert.throws(()=>finishPendingRelocation(f.source,f.target),/APP_DATA_COPY_INVALID/);
  rmSync(f.source,{recursive:true});finishPendingRelocation(f.source,f.target);
  assert.equal(existsSync(f.source),false);
+}finally{f.close();}});
+
+test('resuming an older cleanup journal refuses stale receipts before deleting the source',()=>{const f=fixture();try{
+ const id='00000000-0000-4000-8000-000000000001',relative=path.join('memory-exchange','ledger.json');
+ mkdirSync(path.join(f.source,'memory-exchange'));
+ const raw=JSON.stringify({deliveries:[{id,receipt:path.join(f.root,'retired-profile','memory-exchange','receipts',id+'.json')}]});
+ writeFileSync(path.join(f.source,relative),raw);cpSync(f.source,f.target,{recursive:true});
+ const files={'':{kind:'directory'},'memory-exchange':{kind:'directory'},[relative]:{kind:'file',hash:createHash('sha256').update(raw).digest('hex'),size:Buffer.byteLength(raw)}};
+ const journal=JSON.stringify({version:1,source:f.source,target:f.target,phase:'cleanup',sourceFiles:files,targetFiles:files});writeFileSync(f.target+'.migration.json',journal);
+ assert.throws(()=>finishPendingRelocation(f.source,f.target),/APP_DATA_MEMORY_RECEIPT_UNMAPPED/);
+ assert.equal(readFileSync(path.join(f.source,relative),'utf8'),raw);assert.equal(readFileSync(path.join(f.target,relative),'utf8'),raw);assert.equal(readFileSync(f.target+'.migration.json','utf8'),journal);
 }finally{f.close();}});
 
 test('legacy managed workspace is copied, state is rewritten, and conflicts retain source',()=>{const f=fixture();try{

@@ -1,5 +1,11 @@
 # 37 · UI preference persistence inventory
 
+## Source and installed profile continuity (2026-10-02)
+
+The existing version-1 per-user bootstrap locator remains the persistent owner of the selected data directory. Windows source launches now reuse that locator when present; fresh source-only launches keep the previous developer default, and explicit developer-home/QA overrides remain isolated. No preference is copied, reset or replaced by a new default. Window geometry/state, zoom, layouts, tabs, reading preferences and appearance continue to restore from the selected profile through their existing owners. No new adjustable UI state, responsive fitting behavior, storage format or reset action is added.
+
+Receipt paths are execution metadata, not a UI preference. Migration checks their destination ownership before retiring the source; unmapped paths fail without rewriting the original ledger. Corrupt/unknown locators still stop without erasure. Tests cover retained selection, explicit override, repeated installed/source process startup, singleton exclusion, concurrent-write rejection and failed migration. The approved directory plugin UI test covers actual service consumption, later mounts, disable/reenable and process restoration. Monitor fitting and window defaults are unchanged and remain covered by the existing UI preference suite.
+
 <!-- recovery-presentation-20261002:start -->
 ## Recovery window presentation (2026-10-02)
 

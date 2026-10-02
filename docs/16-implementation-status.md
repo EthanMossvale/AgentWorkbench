@@ -1,5 +1,13 @@
 # 16 · 实现与验收记录
 
+## Startup recovery after profile relocation (2026-10-02)
+
+A relocated profile retained memory delivery receipt paths under a removed historical root. `MemoryExchange.initialize()` correctly rejected those paths, but the failure stopped the desktop before the main window was shown. Building successfully or observing Electron processes did not prove that the existing profile could start. Local recovery rebased only verified delivery-path metadata after preserving the original ledger; it did not reset memory, mark pending deliveries as received, or move the profile again.
+
+The source fix makes Windows source and installed launches consume the same existing per-user locator while retaining fresh-development and explicit-override behavior. Relocation now validates destination receipt ownership before publication/source retirement, preventing an already inconsistent ledger from being carried into another destructive cleanup. Existing receipt validation stays strict. Plugin contract and UI preference reviews are recorded in documents 36 and 37.
+
+Validation: 32 data-directory/memory-migration tests plus 70 related service, memory receipt/background/consolidation and UI preference tests passed (102 total). Real Electron bootstrap checks cover consecutive moves, acknowledged and missing pending receipts, retained archive bytes, unsafe path rejection, source/installed singleton ownership and corrupt locator preservation. Six approved-plugin desktop checks passed, including service consumption, later surface mounts, disable/reenable and process restart. Typecheck, plugin contracts, documentation and UI preference gates passed. A clean candidate was packaged, its installed application archive was hash-matched, and two complete installed launches reached a visible main window with recovery `ready` and the selected profile. The actual `Start-Dev.cmd` rebuilt the shared source and opened a responding visible window against that same profile. Its unrelated preexisting working-tree edits were preserved and excluded from the candidate and scoped commit. These startup checks do not claim real Claude/Codex model or SSH execution; no remote deployment or publication was performed.
+
 <!-- recovery-presentation-20261002:start -->
 ## Recovery panel focus coalescing (2026-10-02)
 
