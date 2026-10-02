@@ -4,7 +4,7 @@ import { useState } from 'react';
 import type { AppState, Protocol } from '../../../packages/contracts';
 import type { ApiModel, ModelConnection } from '../../../packages/model-api/types';
 import { nativeContextSettings } from '../../../packages/model-api/native-context';
-import { isEmptyModelDraft, normalizeModelApiUrl } from '../../../packages/model-api/settings';
+import { isEmptyModelDraft, normalizeModelApiUrl, retainManualModelSettings } from '../../../packages/model-api/settings';
 import { api } from './App';
 import { Icon, Modal, Toggle, errorText } from './ui';
 import './ModelApiSettings.css';
@@ -73,11 +73,11 @@ export default function ModelApiSettings({ state, refresh, notify }: { state: Ap
   };
   const changeSource = (patch: Partial<Draft>) => {
     setDirectory([]); setError('');
-    setDraft(previous => ({ ...previous, ...patch, models: previous.models.map(model => ({ ...model, contextWindow: undefined, contextWindowSource: undefined, efforts: undefined, manualEfforts:undefined, defaultEffort: undefined, maxOutputTokens: undefined, adaptiveThinking: undefined, metadataSource: undefined, reasoningProbe: undefined })) }));
+    setDraft(previous => ({ ...previous, ...patch, models: previous.models.map(retainManualModelSettings) }));
   };
   const changeUpstream = (model: ApiModel, id: string) => {
     const known = directory.find(item => item.model === id);
-    editModel(model, { model: id, reasoningProbe: undefined, manualEfforts:undefined, contextWindow: known?.contextWindow, contextWindowSource: known?.contextWindowSource, maxOutputTokens: known?.maxOutputTokens, efforts: known?.efforts, defaultEffort: known?.defaultEffort, adaptiveThinking: known?.adaptiveThinking, metadataSource: known?.metadataSource });
+    editModel(model, withDirectory([{ ...retainManualModelSettings(model), model: id }], known ? [known] : [])[0]!);
   };
   const addMapping = () => {
     const id = crypto.randomUUID(); setSearch(''); setMapping(id);

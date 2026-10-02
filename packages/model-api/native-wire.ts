@@ -57,7 +57,12 @@ function chatMessages(messages: Json[]): Json[] {
   for (const message of messages) {
     if (message.role !== 'tool') flush();
     const parts = Array.isArray(message.content) ? message.content.filter((part: Json) => !['thinking', 'redacted_thinking', 'reasoning'].includes(part.type)) : undefined;
-    if (message.role !== 'tool' || !parts) { result.push({ ...message, ...(parts ? { content: parts } : {}) }); continue; }
+    if (message.role !== 'tool' || !parts) {
+      // Text-only messages use the common string representation. Some compatible
+      // providers accept content arrays only for user media, not assistant text.
+      const content = parts?.every((part: Json) => part.type === 'text') ? parts.map((part: Json) => part.text).join('') : parts;
+      result.push({ ...message, ...(parts ? { content } : {}) }); continue;
+    }
     const media = parts.filter((part: Json) => part.type === 'image_url');
     const textParts = parts.filter((part: Json) => part.type === 'text').map((part: Json) => part.text).join('\n');
     result.push({ ...message, content: textParts || (media.length ? 'Tool images are attached in the following user message.' : '') });
@@ -106,6 +111,12 @@ export function nativeWireRequest(body: Json, from: 'responses' | 'anthropic-mes
       }
       else if (['function_call_output', 'custom_tool_call_output'].includes(item.type)) messages.push({ role: 'tool', tool_call_id: item.call_id, content: Array.isArray(item.output) ? content(item.output, 'user') : text(item.output) });
       else if (item.type === 'reasoning') { /* Opaque Responses items have no cross-protocol representation. */ }
+      else if (item.role === 'developer' || item.role === 'system') {
+        const parts = content(item.content, item.role);
+        if (parts.some(part => part.type !== 'text')) throw Error('NATIVE_PROVIDER_CONTENT_UNSUPPORTED');
+        const instruction = parts.map(part => part.text).join('');
+        system += (system && instruction ? '\n\n' : '') + instruction;
+      }
       else if (item.role) messages.push({ role: item.role, content: content(item.content, item.role) });
       else throw Error('NATIVE_PROVIDER_INPUT_UNSUPPORTED');
     }

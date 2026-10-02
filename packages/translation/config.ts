@@ -7,7 +7,7 @@ const anthropicEfforts = ['low', 'medium', 'high', 'xhigh', 'max'] as const;
 export const DEFAULT_MAX_OUTPUT_TOKENS = 8192;
 
 /** Normalize an API base or a pasted endpoint without inventing a gateway prefix. */
-export function normalizeBaseUrl(base: string): string {
+export function normalizeBaseUrl(base: string, options: { defaultVersion?: boolean } = {}): string {
   if (typeof base !== 'string' || base.length > 2048 || /[\\\u0000-\u0020\u007f]/.test(base.trim())) throw new Error('翻译端点格式不正确。');
   let url: URL;
   try { url = new URL(base.trim()); } catch { throw new Error('翻译端点不是有效的 URL。'); }
@@ -17,7 +17,7 @@ export function normalizeBaseUrl(base: string): string {
   if (url.protocol !== 'https:' && !(url.protocol === 'http:' && explicitLoopback)) throw new Error('翻译端点必须使用 HTTPS；仅 localhost、127.0.0.1 和 [::1] 可使用本机 HTTP。');
   if (url.hostname === '0.0.0.0' || url.hostname === '[::]' || /^169\.254\./.test(url.hostname)) throw new Error('翻译端点不能使用未指定地址或链路本地地址。');
   url.pathname = url.pathname.replace(/\/+$/, '').replace(/\/(?:chat\/completions|responses|messages|models)$/, '');
-  if ((!url.pathname || url.pathname === '/') && ['api.openai.com', 'api.anthropic.com'].includes(url.hostname)) url.pathname = '/v1';
+  if (options.defaultVersion !== false && (!url.pathname || url.pathname === '/') && ['api.openai.com', 'api.anthropic.com'].includes(url.hostname)) url.pathname = '/v1';
   return url.href.replace(/\/$/, '');
 }
 

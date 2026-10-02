@@ -161,9 +161,10 @@ test('multiple connections store keys independently, discover automatically, pre
     const publicState=JSON.stringify(await f.controller.call('state/get'));assert.doesNotMatch(publicState,/synthetic-secret/);
     const files=await readdir(path.join(f.directory,'secrets'));for(const file of files)assert.doesNotMatch(await readFile(path.join(f.directory,'secrets',file),'utf8'),/synthetic-secret/);
     await assert.rejects(f.controller.call('model-api/save',{id:a.id,revision:'stale',connection:a}),/更新/);
-    await assert.rejects(f.controller.call('model-api/save',{id:a.id,revision:a.revision,connection:{...a,baseUrl:'https://other.example/v1'}}),/密钥/);
+    const edited=await f.controller.call('model-api/save',{id:a.id,revision:a.revision,connection:{...a,baseUrl:'https://other.example/v1'}}) as ModelConnection;
+    assert.equal(edited.hasKey,true);assert.equal(f.requests.at(-1)!.init.headers && (f.requests.at(-1)!.init.headers as Record<string,string>).authorization,'Bearer synthetic-secret-A');
     assert.equal(await f.secrets.get('https://api.openai.com/v1'),'');
-    await f.controller.call('model-api/delete',{id:a.id,revision:a.revision,confirm:true});assert.equal((await f.controller.call('model-api/list') as ModelConnection[])[0]!.id,b.id);
+    await f.controller.call('model-api/delete',{id:a.id,revision:edited.revision,confirm:true});assert.equal((await f.controller.call('model-api/list') as ModelConnection[])[0]!.id,b.id);
   }finally{await f.close();}
 });
 

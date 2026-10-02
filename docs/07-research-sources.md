@@ -1,5 +1,11 @@
 # 07 · 研究、来源与证据边界
 
+## Compatible provider request review (2026-10-03)
+
+The public [DeepSeek Chat Completions reference](https://api-docs.deepseek.com/api/create-chat-completion) was fetched read-only. It documents system/user/assistant/tool message variants and states that thinking mode rejects required or named tool selection; automatic selection is supported. Its effort documentation lists none/low/high/max and compatibility aliases minimal/medium/xhigh. These are provider-specific public facts, not a universal compatibility promise or proof of a screenshot's exact rejected parameter. No third-party implementation code was copied.
+
+Independent source findings: the workbench mapper passed Responses developer roles through to Chat and represented text-only assistant content as arrays. Its completion layer also replaced normal selection with required/any. The repair uses compatible system instruction placement and text strings, preserves typed media and explicit native tool choices, and defaults completion selection to auto while retaining final-answer validation. Protocol fixtures and isolated installed-CLI tests verify these transformations. They do not establish successful authenticated inference against the user's service or justify silently translating unsupported effort names.
+
 <!-- claude-context-receipt-20261001:start -->
 ## Native context size and sidebar tool distinction (2026-10-01)
 

@@ -45,8 +45,11 @@ export const nativeCompletionCodec: NativeCompletionCodec = {
       : protocol === 'responses' ? { type: 'function', name, description, parameters }
       : { name, description, input_schema: parameters };
     const instruction = `Provider completion contract: This connection has no separate commentary turn. To continue working, include actual tool calls with any progress text. To end the turn, call ${name} with an outcome and the final message. A text-only reply is not a valid completion. Do not call ${name} for a progress update, a plan to act, or while authorized work remains. Do not invent tool calls, ask for unnecessary permission, or claim unperformed work.`;
-    const mapped: Json = { ...request, tools: [...request.tools, declaration], tool_choice: protocol === 'anthropic-messages'
-      ? { type: request.thinking && request.thinking.type !== 'disabled' ? 'auto' : 'any' } : 'required' };
+    // Adding the completion envelope must not force a provider's tool policy.
+    // Thinking-mode providers may reject required/any even for valid tools.
+    // The finish validator still refuses an unmarked text-only completion.
+    const mapped: Json = { ...request, tools: [...request.tools, declaration],
+      tool_choice: request.tool_choice ?? (protocol === 'anthropic-messages' ? { type: 'auto' } : 'auto') };
     if (protocol === 'chat-completions') mapped.messages = request.messages[0]?.role === 'system'
       ? [{ ...request.messages[0], content: request.messages[0].content + '\n\n' + instruction }, ...request.messages.slice(1)]
       : [{ role: 'system', content: instruction }, ...request.messages];

@@ -15,7 +15,7 @@ const complete = (name: string, value: unknown) => ({ id: 'completion', name, ar
 test('ordinary progress cannot silently complete a tool-bearing cross-protocol request', async () => {
   let calls = 0; const receipts: unknown[] = [], diagnostics: any[] = [];
   const gateway = await openNativeGateway({ runtime: 'codex', model, credentials: async () => ({ connection, key: '' }), completionReceipt: r => receipts.push(r), diagnostic: d => diagnostics.push(d), fetcher: async (_url, init) => {
-    calls++; const body = JSON.parse(String(init?.body)); assert.equal(body.tool_choice, 'required');
+    calls++; const body = JSON.parse(String(init?.body)); assert.equal(body.tool_choice, 'auto');
     assert.ok(body.tools.some((t: any) => t.function.name === 'awb_complete_turn'));
     return Response.json({ choices: [{ finish_reason: 'stop', message: { content: 'I am checking the remaining step.' } }] });
   } });
@@ -32,7 +32,7 @@ for (const protocol of ['responses', 'anthropic-messages', 'chat-completions'] a
   const mapped = nativeWireRequest(request, 'responses', protocol, model);
   const boundary = nativeCompletionCodec.prepare(mapped, protocol)!;
   assert.deepEqual(boundary.request.tools.slice(0, -1), mapped.tools);
-  assert.deepEqual(boundary.request.tool_choice, protocol === 'anthropic-messages' ? { type: 'any' } : 'required');
+  assert.deepEqual(boundary.request.tool_choice, protocol === 'anthropic-messages' ? { type: 'auto' } : 'auto');
   const tool = boundary.request.tools.at(-1), name = tool.function?.name ?? tool.name;
   for (const outcome of ['completed', 'needs_input', 'blocked']) {
     const parsed = turn('', [complete(name, { outcome, message: 'Final answer.' })]);
@@ -68,7 +68,7 @@ test('tool progress stays attached to its calls in the next model request', () =
   assert.equal(output[0].phase, 'commentary');
   const mapped = nativeWireRequest({ ...request, input: [{ role: 'user', content: 'Task' }, ...output, ...calls.map(c => ({ type: 'function_call_output', call_id: c.id, output: 'Evidence' }))] }, 'responses', 'chat-completions', model);
   const assistant = mapped.messages.filter((m: any) => m.role === 'assistant');
-  assert.equal(assistant.length, 1); assert.equal(assistant[0].content[0].text, 'Checking.'); assert.equal(assistant[0].tool_calls.length, 2);
+  assert.equal(assistant.length, 1); assert.equal(assistant[0].content, 'Checking.'); assert.equal(assistant[0].tool_calls.length, 2);
   assert.deepEqual(mapped.messages.slice(-2).map((m: any) => m.tool_call_id), ['inspect1', 'inspect2']);
 });
 

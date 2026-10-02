@@ -37,6 +37,11 @@ const runner = new NativeProviderRunner({ connection: () => connection, key: asy
   const body = JSON.parse(init.body), protocol = connection.protocol;
   const native = protocol === (current.runtime === 'codex' ? 'responses' : 'anthropic-messages');
   assert.equal(body.model, model.model);
+  if (protocol === 'chat-completions') {
+    assert.equal(body.tool_choice, 'auto', 'The bridge does not force tools on thinking providers');
+    assert.ok(body.messages.every(m => ['system','user','assistant','tool'].includes(m.role)), 'Compatible roles only');
+    assert.ok(body.messages.every(m => m.content === null || typeof m.content === 'string'), 'Text-only histories use string content');
+  }
   if (native) return response(protocol, 'Native final response.');
   const complete = body.tools.map(t => t.function ?? t).find(t => t.name === 'awb_complete_turn'); assert.ok(complete, 'Explicit completion contract is present');
   assert.match(protocol === 'chat-completions' ? body.messages[0].content : protocol === 'anthropic-messages' ? body.system : body.instructions, /A text-only reply is not a valid completion/);
@@ -48,7 +53,7 @@ const runner = new NativeProviderRunner({ connection: () => connection, key: asy
   assert.equal(current.executions, 1); assert.ok(init.body.includes('TOOL_EXECUTED_ONCE'));
   if (protocol === 'chat-completions' && current.runtime === 'codex') {
     const assistant = body.messages.find(m => m.tool_calls?.some(c => c.id === 'fixture_call'));
-    assert.equal(assistant.content[0].text, 'Checking the fixture.', 'Progress and actual calls share the assistant batch');
+    assert.equal(assistant.content, 'Checking the fixture.', 'Progress and actual calls share the assistant batch');
   }
   return response(protocol, '', [{ id: 'finish_call', name: complete.name, arguments: JSON.stringify({ outcome: 'completed', message: 'Fixture completed and verified.' }) }]);
 });

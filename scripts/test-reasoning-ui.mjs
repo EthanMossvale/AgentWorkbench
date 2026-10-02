@@ -76,6 +76,24 @@ try{
  for(const theme of ['light','dark']){await page.evaluate(theme=>document.documentElement.dataset.theme=theme,theme);await page.locator('.model-api-mapping-actions').scrollIntoViewIfNeeded();await page.screenshot({path:path.join(output,'manual-'+theme+'.png')});assert.equal(await page.locator('.model-api-editor').evaluate(e=>e.scrollWidth<=e.clientWidth+1),true);assert.equal(await page.locator('.model-api-manual-default').evaluate(e=>getComputedStyle(e).flexDirection),'row');}
  await page.getByTestId('model-api-save').click();await page.getByTestId('model-api-editor').waitFor({state:'detached'});const manualSave=(await calls()).find(c=>c.method==='model-api/save').payload.connection.models[0];assert.deepEqual(manualSave.manualEfforts,['medium','ultra']);assert.equal(manualSave.defaultEffort,'ultra');record('manual choices save during unknown verification and preserve the selected default');
  await show('settings',{models:[{...plain,manualEfforts:['medium','ultra'],efforts:['medium','ultra'],defaultEffort:'ultra'}]});await page.getByRole('button',{name:'编辑',exact:true}).click();await page.getByRole('button',{name:'编辑映射 mapped'}).click();await page.getByRole('button',{name:'恢复自动档位 mapped'}).click();assert.equal(await page.getByRole('group',{name:'手动思考档位 mapped'}).count(),0);await page.getByTestId('model-api-save').click();assert.equal((await calls()).find(c=>c.method==='model-api/save').payload.connection.models[0].manualEfforts,undefined);record('restore automatic removes manual configuration instead of fabricating evidence');
+ await show('settings',{models:[{...plain,contextWindow:1048576,contextWindowSource:'manual',manualEfforts:['medium','ultra'],efforts:['medium','ultra'],defaultEffort:'ultra'}]});await page.getByRole('button',{name:'编辑',exact:true}).click();await page.getByRole('button',{name:'编辑映射 mapped'}).click();
+ for(const protocol of ['chat-completions','anthropic-messages','responses']){
+  await page.getByLabel('接口协议',{exact:true}).selectOption(protocol);
+  assert.equal(await page.getByLabel('上下文上限 mapped',{exact:true}).inputValue(),'1048576');
+  assert.equal(await page.getByRole('combobox',{name:'默认思考档位 mapped'}).inputValue(),'ultra');
+  assert.equal(await page.getByRole('group',{name:'手动思考档位 mapped'}).getByRole('checkbox',{name:'ultra',exact:true}).isChecked(),true);
+ }
+ await page.getByLabel('API 地址',{exact:true}).fill('https://gateway.example/custom');await page.getByLabel('连接名称',{exact:true}).click();
+ assert.equal(await page.getByLabel('API 地址',{exact:true}).inputValue(),'https://gateway.example/custom');
+ await page.getByLabel('上游模型 mapped',{exact:true}).fill('new-manual-model');
+ assert.equal(await page.getByLabel('上下文上限 mapped',{exact:true}).inputValue(),'1048576');
+ assert.equal(await page.getByRole('combobox',{name:'默认思考档位 mapped'}).inputValue(),'ultra');
+ await page.screenshot({path:path.join(output,'source-edit-retained.png')});
+ await page.getByTestId('model-api-save').click();const retained=(await calls()).find(c=>c.method==='model-api/save').payload;
+ assert.equal(Object.hasOwn(retained,'key'),false);assert.equal(retained.connection.baseUrl,'https://gateway.example/custom');
+ assert.equal(retained.connection.models[0].model,'new-manual-model');assert.deepEqual(retained.connection.models[0].manualEfforts,['medium','ultra']);
+ assert.equal(retained.connection.models[0].defaultEffort,'ultra');assert.equal(retained.connection.models[0].contextWindow,1048576);
+ record('protocol, URL and model-ID edits retain manual choices and omitted credentials without adding v1');
  assert.deepEqual(errors,[]);record('zero renderer errors in hidden isolated Electron');
  await writeFile(path.join(output,'report.json'),JSON.stringify({checks,errors,geometry},null,2));
 }finally{await app?.close();}

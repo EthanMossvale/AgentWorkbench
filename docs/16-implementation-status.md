@@ -1,5 +1,15 @@
 # 16 · 实现与验收记录
 
+## Third-party provider compatibility and retained connection edits (2026-10-03)
+
+Model connections now preserve explicitly supplied API prefixes without appending `/v1`. Editing the address, protocol or upstream model retains manual reasoning levels, valid defaults and manual context settings while invalidating source-specific discovery and probe evidence. Omitted keys reuse the existing encrypted credential; saving a changed source atomically rebinds its scope, and an explicitly empty key still clears it. Revision checks, active-source protection and failed-save credential cleanup remain enforced.
+
+The shared native gateway now translates Responses system/developer instructions into target system instructions, uses string content for text-only Chat messages, and does not impose required tool choice when adding the completion envelope. Explicit native tool policy and completion validation remain intact. These fixes address reproducible request compatibility failures across Codex and Claude; they do not establish which upstream parameter caused a particular private endpoint's HTTP 422. Interface, plugin lifecycle and persistence reviews are recorded in documents 36 and 37.
+
+Validation passed: the complete suite reports 1,856 tests, zero failures and zero skips; plugin contracts, documentation, UI preferences and typecheck gates pass. Fourteen installed native CLI scenarios exercise Codex and Claude with synthetic providers; 24 isolated reasoning UI checks and four full-desktop groups cover protocol/address edits, key reuse, manual settings, full process restart and explicit clearing, with zero renderer errors. Approved synthetic ZIP plugins exercise the production model-connection service, runtime selectors, replacement, disable and reenable; regression coverage includes concurrent revisions, busy sources and credential rollback. Light and dark desktop screenshots were reviewed.
+
+Evidence is isolated source, synthetic protocol, installed native CLI and hidden desktop acceptance. No real provider credential or user chat database was read, no authenticated third-party service task was run, and no live desktop installation or remote deployment is implied. Existing saved URLs are not silently rewritten; users can explicitly remove an unwanted version prefix.
+
 ## Complete native observation snapshot optimization (2026-10-03)
 
 The earlier streaming optimization left the Codex observer snapshot guard outside its scoped commit. This follow-up includes that guard and direct regression coverage: threadless reasoning deltas retain bounded audit receipts without per-frame full-state reads, while local and SSH observers continue checking explicit thread identities and reject foreign frames. The existing Claude performance regression remains in scope. No account, SSH authorization, data location, UI preference or public contract changes. Interface and lifecycle review is recorded in document 36.

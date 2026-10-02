@@ -36,7 +36,7 @@ for (const from of ['responses', 'anthropic-messages'] as const) {
     assert.equal(mapped.messages[2].content, 'Caption'); assert.equal(mapped.messages[3].content, 'Second result');
     assert.equal(mapped.messages[4].content[1].image_url.url, url);
     assert.match(mapped.messages[4].content[0].text, /image/);
-    assert.equal(mapped.messages[5].content[0].text, 'Continue');
+    assert.equal(mapped.messages[5].content, 'Continue');
     const prose = mapped.messages.flatMap((m: any) => typeof m.content === 'string' ? [m.content] : (m.content ?? []).filter((p: any) => p.type === 'text').map((p: any) => p.text)).join('\n');
     assert.ok(prose.length < 300); assert.ok(!prose.includes(data));
     assert.equal(JSON.stringify(input), before);

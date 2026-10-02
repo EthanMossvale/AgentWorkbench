@@ -3,6 +3,7 @@ import type { AppState } from '../../../packages/contracts';
 import type { ModelConnection } from '../../../packages/model-api/types';
 import { nativeContextSettings } from '../../../packages/model-api/native-context';
 import { mergeDirectory, validateConnection } from '../../../packages/model-api/config';
+import { retainManualModelSettings } from '../../../packages/model-api/settings';
 import { discoverModels } from '../../../packages/model-api/provider';
 import { verifyConnectionReasoning } from '../../../packages/model-api/reasoning-probe';
 import { applyReasoning, reasoningCandidates } from '../../../packages/model-api/reasoning-info';
@@ -32,8 +33,7 @@ export class ModelConnections {
     if(p.allowInference!==true)throw Error('REASONING_INFERENCE_REQUIRES_EXPLICIT_CONSENT');
     const previous=p.id?this.connection(p.id):undefined,candidate=validateConnection(p.connection,previous),same=previous&&modelCredentialScope(candidate)===modelCredentialScope(previous);
     if(p.key!==undefined&&(typeof p.key!=='string'||p.key.length>4096))throw Error('MODEL_KEY_INVALID');
-    if(p.key===undefined&&previous?.hasKey&&!same)throw Error('MODEL_KEY_REQUIRED_FOR_NEW_SOURCE');
-    const key=p.key!==undefined?String(p.key).trim():same?await this.key(previous!):'';candidate.auth=key?'key':'none';
+    const key=p.key!==undefined?String(p.key).trim():previous?await this.key(previous):'';candidate.auth=key?'key':'none';
     return this.reasoning.start(candidate,key,same&&p.key===undefined?previous:undefined,p.force===true);
   }
   private safeWhileBusy(previous:ModelConnection,candidate:ModelConnection,p:Record<string,unknown>){
@@ -77,13 +77,13 @@ export class ModelConnections {
     const same=previous&&modelCredentialScope(previous)===modelCredentialScope(candidate);
     if(method==='model-api/save'&&candidate.models.some(model=>model.enabled&&model.effortCandidates?.length)&&p.verifyReasoning!==true)throw Error('自定义思考档位必须在保存时验证。');
     if(same&&p.key===undefined)candidate.models=candidate.models.map(model=>{const old=previous.models.find(item=>item.id===model.id&&item.model===model.model);return old?.reasoningProbe&&!!model.adaptiveThinking===!!old.adaptiveThinking&&JSON.stringify(reasoningCandidates(model))===JSON.stringify(reasoningCandidates(old))?applyReasoning(model,{efforts:old.reasoningProbe.status==='declared'?old.reasoningProbe.declared:old.reasoningProbe.status==='verified'?old.reasoningProbe.accepted:undefined,defaultEffort:old.defaultEffort,reasoningProbe:old.reasoningProbe}):model;});
-    if(previous&&!same){candidate.discoveredModels=[];candidate.discoveredAt=undefined;candidate.models=candidate.models.map(model=>({...model,contextWindow:undefined,maxOutputTokens:undefined,efforts:undefined,manualEfforts:undefined,defaultEffort:undefined,reasoningProbe:undefined,adaptiveThinking:undefined,metadataSource:undefined}));}
+    if(previous&&!same){candidate.discoveredModels=[];candidate.discoveredAt=undefined;candidate.models=candidate.models.map(retainManualModelSettings);}
     const supplied=typeof p.key==='string'?p.key.trim():'';
     if(p.key!==undefined&&(typeof p.key!=='string'||p.key.length>4096))throw Error('模型密钥格式不正确。');
     // An omitted field preserves a saved key; an explicitly empty field clears it.
-    // Never move a saved credential to a different address or protocol implicitly.
-    if(p.key===undefined&&previous?.hasKey&&!same)throw Error('地址或协议已变化，请重新填写 API 密钥；不需要密钥时可清除原密钥。');
-    const key=p.key!==undefined?supplied:(same?await this.key(previous!):'');
+    // An explicit edit keeps this connection's key, including address/protocol changes.
+    // Save rebinds its encrypted scope atomically; discovery never mutates the saved key.
+    const key=p.key!==undefined?supplied:(previous?await this.key(previous):'');
     candidate.auth=key?'key':'none';
     if(method==='model-api/discover')return discoverModels(candidate,key,this.fetcher);
     let next=candidate,newCredential:string|undefined;
