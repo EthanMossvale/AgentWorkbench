@@ -32,12 +32,12 @@ internal sealed class Bootstrap : Form {
             Directory.CreateDirectory(directory);
             using (var client = new HttpClient(new HttpClientHandler { AllowAutoRedirect = false })) {
                 client.Timeout = TimeSpan.FromMinutes(20); client.DefaultRequestHeaders.UserAgent.ParseAdd("AgentWorkbench-Installer/1.0");
-                string json = await client.GetStringAsync(Feed + "bootstrap.json");
+                string json = await client.GetStringAsync(Feed + "bootstrap-v2.json");
                 if (json.Length > 16384) throw new Exception("Manifest too large");
                 var item = new JavaScriptSerializer().Deserialize<Dictionary<string,object>>(json);
                 string name = (string)item["file"], expected = (string)item["sha512"];
                 long size = Convert.ToInt64(item["size"]);
-                if (!System.Text.RegularExpressions.Regex.IsMatch(name, @"\AAgentWorkbench-[0-9]+\.[0-9]+\.[0-9]+-x64-setup\.exe\z") || size < 1 || size > 800L*1024*1024 || Convert.FromBase64String(expected).Length != 64) throw new Exception("Invalid manifest");
+                if (!System.Text.RegularExpressions.Regex.IsMatch(name, @"\A[0-9]+\.[0-9]+\.[0-9]+\.exe\z") || size < 1 || size > 800L*1024*1024 || Convert.FromBase64String(expected).Length != 64) throw new Exception("Invalid manifest");
                 string target = Path.Combine(directory,name);
                 stage = "下载安装包";
                 label.Text = "正在下载最新版 AgentWorkbench…";

@@ -1,4 +1,8 @@
 /** Desktop application updates are independent of native CLI maintenance. */
+export function desktopUpdatesEnabled(options:{packaged:boolean;platform:NodeJS.Platform;testProfile:boolean;distribution:unknown}):boolean {
+  return options.packaged&&options.platform==='win32'&&!options.testProfile&&options.distribution==='release';
+}
+
 export interface DesktopUpdateState {
   phase: 'disabled'|'idle'|'checking'|'downloading'|'ready'|'installing'|'error';
   version?: string;

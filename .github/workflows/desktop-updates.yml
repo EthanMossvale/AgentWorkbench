@@ -30,7 +30,9 @@ jobs:
       - run: npm run test:plugin-recovery
       - name: Assign monotonically increasing build version
         shell: pwsh
-        run: npm version "0.1.${{ github.run_number }}" --no-git-tag-version
+        run: |
+          npm version "0.1.${{ github.run_number }}" --no-git-tag-version
+          npm pkg set workbenchDistribution=release
       - run: npm run package:windows
         env:
           CSC_IDENTITY_AUTO_DISCOVERY: false

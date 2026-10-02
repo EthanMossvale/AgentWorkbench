@@ -3,12 +3,21 @@ import assert from 'node:assert/strict';
 import {mkdtemp,writeFile,rm} from 'node:fs/promises';
 import {tmpdir} from 'node:os';
 import path from 'node:path';
-import {DesktopUpdates,type DesktopUpdateBackend,type DesktopUpdateState} from '../packages/desktop-updates';
+import {DesktopUpdates,desktopUpdatesEnabled,type DesktopUpdateBackend,type DesktopUpdateState} from '../packages/desktop-updates';
 import {PluginRegistry} from '../packages/plugins-core';
 import {encodeZip} from '../packages/native-resources/archive';
 import {EventEmitter} from 'node:events';
 import {runInNewContext} from 'node:vm';
 import {build} from 'esbuild';
+
+test('only explicitly released Windows packages can consume the public update feed',async()=>{
+ for(const distribution of [undefined,null,'local','release-typo',{},1]){
+  const core=backend(),updates=new DesktopUpdates(()=>core.value,()=>false,desktopUpdatesEnabled({packaged:true,platform:'win32',testProfile:false,distribution}));
+  updates.start();await updates.check();assert.equal(updates.snapshot().phase,'disabled');assert.equal(core.record.checks,0);await assert.rejects(updates.install(),/NOT_READY/);updates.dispose();
+ }
+ assert.equal(desktopUpdatesEnabled({packaged:true,platform:'win32',testProfile:false,distribution:'release'}),true);
+ for(const override of [{packaged:false},{platform:'linux' as const},{testProfile:true}])assert.equal(desktopUpdatesEnabled({packaged:true,platform:'win32',testProfile:false,distribution:'release',...override}),false);
+});
 
 test('production updater observes cancelled downloads when disposal precedes the update response',async()=>{
  let updater!:EventEmitter,respond!:(value:unknown)=>void,rejectDownload!:(error:Error)=>void,cancelled=0;

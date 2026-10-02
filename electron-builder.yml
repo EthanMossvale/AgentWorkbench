@@ -14,6 +14,7 @@ win:
     - target: nsis
       arch: [x64]
 nsis:
+  include: scripts/installer/paths.nsh
   oneClick: false
   allowToChangeInstallationDirectory: true
   perMachine: false
@@ -23,7 +24,7 @@ nsis:
   shortcutName: AgentWorkbench
   deleteAppDataOnUninstall: false
   runAfterFinish: true
-artifactName: AgentWorkbench-${version}-${arch}-setup.${ext}
+artifactName: ${version}.${ext}
 publish:
   provider: generic
   url: https://ethanmossvale.github.io/AgentWorkbench/updates/

@@ -1,6 +1,7 @@
 {
   "name": "agent-workbench",
   "version": "0.1.0",
+  "workbenchDistribution": "local",
   "private": true,
   "type": "module",
   "description": "Claude-first native agent desktop with an independent bilingual workflow",
