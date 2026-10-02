@@ -2,6 +2,7 @@ import { createHash } from 'node:crypto';
 import type { AccountCatalog, SharedAccount, SshHost } from '../contracts/index';
 import type { CodexAuthJob } from '../remote-codex-auth/index';
 import { runSsh, validateSshHost, type SshRunner } from '../ssh-transport/index';
+import {readOnlySsh,SshReadError} from '../ssh-transport/read-only';
 import { EXISTING_BROKER_CLIENT } from './existing-broker';
 import { NATIVE_OWNER_CLIENT } from './native-client';
 export type { AccountCatalog, SharedAccount, CodexAuthJob };
@@ -122,7 +123,7 @@ export class RemoteAccountCatalogService {
       if(value.source&&value.source!==(source??'native-owner'))throw Error(ERROR_MESSAGES.INVALID_REQUEST);
       value.source=source??'native-owner';
     } catch (error) {
-      value={ authorityId: '', generation: '', revision: 0, workspaceId: '', selectionRevision: 0, accounts: [], availability: 'unavailable', source:source??'native-owner', reason: error instanceof Error && Object.values(ERROR_MESSAGES).includes(error.message) ? error.message : ERROR_MESSAGES.BROKER_UNAVAILABLE };
+      value={ authorityId: '', generation: '', revision: 0, workspaceId: '', selectionRevision: 0, accounts: [], availability: 'unavailable', source:source??'native-owner', reason: error instanceof SshReadError || error instanceof Error && Object.values(ERROR_MESSAGES).includes(error.message) ? error.message : ERROR_MESSAGES.BROKER_UNAVAILABLE };
     }
     if(source==='existing-codex')return value;
     // Discover public legacy metadata separately. It cannot make the native
@@ -209,8 +210,12 @@ export class RemoteAccountCatalogService {
   private async request(host: SshHost, method: string, params: unknown, source?: AccountCatalog['source']): Promise<unknown> {
     validateSshHost(host);
     let response: unknown;
-    try { const result = await this.runner(host, REMOTE_CATALOG_COMMAND, { stdin: JSON.stringify({ protocol: 1, method, params, ...(source?{source}:{}) }) + '\n', timeoutMs: 25_000, maxOutputBytes: 256 * 1024 }); if (result.exitCode !== 0 || Buffer.byteLength(result.stdout, 'utf8') > 256 * 1024) throw new Error(); response = JSON.parse(result.stdout); }
-    catch { throw new Error(ERROR_MESSAGES.BROKER_UNAVAILABLE); }
+    try {
+      const options={stdin:JSON.stringify({protocol:1,method,params,...(source?{source}:{})})+'\n',timeoutMs:25_000,maxOutputBytes:256*1024};
+      const result=method==='catalog/list'?await readOnlySsh(host,REMOTE_CATALOG_COMMAND,options,this.runner):await this.runner(host,REMOTE_CATALOG_COMMAND,options);
+      if(result.exitCode!==0||Buffer.byteLength(result.stdout,'utf8')>256*1024)throw new Error();
+      response=JSON.parse(result.stdout);
+    } catch(error) {if(error instanceof SshReadError)throw error;throw new Error(ERROR_MESSAGES.BROKER_UNAVAILABLE);}
     if (!record(response) || response.ok !== true) throw new Error(record(response) && typeof response.error === 'string' ? ERROR_MESSAGES[response.error] ?? ERROR_MESSAGES.INTERNAL_ERROR : ERROR_MESSAGES.INTERNAL_ERROR);
     return response.value;
   }

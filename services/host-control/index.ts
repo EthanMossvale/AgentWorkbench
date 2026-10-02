@@ -1,6 +1,7 @@
 import { createHash, randomUUID } from 'node:crypto';
 import type { SshHost } from '../../packages/contracts/index';
 import { runSsh, validateSshHost, type SshRunner } from '../../packages/ssh-transport/index';
+import {readOnlySsh} from '../../packages/ssh-transport/read-only';
 import { DISCOVERY_COMMAND } from './discovery-script';
 import { parseWorkspaceDiscovery } from './discovery-parser';
 import type { WorkspaceDiscovery } from './discovery-types';
@@ -11,8 +12,7 @@ export type { DiscoveredAccount, DiscoveredPublicKey, DiscoveredWorkspace, Runti
 export async function discoverWorkspaces(host: SshHost, options: { runner?: SshRunner; now?: Date; signal?: AbortSignal } = {}): Promise<WorkspaceDiscovery> {
   validateSshHost(host);
   const observedAt = (options.now ?? new Date()).toISOString();
-  const result = await (options.runner ?? runSsh)(host, DISCOVERY_COMMAND, { timeoutMs: 50_000, maxOutputBytes: 512 * 1024, signal: options.signal });
-  if (result.exitCode !== 0) throw new Error(`Read-only workspace discovery failed (SSH exit ${result.exitCode}).`);
+  const result = await readOnlySsh(host, DISCOVERY_COMMAND, { timeoutMs: 50_000, maxOutputBytes: 512 * 1024, signal: options.signal },options.runner);
   return parseWorkspaceDiscovery(result.stdout, host, observedAt);
 }
 

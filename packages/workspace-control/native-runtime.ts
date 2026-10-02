@@ -6,6 +6,7 @@ import {runSsh, type SshRunner} from '../ssh-transport';
 import {workspaceHostIdentity} from './index';
 import {NATIVE_OWNER_CLIENT} from '../remote-account-catalog/native-client';
 import {sshFailure} from '../ssh-transport/diagnostics';
+import {readOnlySsh} from '../ssh-transport/read-only';
 
 export interface NativeRuntimeStatus {
   accountId: string; provider: 'codex' | 'claude'; installed: boolean; authenticated: boolean;
@@ -52,7 +53,8 @@ export class NativeRuntimeControl {
   constructor(private directory: string, private runner: SshRunner = runSsh) {}
   private async request(host:SshHost,catalog:AccountCatalog,method:string,params:Record<string,unknown>) {
     if(catalog.availability!=='ready'||catalog.source!=='native-owner') throw Error('请先准备统一运行服务并读取原生账号目录。');
-    const result=await this.runner(host,command,{stdin:JSON.stringify({protocol:1,method,params:{authorityId:catalog.authorityId,generation:catalog.generation,...params}})+'\n',timeoutMs:95000,maxOutputBytes:1024*1024}).catch(error=>{const failure=sshFailure(undefined,error);if(failure)throw Error(failure.message+' 诊断码：SSH_'+failure.code);throw error;});
+    const options={stdin:JSON.stringify({protocol:1,method,params:{authorityId:catalog.authorityId,generation:catalog.generation,...params}})+'\n',timeoutMs:95000,maxOutputBytes:1024*1024};
+    const result=await (method==='runtime/models'?readOnlySsh(host,command,options,this.runner):this.runner(host,command,options)).catch(error=>{const failure=sshFailure(undefined,error);if(failure)throw Error(failure.message+' 诊断码：SSH_'+failure.code);throw error;});
     if(result.exitCode!==0){const failure=sshFailure(result)!;throw Error(failure.message+' 诊断码：SSH_'+failure.code);}
     let value:any;try{value=JSON.parse(result.stdout);}catch{throw Error('原生运行服务返回无效回执。');}
     if(result.exitCode===0&&value?.ok===false&&typeof value.error==='string'&&Object.hasOwn(labels,value.error))throw new NativeRuntimeRejection(value.error);
