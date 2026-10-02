@@ -11,6 +11,7 @@ export interface DataDirectoryOptions {
   directory:string;defaultDirectory:string;locator?:string;testOverride:boolean;
   busy():boolean;pick(kind?:'codex'):Promise<string|null>;
   flush():Promise<void>;restart():void;
+  relocate?:(target:string)=>void;
 }
 /** One production instance is shared by IPC, approved plugins and admission gates. */
 export class DataDirectoryService implements DataDirectoryApi {
@@ -19,16 +20,16 @@ export class DataDirectoryService implements DataDirectoryApi {
   isChanging(){return this.changing;}
   get():DataDirectoryState {
     const o=this.options;
-    return {directory:o.directory,defaultWorktreeRoot:path.join(o.directory,'worktrees'),defaultDirectory:o.defaultDirectory,canMigrate:!!o.locator,testOverride:o.testOverride,preferred:o.locator?readDataLocation(o.locator)?.pending??o.directory:o.directory};
+    return {directory:o.directory,defaultWorktreeRoot:path.join(o.directory,'worktrees'),defaultDirectory:o.defaultDirectory,canMigrate:!!o.locator||o.testOverride,testOverride:o.testOverride,preferred:o.locator?readDataLocation(o.locator)?.pending??o.directory:o.directory};
   }
   async choose(kind?:'codex'){
-    if(!this.options.locator)throw Error('APP_DATA_RELOCATION_UNAVAILABLE');
+    if(!this.options.locator&&!this.options.testOverride)throw Error('APP_DATA_RELOCATION_UNAVAILABLE');
     if(kind!==undefined&&kind!=='codex')throw Error('APP_DATA_PATH_INVALID');
     return this.options.pick(kind);
   }
   async migrate(target:string):Promise<{restarting:true}>{
     const o=this.options;
-    if(!o.locator)throw Error('APP_DATA_RELOCATION_UNAVAILABLE');
+    if(!o.locator&&!o.testOverride)throw Error('APP_DATA_RELOCATION_UNAVAILABLE');
     if(this.changing||o.busy())throw Error('APP_DATA_TASKS_ACTIVE');
     if(typeof target!=='string')throw Error('APP_DATA_PATH_INVALID');
     validateDataDestination(o.directory,target);this.changing=true;
@@ -36,7 +37,8 @@ export class DataDirectoryService implements DataDirectoryApi {
       await o.flush();
       if(o.busy())throw Error('APP_DATA_TASKS_ACTIVE');
       validateDataDestination(o.directory,target);
-      saveDataLocation(o.locator,{version:1,directory:o.directory,pending:target});
+      if(o.locator)saveDataLocation(o.locator,{version:1,directory:o.directory,pending:target});
+      else if(o.relocate)o.relocate(target);
       o.restart();return {restarting:true};
     }catch(error){this.changing=false;throw error;}
   }

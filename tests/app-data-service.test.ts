@@ -1,10 +1,10 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import {mkdtemp,mkdir,writeFile,rm} from 'node:fs/promises';
+import {mkdtemp,mkdir,writeFile,readFile,rm} from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import {DataDirectoryService} from '../packages/app-data/service';
-import {readDataLocation} from '../packages/app-data/relocation';
+import {readDataLocation,relocateAppData} from '../packages/app-data/relocation';
 import {PluginRegistry} from '../packages/plugins-core';
 import {encodeZip} from '../packages/native-resources/archive';
 
@@ -32,4 +32,13 @@ test('approved ZIP calls and replaces the production directory consumer, disabli
  await plugins.setEnabled(record.manifest.id,record.hash,false);assert.equal(await service.choose(),null);
  await plugins.setEnabled(record.manifest.id,record.hash,true,true);assert.equal(await service.choose(),target);await plugins.command('qa.directory','move',{});assert.equal(restarted,1);assert.equal(readDataLocation(locator)?.pending,target);
  await plugins.setEnabled(record.manifest.id,record.hash,false);assert.equal(await service.choose(),null);
+});
+
+test('explicit QA relocation mode enables and executes an isolated profile move',async t=>{
+ const root=await mkdtemp(path.join(os.tmpdir(),'awb-directory-qa-'));t.after(()=>rm(root,{recursive:true,force:true}));
+ const directory=path.join(root,'source'),target=path.join(root,'target');await mkdir(directory);await writeFile(path.join(directory,'state.json'),'{}');
+ let restarted=0;
+ const service=new DataDirectoryService({directory,defaultDirectory:directory,testOverride:true,busy:()=>false,pick:async()=>target,flush:async()=>{},relocate:next=>relocateAppData(directory,next),restart:()=>{restarted++;}});
+ assert.equal(service.get().canMigrate,true);assert.equal(await service.choose(),target);await service.migrate(target);
+ assert.equal(restarted,1);assert.equal(await readFile(path.join(target,'state.json'),'utf8'),'{}');
 });

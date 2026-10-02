@@ -11,7 +11,7 @@ import {RemoteResourceService} from '../../../packages/remote-account-catalog/re
 import { HtmlPreviewService } from './html-preview';
 import { WorktreeService } from '../../../packages/worktrees';
 import {initializeAppData,type AppDataLocation} from '../../../packages/app-data';
-import {installedDataDirectory} from '../../../packages/app-data/relocation';
+import {installedDataDirectory,relocateAppData} from '../../../packages/app-data/relocation';
 import {DataDirectoryService} from '../../../packages/app-data/service';
 import { AttachmentStore } from './attachments';
 import { protocol, nativeImage, app, BrowserWindow, ipcMain, dialog, clipboard, ClipboardItem, safeStorage, shell, nativeTheme, session as electronSession } from 'electron';
@@ -49,6 +49,7 @@ import { repairCompatibilityBatch } from '../../../packages/plugins-core/compati
 if(!isRecoveryGuardian)protocol.registerSchemesAsPrivileged([{scheme:'awb-preview',privileges:{standard:true,secure:true,supportFetchAPI:true,corsEnabled:true}},{scheme:'awb-font',privileges:{standard:true,secure:true,supportFetchAPI:true,corsEnabled:true}}]);
 app.setName('AgentWorkbench');
 const userDataOverride=process.env.AGENT_WORKBENCH_TEST_DATA;
+const testRelocation=!!userDataOverride&&process.env.AGENT_WORKBENCH_TEST_RELOCATION==='1';
 if(!isRecoveryGuardian&&userDataOverride&&/^\d{4,5}$/.test(process.env.AGENT_WORKBENCH_TEST_APP_PORT??''))app.commandLine.appendSwitch('remote-debugging-port',process.env.AGENT_WORKBENCH_TEST_APP_PORT!);
 const hiddenQa=!!userDataOverride&&process.env.AGENT_WORKBENCH_TEST_HIDDEN==='1';
 const installedLocation=app.isPackaged&&process.platform==='win32'&&!userDataOverride?{
@@ -192,11 +193,13 @@ async function boot(){
  let flushAcknowledged:((token:string)=>void)|undefined;
  const flushRenderer=()=>new Promise<void>(resolve=>{const token=String(Date.now());const timer=setTimeout(()=>{flushAcknowledged=undefined;resolve();},2500);flushAcknowledged=received=>{if(received!==token)return;clearTimeout(timer);flushAcknowledged=undefined;resolve();};shared.native!.plugins.publish({type:'plugin',id:'workbench.ui-preferences',topic:'flush',payload:{token}});});
  uiPreferences.subscribe(snapshot=>shared.native!.plugins.publish({type:'plugin',id:'workbench.ui-preferences',topic:'changed',payload:snapshot}));
- let updateInstalling=false;
- dataDirectoryService=new DataDirectoryService({directory,defaultDirectory:dataLocation?.defaultDirectory??directory,locator:installedLocation?.locator,testOverride:!!userDataOverride,
+ let updateInstalling=false,testRelocationTarget:string|undefined;
+ dataDirectoryService=new DataDirectoryService({directory,defaultDirectory:dataLocation?.defaultDirectory??directory,locator:installedLocation?.locator,testOverride:testRelocation,
   busy:()=>updateInstalling||controller.hasActiveSessionWork()||state.snapshot().sessions.some(session=>session.status==='running'||session.status==='uncertain')||shared.native!.cli.isMaintaining(),
-  pick:async kind=>{const result=await dialog.showOpenDialog(window,{title:kind==='codex'?'选择 Codex 原生安装目录的父目录':'选择工作台资料所在的磁盘和目录',properties:['openDirectory','createDirectory']});if(result.canceled)return null;const parent=result.filePaths[0];return parent?kind==='codex'?path.join(parent,'Codex'):path.join(parent,'AgentWorkbenchData',path.basename(installedLocation!.directory)):null;},
-  flush:async()=>{await flushRenderer();await windowState.flush();},restart:()=>{app.relaunch();app.quit();},
+  pick:async kind=>{const result=await dialog.showOpenDialog(window,{title:kind==='codex'?'选择 Codex 原生安装目录的父目录':'选择工作台资料所在的磁盘和目录',properties:['openDirectory','createDirectory']});if(result.canceled)return null;const parent=result.filePaths[0];return parent?kind==='codex'?path.join(parent,'Codex'):path.join(parent,'AgentWorkbenchData',path.basename(installedLocation?.directory??directory)):null;},
+  flush:async()=>{await flushRenderer();await windowState.flush();},
+  relocate:testRelocation?target=>{relocateAppData(directory,target);testRelocationTarget=target;}:undefined,
+  restart:()=>{if(testRelocation&&testRelocationTarget){process.env.AGENT_WORKBENCH_TEST_DATA=testRelocationTarget;}app.relaunch();app.quit();},
  });
  const desktopUpdates=new DesktopUpdates(()=>createDesktopUpdateBackend(async()=>{updateInstalling=true;try{await flushRenderer();await windowState.flush();}catch(error){updateInstalling=false;throw error;}},()=>{updateInstalling=false;}),()=>!!dataDirectoryService?.isChanging()||controller.hasActiveSessionWork()||state.snapshot().sessions.some(s=>s.status==='running'||s.status==='uncertain'),app.isPackaged&&process.platform==='win32'&&!userDataOverride);
  const stopUpdateEvents=desktopUpdates.subscribe(payload=>shared.native!.plugins.publish({type:'plugin',id:'workbench.updates',topic:'changed',payload}));

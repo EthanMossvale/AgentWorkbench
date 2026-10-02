@@ -517,7 +517,7 @@
     ],
     "packages/app-data/service.ts": [
       "export interface DataDirectoryApi {\n    get(): DataDirectoryState;\n    choose(kind?: 'codex'): Promise<string | null>;\n    migrate(target: string): Promise<{\n        restarting: true;\n    }>;\n}",
-      "export interface DataDirectoryOptions {\n    directory: string;\n    defaultDirectory: string;\n    locator?: string;\n    testOverride: boolean;\n    busy(): boolean;\n    pick(kind?: 'codex'): Promise<string | null>;\n    flush(): Promise<void>;\n    restart(): void;\n}",
+      "export interface DataDirectoryOptions {\n    directory: string;\n    defaultDirectory: string;\n    locator?: string;\n    testOverride: boolean;\n    busy(): boolean;\n    pick(kind?: 'codex'): Promise<string | null>;\n    flush(): Promise<void>;\n    restart(): void;\n    relocate?: (target: string) => void;\n}",
       "export interface DataDirectoryState {\n    directory: string;\n    defaultWorktreeRoot: string;\n    defaultDirectory: string;\n    canMigrate: boolean;\n    testOverride: boolean;\n    preferred: string;\n}"
     ],
     "packages/native-runtime/cli.ts": [
