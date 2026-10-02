@@ -53,6 +53,15 @@ try{
  await stream;report.frameGaps=await page.evaluate(()=>{window.qaMeasuring=false;return window.qaFrames});
  const state=await call('state/get');assert.equal(state.sessions[0].messages.at(-1).original,'Streaming'+Array.from({length:60},(_,i)=>' delta'+i).join(''));assert.equal(state.sessions[0].status,'running');
  report.checks.push('All public deltas arrive in order while the editor accepts input');
+ const pane=page.getByTestId('original-pane');
+ await pane.evaluate(element=>{element.scrollTop=Math.max(0,element.scrollHeight-element.clientHeight-420);});
+ const beforeWheel=await pane.evaluate(element=>element.scrollTop);
+ await pane.evaluate(element=>element.dispatchEvent(new WheelEvent('wheel',{deltaY:-600,bubbles:true,cancelable:true})));
+ const secondStream=command('stream');await page.waitForTimeout(90);
+ const duringWheel=await pane.evaluate(element=>element.scrollTop);
+ assert.ok(duringWheel<=beforeWheel+48,JSON.stringify({beforeWheel,duringWheel}));
+ await secondStream;
+ report.checks.push('Upward wheel intent pauses auto-follow while public output streams');
  await command('finish');
  if(label!=='baseline'){
   const process=page.getByTestId('turn-process').last();await process.locator(':scope > summary').click();
