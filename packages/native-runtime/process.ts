@@ -20,8 +20,12 @@ export type RunCommand = (command: Command, options: { cwd: string; env: NodeJS.
 export function cliFailureCode(output: string): string {
   if (/checksum (verification failed|mismatch)/i.test(output)) return 'CLI_INSTALL_CHECKSUM_FAILED';
   if (/does not support 32-bit|platform .* not found in manifest|unsupported platform/i.test(output)) return 'CLI_INSTALL_PLATFORM_UNSUPPORTED';
-  if (/failed to get (latest version|manifest)|failed to download binary|unable to connect|could not resolve|name resolution/i.test(output)) return 'CLI_INSTALL_DOWNLOAD_FAILED';
+  if (/git.?bash.*(not found|missing|required)|requires? git.?bash|git for windows.*(not found|missing|required)/i.test(output)) return 'CLI_INSTALL_GIT_BASH_REQUIRED';
+  if (/proxy authentication required|407 proxy authentication/i.test(output)) return 'CLI_INSTALL_PROXY_AUTH_REQUIRED';
+  if (/certificate (?:verify|validation|chain|trust)|remote certificate is invalid|ssl certificate|tls handshake|could not establish trust relationship/i.test(output)) return 'CLI_INSTALL_TLS_FAILED';
+  if (/failed to get (latest version|manifest|a valid version)|failed to download binary|unable to connect|could not resolve|name resolution|not available in your region/i.test(output)) return 'CLI_INSTALL_DOWNLOAD_FAILED';
   if (/access (is )?denied|permission denied|unauthorizedaccessexception/i.test(output)) return 'CLI_INSTALL_PERMISSION_DENIED';
+  if (/installation failed \(exit code \d+\)/i.test(output)) return 'CLI_INSTALL_NATIVE_SETUP_FAILED';
   return 'CLI_COMMAND_FAILED';
 }
 /** Bounded native commands only; output is never persisted or sent to a model. */

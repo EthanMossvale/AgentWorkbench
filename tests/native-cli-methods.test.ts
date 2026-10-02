@@ -60,8 +60,13 @@ test('official installer failures expose only bounded stage codes', async () => 
   assert.equal(cliFailureCode('Failed to get manifest: private detail'), 'CLI_INSTALL_DOWNLOAD_FAILED');
   assert.equal(cliFailureCode('Checksum verification failed'), 'CLI_INSTALL_CHECKSUM_FAILED');
   assert.equal(cliFailureCode('Access is denied'), 'CLI_INSTALL_PERMISSION_DENIED');
+  assert.equal(cliFailureCode('Claude Code on Windows requires Git Bash, which was not found'), 'CLI_INSTALL_GIT_BASH_REQUIRED');
+  assert.equal(cliFailureCode('407 Proxy Authentication Required'), 'CLI_INSTALL_PROXY_AUTH_REQUIRED');
+  assert.equal(cliFailureCode('The remote certificate is invalid according to the validation procedure'), 'CLI_INSTALL_TLS_FAILED');
+  assert.equal(cliFailureCode('Installation failed (exit code 1)'), 'CLI_INSTALL_NATIVE_SETUP_FAILED');
   assert.equal(cliFailureCode('unexpected secret text'), 'CLI_COMMAND_FAILED');
   await assert.rejects(runCommand({ executable: process.execPath, args: ['-e', "process.stderr.write('Failed to download binary: private detail');process.exit(1)"] }, { cwd: process.cwd(), env: process.env, timeout: 5000 }), error => (error as Error).message === 'CLI_INSTALL_DOWNLOAD_FAILED');
+  await assert.rejects(runCommand({ executable: process.execPath, args: ['-e', "process.stdout.write('Git Bash was not found');process.stderr.write('Installation failed (exit code 1)');process.exit(1)"] }, { cwd: process.cwd(), env: process.env, timeout: 5000 }), error => (error as Error).message === 'CLI_INSTALL_GIT_BASH_REQUIRED');
 });
 
 const put = async (file: string, value = 'fixture') => { await mkdir(path.dirname(file), { recursive: true }); await writeFile(file, value); };
