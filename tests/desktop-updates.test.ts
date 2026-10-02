@@ -6,6 +6,24 @@ import path from 'node:path';
 import {DesktopUpdates,type DesktopUpdateBackend,type DesktopUpdateState} from '../packages/desktop-updates';
 import {PluginRegistry} from '../packages/plugins-core';
 import {encodeZip} from '../packages/native-resources/archive';
+import {EventEmitter} from 'node:events';
+import {runInNewContext} from 'node:vm';
+import {build} from 'esbuild';
+
+test('production updater observes cancelled downloads when disposal precedes the update response',async()=>{
+ let updater!:EventEmitter,respond!:(value:unknown)=>void,rejectDownload!:(error:Error)=>void,cancelled=0;
+ class NsisUpdater extends EventEmitter {
+  constructor(){super();updater=this;}
+  checkForUpdates(){return new Promise(resolve=>{respond=resolve;});}
+ }
+ const output=await build({entryPoints:['apps/desktop/host/desktop-updates.ts'],bundle:true,platform:'node',format:'cjs',write:false,external:['electron-updater']}),module={exports:{} as {createDesktopUpdateBackend:()=>DesktopUpdateBackend}};
+ runInNewContext(output.outputFiles[0]!.text,{module,exports:module.exports,require:(name:string)=>{assert.equal(name,'electron-updater');return {NsisUpdater};}});
+ const backend=module.exports.createDesktopUpdateBackend(),events:DesktopUpdateState[]=[];backend.subscribe(value=>events.push(value));
+ const pending=backend.check(),late=updater.listeners('download-progress')[0]!;backend.dispose();late({percent:90});
+ const downloadPromise=new Promise<void>((_resolve,reject)=>{rejectDownload=reject;});
+ respond({downloadPromise,cancellationToken:{cancel(){cancelled++;rejectDownload(Error('cancelled'));}}});
+ await pending;await new Promise(resolve=>setImmediate(resolve));assert.equal(cancelled,1);assert.deepEqual(events,[]);
+});
 
 function backend(){let listener=(state:DesktopUpdateState)=>{};const record={checks:0,installs:0,disposed:0};const value:DesktopUpdateBackend={async check(){record.checks++;listener({phase:'ready',version:'0.1.2',percent:100});},async install(){record.installs++;},subscribe(fn){listener=fn;return()=>{listener=()=>{};};},dispose(){record.disposed++;}};return {record,value,emit:(state:DesktopUpdateState)=>listener(state)};}
 test('failed backend subscription preserves the running checker and disposes the failed replacement',async()=>{

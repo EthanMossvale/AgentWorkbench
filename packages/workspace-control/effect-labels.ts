@@ -26,7 +26,7 @@ export function localizeControlEffect(value: string): string {
     const percent = (v: unknown) => v === null ? '未配给' : typeof v === 'number' && Number.isFinite(v) && v >= 0 && v <= 100 ? `${v}%` : undefined;
     const weekly = percent(data.weeklyPercent), short = percent(data.fiveHourPercent);
     if (weekly === undefined || short === undefined || typeof data.allowOverage !== 'boolean') throw Error('无效的账号配给预览。');
-    return `${data.accountId}：周额度 ${weekly}；${data.allowOverage ? '允许超限借用，刷新后按来源偿还' : '不允许超限借用'}。`;
+    return `${data.accountId}：周额度 ${weekly}；5 小时额度 ${short}（旧配置，不参与当前配额）；${data.allowOverage ? '允许超限借用，刷新后按来源偿还' : '不允许超限借用'}。`;
   }
   throw Error('尚不支持此版本的管理变更预览，请更新工作台。');
 }

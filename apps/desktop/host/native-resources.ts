@@ -19,7 +19,7 @@ export class NativeResources {
     this.nativePlugins = new NativePluginsService(this.cli, { projects });
     this.memory = new NativeMemoryService(directory, {...options,projects,canSync:async()=>(await Promise.all(['codex','claude'].map(p=>this.cli.locate(p as LocalRuntime)))).every(Boolean),canReceive:(provider,project)=>this.memoryControls.canReceive(provider,project)}); this.skills = new NativeSkillsService(directory, { ...options, ...runtime, projects, executable: async provider => (await this.cli.locate(provider))?.executable }); this.plugins = new PluginRegistry(directory, changed,runtime?.pluginOptions);
   }
-  async initialize() { await Promise.all([this.cli.initialize(), this.memory.initialize(), this.skills.initialize()]); await this.plugins.initialize(); }
+  async initialize() { await this.cli.initialize(); await Promise.all([this.memory.initialize(), this.skills.initialize()]); await this.plugins.initialize(); }
   handles(method: string) { return /^(native-memory|native-skills|native-plugins|local-cli|extensions)\//.test(method); }
   async call(method: string, value: unknown) {
     const p = object(value ?? {});
@@ -27,6 +27,7 @@ export class NativeResources {
     const installMethod = () => { if (p.installMethod === undefined) return undefined; if (p.installMethod !== 'native' && p.installMethod !== 'npm') throw Error('CLI_INSTALL_METHOD_INVALID'); return p.installMethod; };
     switch (method) {
       case 'local-cli/list': return this.cli.list();
+      case 'local-cli/install-directory': return this.cli.setCodexInstallDirectory(absolutePath(p.directory));
       case 'local-cli/check': return this.cli.check(provider(), installMethod());
       case 'local-cli/configure': return this.cli.configure(provider(), flag(p.enabled, 'enabled'));
       case 'local-cli/install': return this.cli.install(provider(), p.update === undefined ? false : flag(p.update, 'update'), false, installMethod());

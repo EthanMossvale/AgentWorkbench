@@ -48,6 +48,7 @@ import { CODEX_IMAGE_FRAME_BYTES } from '../../../packages/generated-images/type
 import { codexInteraction, claudeInteraction, interactionResult, putInteraction, expireInteractions, planUpdate, questions, isRequestId, type InteractionReply } from '../../../packages/native-interactions';
 
 interface Hooks {
+  managedDirectory?:string;
   quota?:Pick<NativeQuotaAccounting,'begin'|'observe'|'finish'>;
   snapshot(): AppState; update(fn: (state: AppState) => void): Promise<unknown>;
   peers(id: string): ReturnType<typeof createPeerTools>; observe(id: string, source: EventEmitter): Promise<unknown>;
@@ -293,7 +294,7 @@ export class NativeProviderRunner {
     let initialContext=preview&&!command?this.hooks.context(id):undefined;initialContext?.catch(()=>{});
     if(!session.modelSelection?.effort&&defaultVerifiedEffort(model)){session.modelSelection={...session.modelSelection,model:model.model,effort:defaultVerifiedEffort(model)};await this.update(id,s=>{s.modelSelection=session.modelSelection;});}
     active.launchKey=this.launchKey(session);
-    const cwd = session.projectPath || path.join(this.cli.home, '.agent-workbench', 'workspaces', id); await mkdir(cwd, { recursive: true });
+    const cwd = session.projectPath || path.join(this.hooks.managedDirectory??path.join(this.cli.home,'.agent-workbench'), 'workspaces', id); await mkdir(cwd, { recursive: true });
     active.abort.signal.throwIfAborted();
     const remote=runtime==='claude'&&!!session.binding.hostId;
     const peers = this.hooks.peers(id), mcp = runtime === 'claude' ? () => new PeerMcpSession(peers) : undefined;
@@ -306,7 +307,7 @@ export class NativeProviderRunner {
     }
     if (!session.binding.localAccountId && runtime === 'codex' && model.contextWindow) active.modelCatalog = await this.prepareCatalog(executable, model, this.cli.env);
     const launch = remote ? {args:[],env:this.cli.env,thread:undefined,runtimeModel:model.model} : session.binding.localAccountId ? officialAccountLaunch(session, this.accounts!.execution(session).env, active.gateway) : nativeProviderLaunch(runtime, model, active.gateway!, session.permissionMode ?? 'default', session.modelSelection, this.cli.env, session.binding.nativeSessionId, connection!.protocol, active.modelCatalog?.file, runtime==='claude'?session.branch?.native:undefined,session.id);
-    active.process = remote ? this.hooks.remoteClaude!.createTransport({workbenchTools:()=>this.hooks.peers(id),host:this.hooks.snapshot().hosts.find(h=>h.id===session.binding.hostId)!,session:structuredClone(session),executable,directory:path.join(this.cli.home,'.agent-workbench','claude-tool-profiles'),cwd,env:this.cli.env,signal:active.abort.signal,authorize:()=>{this.assertAllowed(this.session(id));}}) : this.processFactory({ executable, args: launch.args, env: launch.env, cwd, ...(runtime==='codex'?{maxFrameBytes:CODEX_IMAGE_FRAME_BYTES}:{}) });
+    active.process = remote ? this.hooks.remoteClaude!.createTransport({workbenchTools:()=>this.hooks.peers(id),host:this.hooks.snapshot().hosts.find(h=>h.id===session.binding.hostId)!,session:structuredClone(session),executable,directory:path.join(this.hooks.managedDirectory??path.join(this.cli.home,'.agent-workbench'),'claude-tool-profiles'),cwd,env:this.cli.env,signal:active.abort.signal,authorize:()=>{this.assertAllowed(this.session(id));}}) : this.processFactory({ executable, args: launch.args, env: launch.env, cwd, ...(runtime==='codex'?{maxFrameBytes:CODEX_IMAGE_FRAME_BYTES}:{}) });
     let complete!: () => void, failed!: (error: unknown) => void;
     const completion = new Promise<void>((resolve, reject) => { complete = resolve; failed = reject; }); completion.catch(() => {});
     const release=()=>{if(active.sent&&active.completed&&!active.finishingTurn&&!active.children.pending&&!active.claudeInputs?.size){active.stopping=true;complete();}};

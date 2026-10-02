@@ -21,7 +21,7 @@ export async function startRecoveryGuardian(store:PluginRecoveryStore, action:(a
   const child:ChildProcess=spawn(process.execPath,args,{env:{...process.env,AGENT_WORKBENCH_RECOVERY_DIRECTORY:store.directory},stdio:['ignore','ignore','ignore','ipc'],detached:true,windowsHide:true});
   let closed=false,monitoring=false,rendererAt=Date.now();
   const send=(message:Wire)=>{if(child.connected)child.send(message,()=>{});};
-  const ready=new Promise<void>((resolve,reject)=>{const timer=setTimeout(()=>reject(Error('PLUGIN_GUARDIAN_UNAVAILABLE')),15000);child.once('error',()=>{clearTimeout(timer);reject(Error('PLUGIN_GUARDIAN_UNAVAILABLE'));});child.on('message',(value:Wire)=>{if(value?.type==='ready'){clearTimeout(timer);resolve();}});child.once('exit',()=>{clearTimeout(timer);reject(Error('PLUGIN_GUARDIAN_UNAVAILABLE'));});});
+  const ready=new Promise<void>((resolve,reject)=>{const timer=setTimeout(()=>reject(Error('PLUGIN_GUARDIAN_UNAVAILABLE')),45000);child.once('error',()=>{clearTimeout(timer);reject(Error('PLUGIN_GUARDIAN_UNAVAILABLE'));});child.on('message',(value:Wire)=>{if(value?.type==='ready'){clearTimeout(timer);resolve();}});child.once('exit',()=>{clearTimeout(timer);reject(Error('PLUGIN_GUARDIAN_UNAVAILABLE'));});});
   const unsubscribe=store.subscribe(snapshot=>send({type:'snapshot',snapshot}));
   const beat=()=>send({type:'heartbeat',rendererMonitoring:monitoring,rendererAge:Date.now()-rendererAt});
   const timer=setInterval(beat,500);timer.unref();
@@ -74,7 +74,7 @@ export async function runRecoveryGuardian(){
     if(disconnected||!process.connected){reject(Error('PLUGIN_PARENT_UNAVAILABLE'));return;}
     // A batch can contain 50 separately bounded activations. The independent
     // panel keeps safe restart available while waiting for this result.
-    const request=++requestId,timer=setTimeout(()=>{replies.delete(request);reject(Error('PLUGIN_RECOVERY_ACTION_TIMEOUT'));},action==='repair'?10*60*1000:10000);
+    const request=++requestId,timer=setTimeout(()=>{replies.delete(request);reject(Error('PLUGIN_RECOVERY_ACTION_TIMEOUT'));},action==='repair'?10*60*1000:90000);
     replies.set(request,{resolve,reject:()=>reject(Error('PLUGIN_RECOVERY_ACTION_FAILED')),timer});process.send?.({type:'action',action,request},error=>{if(error){clearTimeout(timer);replies.delete(request);reject(Error('PLUGIN_PARENT_UNAVAILABLE'));}});
   });
   const restart=async(safe:boolean)=>{

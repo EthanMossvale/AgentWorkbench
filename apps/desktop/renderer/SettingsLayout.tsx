@@ -12,6 +12,7 @@ import ShortcutSettings from './ShortcutSettings';
 import RuntimeCliSettings from './RuntimeCliSettings';
 import ModelApiSettings from './ModelApiSettings';
 import AttachmentStorage from './AttachmentStorage';
+import DataDirectorySettings from './DataDirectorySettings';
 import WorktreeSettings from './WorktreeSettings';
 
 export type SettingsTab = SettingsPageId;
@@ -62,7 +63,7 @@ export default function SettingsLayout({state,refresh,report,notify,tab,onTab,on
       <Preferences state={state} refresh={refresh} report={report} notify={notify} tab={tab} onManageRuntimes={()=>onTab('runtimes')}/>
       {effectiveTab==='runtimes'&&<RuntimeCliSettings notify={notify}/>}
       {effectiveTab==='models'&&<ModelApiSettings state={state} refresh={refresh} notify={notify}/>}
-      {effectiveTab==='privacy'&&<AttachmentStorage/>}
+      {effectiveTab==='privacy'&&<><DataDirectorySettings/><AttachmentStorage/></>}
       {effectiveTab==='worktrees'&&<WorktreeSettings state={state} onSelect={onSelect}/>}
       {effectiveTab==='connections'&&<Connections state={state} refresh={refresh} report={report} notify={notify}/>}
       {effectiveTab==='capabilities'&&<Capabilities report={report}/>}

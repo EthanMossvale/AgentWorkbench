@@ -18,6 +18,6 @@ jobs:
       - run: npm run check:docs
       - run: npm run check:plugins
       - run: npm run typecheck
-      - run: node --import tsx --test tests/plugin-*.test.ts tests/runtime-extensions.test.ts
+      - run: node --import tsx --test --test-concurrency=1 tests/plugin-*.test.ts tests/runtime-extensions.test.ts
       - run: npm run setup:electron
       - run: npm run test:plugin-recovery

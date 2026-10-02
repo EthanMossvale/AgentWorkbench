@@ -26,6 +26,7 @@ internal sealed class Bootstrap : Form {
     }
     async Task Install() {
         if (working) return; working = true; retry.Visible = false;
+        string stage = "获取更新清单";
         string directory = Path.Combine(Path.GetTempPath(), "AgentWorkbench-" + Guid.NewGuid().ToString("N"));
         try {
             Directory.CreateDirectory(directory);
@@ -38,6 +39,7 @@ internal sealed class Bootstrap : Form {
                 long size = Convert.ToInt64(item["size"]);
                 if (!System.Text.RegularExpressions.Regex.IsMatch(name, @"\AAgentWorkbench-[0-9]+\.[0-9]+\.[0-9]+-x64-setup\.exe\z") || size < 1 || size > 800L*1024*1024 || Convert.FromBase64String(expected).Length != 64) throw new Exception("Invalid manifest");
                 string target = Path.Combine(directory,name);
+                stage = "下载安装包";
                 label.Text = "正在下载最新版 AgentWorkbench…";
                 using (var response = await client.GetAsync(Feed + name,HttpCompletionOption.ResponseHeadersRead)) {
                     response.EnsureSuccessStatusCode();
@@ -51,16 +53,17 @@ internal sealed class Bootstrap : Form {
                         if (received != size) throw new Exception("Incomplete download");
                     }
                 }
-                label.Text = "正在校验安装包…";
+                stage = "校验安装包"; label.Text = "正在校验安装包…";
                 using (var input = File.OpenRead(target)) using (var hash = SHA512.Create())
                     if (Convert.ToBase64String(hash.ComputeHash(input)) != expected) throw new Exception("Checksum mismatch");
-                label.Text = "正在安装并创建快捷方式…";
-                using (var process = Process.Start(new ProcessStartInfo(target,"/S --force-run") { UseShellExecute = false })) {
+                stage = "运行安装程序"; label.Text = "请选择安装位置并完成安装…";
+                using (var process = Process.Start(new ProcessStartInfo(target) { UseShellExecute = true })) {
+                    if (process == null) throw new Exception("Installer did not start");
                     await Task.Run(() => process.WaitForExit()); if (process.ExitCode != 0) throw new Exception("Installer failed");
                 }
             }
             working = false; Close();
-        } catch { label.Text = "安装未完成，请检查网络后重试。已有程序和用户数据不会被此下载步骤删除。"; retry.Visible = true; }
+        } catch { label.Text = stage + "失败。请检查连接或系统提示后重试；已有用户数据未删除。"; retry.Visible = true; }
         finally { working = false; try { Directory.Delete(directory,true); } catch {} }
     }
 }

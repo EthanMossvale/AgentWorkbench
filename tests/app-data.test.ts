@@ -2,7 +2,8 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import {mkdtempSync,mkdirSync,writeFileSync,readFileSync,realpathSync,existsSync,rmSync} from 'node:fs';
 import os from 'node:os';import path from 'node:path';
-import {prepareAppData} from '../packages/app-data';
+import {initializeAppData,prepareAppData} from '../packages/app-data';
+import {saveDataLocation} from '../packages/app-data/relocation';
 const fixture=()=>{const root=mkdtempSync(path.join(os.tmpdir(),'awb-data-')),home=path.join(root,'home'),legacy=path.join(home,'AppData','Roaming','AgentWorkbench');mkdirSync(legacy,{recursive:true});return {root,home,legacy,close:()=>rmSync(root,{recursive:true,force:true})};};
 test('data migration moves opaque stores and old sibling worktrees while preserving legacy path aliases',()=>{const f=fixture();try{
  const opaque=Buffer.from([0,255,19,22,31]);writeFileSync(path.join(f.legacy,'opaque.bin'),opaque);mkdirSync(f.legacy+'-worktrees');writeFileSync(path.join(f.legacy+'-worktrees','fixture.txt'),'unchanged');
@@ -18,3 +19,11 @@ test('first start and explicit developer home use an absolute dedicated director
 }finally{f.close();}});
 
 test('overlapping custom roots are rejected without moving opaque data',()=>{const f=fixture();try{writeFileSync(path.join(f.legacy,'opaque'),'kept');for(const target of [path.join(f.legacy,'nested'),path.dirname(f.legacy),f.legacy+'-attachments'])assert.throws(()=>prepareAppData(f.home,f.legacy,target),/PATH_OVERLAP/);assert.equal(readFileSync(path.join(f.legacy,'opaque'),'utf8'),'kept');}finally{f.close();}});
+
+test('installed startup preserves the selected directory across subsequent launches',()=>{const f=fixture();try{
+ const chosen=path.join(f.root,'chosen'),installed={directory:path.join(f.root,'default'),locator:path.join(f.root,'location.json')};mkdirSync(chosen);writeFileSync(path.join(chosen,'payload'),'kept');saveDataLocation(installed.locator,{version:1,directory:chosen});
+ const host={getPath:(name:'home'|'userData'|'temp')=>name==='home'?f.home:name==='temp'?f.root:f.legacy,setPath:()=>{},requestSingleInstanceLock:()=>true,releaseSingleInstanceLock:()=>{}};
+ assert.equal(initializeAppData(host,undefined,installed)?.directory,chosen);
+ assert.equal(initializeAppData(host,undefined,installed)?.directory,chosen);
+ assert.equal(existsSync(installed.directory),false);
+}finally{f.close();}});

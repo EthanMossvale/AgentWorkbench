@@ -97,6 +97,7 @@ export class AttachmentStore {
           if(!viewed||!workspaceRoot)return false;
           const relative=path.relative(workspaceRoot,value);
           if(!inside(workspaceRoot,value)||credentialPath(relative))return false;
+          if(this.controlPaths.some(root=>inside(path.join(root,'workspaces'),workspaceRoot)&&!credentialPath(path.relative(path.join(root,'workspaces'),workspaceRoot))))return true;
           // Only the workbench's managed task subtree is exempt from the profile
           // guard. Selecting a credential/config directory never grants an exemption.
           const parts=workspaceRoot.split(/[\\/]/),index=parts.findIndex(part=>['.agent-workbench','.agentworkbench'].includes(part.toLowerCase()));

@@ -2,6 +2,8 @@ import { mountPluginContent, type PluginContentContext, type PluginContentResult
 
 export const workbenchSurfaces = Object.freeze({
   'desktop-update':'[data-workbench-desktop-update]',
+  'data-directory-settings':'[data-workbench-data-directory-settings]',
+  'codex-install-directory':'[data-workbench-codex-install-directory]',
   'composer-model':'[data-workbench-model-controls]', 'composer-runtime':'[data-workbench-runtime-controls]',
   'draft-recovery':'[data-workbench-draft-recovery]',
   'annotation-selection':'[data-workbench-annotation-selection]',
@@ -25,6 +27,7 @@ export const workbenchSurfaces = Object.freeze({
   'reply-memory': '[data-testid="reply-memory"]',
   'session-fork-action': '[data-workbench-fork-action]', 'session-fork-picker': '[data-workbench-fork-picker]',
   settings: '.settings-layout',
+  'local-cli-row': '.runtime-cli-row',
   shortcuts: '[data-workbench-shortcuts]', 'shortcut-recorder': '[data-workbench-shortcut-recorder]',
   'appearance-theme': '[data-workbench-theme-picker]',
   'connection-layout': '.connection-layout', 'remote-files': '.remote-file-dock',

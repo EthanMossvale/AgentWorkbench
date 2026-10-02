@@ -23,7 +23,7 @@ files.push('services/claude-bridge/policy.ts','services/claude-bridge/result-sto
 files.push('packages/attachments/paste.ts');
 files.push('packages/context-annotations/index.ts','apps/desktop/renderer/annotation-controller.ts');
 files.push('apps/desktop/host/memory-background.ts');
-files.push('packages/desktop-updates/index.ts');
+files.push('packages/desktop-updates/index.ts','packages/app-data/service.ts','packages/native-runtime/cli.ts');
 const sdk={};
 for(const file of files){const source=ts.createSourceFile(file,await readFile(path.join(root,file),'utf8'),ts.ScriptTarget.Latest,true);sdk[file]=source.statements.filter(node=>(ts.isInterfaceDeclaration(node)||ts.isTypeAliasDeclaration(node))&&node.modifiers?.some(modifier=>modifier.kind===ts.SyntaxKind.ExportKeyword)).map(node=>printer.printNode(ts.EmitHint.Unspecified,node,source)).sort();}
 const bridge=ts.createSourceFile('contracts.ts',await readFile(path.join(root,'packages/contracts/index.ts'),'utf8'),ts.ScriptTarget.Latest,true);sdk['packages/contracts/index.ts']=bridge.statements.filter(node=>(ts.isInterfaceDeclaration(node)&&['WorkbenchApi','SharedAccount','SharedAccountAlias','TranslationProfile','TranslationResult','NativeContextUsage'].includes(node.name.text))||(ts.isTypeAliasDeclaration(node)&&node.name.text==='DesktopCommand')).map(node=>printer.printNode(ts.EmitHint.Unspecified,node,bridge));

@@ -4,9 +4,9 @@
 
 The public source repository is `EthanMossvale/AgentWorkbench`. Development normally creates local commits only. Publishing requires explicit user authorization; a local commit never uploads code. The initial publication may use a separately audited, parentless snapshot while retaining local development history. Never force-push a development history over the public release lineage.
 
-GitHub Releases contains the stable `installer` bootstrap download only. Application updates do not use the Releases API or release assets. A push to `main` starts `.github/workflows/desktop-updates.yml`: validation, a Windows x64 build, package/manifest consistency checks, then an atomic GitHub Pages deployment. Failed builds do not replace the deployed site. Clients check the generic HTTPS feed on startup and every five minutes. Push notification is therefore not instantaneous: build time, deployment, caching and the client check interval apply.
+GitHub Releases contains the stable `installer` bootstrap download only. Application updates do not use the Releases API or release assets. A push to `main` starts `.github/workflows/desktop-updates.yml`: documentation, plugin contract and recovery UI validation, a Windows x64 build, package/manifest consistency checks, then an atomic GitHub Pages deployment. Failed builds do not replace the deployed site. The separate plugin recovery workflow is advisory and cannot gate deployment by itself; the publication workflow runs its critical checks directly. Clients check the generic HTTPS feed on startup and every five minutes. Push notification is therefore not instantaneous: build time, deployment, caching and the client check interval apply.
 
-The one-click bootstrap downloads `updates/bootstrap.json`, validates the filename/size, downloads the exact installer, verifies SHA-512, and starts per-user installation. The stable download can remain unchanged across application versions; transport, minimum OS or bootstrap protocol changes require a new bootstrap. It does not compile source on the user's machine or require Git, Node.js or npm. GitHub Actions performs compilation.
+The bootstrap downloads `updates/bootstrap.json`, validates the filename/size, downloads the exact installer, verifies SHA-512, and starts the interactive per-user installer with a program-directory picker. The stable download can remain unchanged across application versions; transport, minimum OS or bootstrap protocol changes require a new bootstrap. It does not compile source on the user's machine or require Git, Node.js or npm. GitHub Actions performs compilation.
 
 The package installs for the current Windows user with desktop and Start menu shortcuts. Windows controls search indexing and pinning; users may pin the entry manually. Native runtime credentials, SSH keys, chats, plugins, local memory, worktrees and UI preferences remain outside the program directory. Uninstall keeps application data. Packaging selects `dist` and production dependencies, never the repository's ignored QA/profile folders.
 
@@ -27,7 +27,11 @@ Build versions use `0.1.<workflow-run-number>`. Retain the workflow identity and
 ## Validation entry points
 
 - `tests/desktop-updates.test.ts`: development isolation, task gate, explicit installation, registration, obsolete events, real approved ZIP activation/disable/reenable and failed activation cleanup.
-- `npm run package:windows`: production build and one-click NSIS packaging.
+- `npm run package:windows`: production build and interactive NSIS packaging.
 - `scripts/build-bootstrap.ps1`: standalone Windows bootstrap compilation.
 - `scripts/prepare-update-site.mjs`: package/manifest consistency and site capacity gate.
 - Plugin contracts, public documentation, UI preference inventory and TypeScript remain mandatory. Packaged installation, process restart and actual hosted download evidence must be recorded separately from source tests before claiming release acceptance.
+
+## Program drive and managed data
+
+Fresh Windows installations put the current user profile in an AgentWorkbenchData sibling of the selected program directory. Settings exposes the actual root and an explicit move/restart action. Managed workspaces, attachments, preferences and registered worktrees move; external projects keep their paths. Updates preserve the saved location. The installer itself and existing native clients are outside a data move. Codex new program installs can select a separate drive while retaining original native login/configuration; existing Codex and Claude Code profiles are not migrated. A small locator in the OS user application-data directory is required to find the selected root. Interrupted or unsupported migrations stop with preserved evidence; successful completion removes the old managed root and verified legacy aliases.

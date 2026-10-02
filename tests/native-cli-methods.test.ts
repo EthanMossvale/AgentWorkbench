@@ -5,7 +5,64 @@ import os from 'node:os';
 import { access, mkdir, mkdtemp, readFile, rm, symlink, unlink, writeFile } from 'node:fs/promises';
 import { LocalCliService, type CliOptions } from '../packages/native-runtime/cli';
 import { codexWindowsInstall } from '../packages/native-runtime/native-install';
-import { runCommand, type Command } from '../packages/native-runtime/process';
+import { cliFailureCode, runCommand, type Command } from '../packages/native-runtime/process';
+
+test('copied Windows Path detects both npm CLIs and updates through their existing channel', async t => {
+  const f = await fixture(t), prefix = path.join(f.home, 'custom-npm'), commands: Command[] = [];
+  const codex = path.join(prefix, 'node_modules/@openai/codex/node_modules/@openai/codex-win32-x64/vendor/x86_64-pc-windows-msvc/codex/codex.exe');
+  await put(codex); await put(path.join(prefix, 'node_modules/@anthropic-ai/claude-code/bin/claude.exe')); await put(path.join(prefix, 'npm.cmd'));
+  const env: NodeJS.ProcessEnv = { ...f.env, Path: prefix }; delete env.PATH;
+  const service = f.service({ isolated: false, env, run: async command => { if (command.args[0] === '--version') return '0.136.0'; commands.push(command); return ''; } });
+  assert.ok((await service.list()).every(item => item.source === 'npm' && item.canUpdate));
+  await service.install('codex', true); await service.install('claude', true);
+  assert.ok(commands.every(command => command.args.at(-1)!.includes('npm.cmd') && command.args.at(-1)!.includes('install -g')));
+  const hoisted = path.join(prefix, 'node_modules/@openai/codex-win32-x64/vendor/x86_64-pc-windows-msvc/bin/codex.exe');
+  await rm(codex); await put(hoisted); assert.equal((await service.locate('codex'))!.executable, hoisted);
+});
+
+test('other-channel binaries remain untouched and only explicit native installation adds a maintainable CLI', async t => {
+  const f = await fixture(t), external = path.join(f.home, 'desktop-owned'), commands: Command[] = [];
+  for (const runtime of ['codex', 'claude']) await put(path.join(external, runtime + '.exe'), 'retained');
+  const service = f.service({ isolated: false, env: { ...f.env, PATH: external }, run: async command => {
+    if (command.args[0] === '--version') return '0.136.0';
+    commands.push(command); await put(command.args.at(-1)!.includes('codex/install.ps1') ? f.codex.executable : f.claude); return '';
+  } });
+  assert.ok((await service.list()).every(item => item.source === 'path' && item.canInstall && !item.canUpdate && !item.canUninstall));
+  for (const runtime of ['codex', 'claude'] as const) {
+    await assert.rejects(service.install(runtime, true), /PREREQUISITE/);
+    await assert.rejects(service.install(runtime), /STATE_CHANGED/);
+    await service.configure(runtime, true);
+    await assert.rejects(service.install(runtime, false, true, 'native'), /STATE_CHANGED/);
+  }
+  assert.equal(commands.length, 0);
+  for (const runtime of ['codex', 'claude'] as const) {
+    await service.install(runtime, false, false, 'native');
+    assert.equal(await readFile(path.join(external, runtime + '.exe'), 'utf8'), 'retained');
+  }
+  assert.ok((await service.list()).every(item => item.source === 'native' && item.canUpdate));
+  assert.equal(commands.length, 2);
+});
+
+test('Codex hoisted npm payload removal verifies the same prefix and preserves other programs', async t => {
+  const f = await fixture(t), binary = path.join(f.prefix, 'node_modules/@openai/codex-win32-x64/vendor/x86_64-pc-windows-msvc/codex/codex.exe');
+  await put(binary); await put(path.join(f.prefix, 'other-program.exe'), 'keep');
+  const service = f.service({ run: async command => {
+    if (command.args[0] === '--version') return '0.136.0';
+    if (command.args.at(-1)!.includes('prefix -g')) return f.prefix;
+    assert.match(command.args.at(-1)!, /uninstall -g '@openai\/codex'/); await rm(binary); return '';
+  } });
+  const item = (await service.list())[0]!; assert.equal(item.source, 'npm');
+  await service.uninstall('codex', item.revision);
+  assert.equal((await service.list())[0]!.installed, false); assert.equal(await readFile(path.join(f.prefix, 'other-program.exe'), 'utf8'), 'keep');
+});
+
+test('official installer failures expose only bounded stage codes', async () => {
+  assert.equal(cliFailureCode('Failed to get manifest: private detail'), 'CLI_INSTALL_DOWNLOAD_FAILED');
+  assert.equal(cliFailureCode('Checksum verification failed'), 'CLI_INSTALL_CHECKSUM_FAILED');
+  assert.equal(cliFailureCode('Access is denied'), 'CLI_INSTALL_PERMISSION_DENIED');
+  assert.equal(cliFailureCode('unexpected secret text'), 'CLI_COMMAND_FAILED');
+  await assert.rejects(runCommand({ executable: process.execPath, args: ['-e', "process.stderr.write('Failed to download binary: private detail');process.exit(1)"] }, { cwd: process.cwd(), env: process.env, timeout: 5000 }), error => (error as Error).message === 'CLI_INSTALL_DOWNLOAD_FAILED');
+});
 
 const put = async (file: string, value = 'fixture') => { await mkdir(path.dirname(file), { recursive: true }); await writeFile(file, value); };
 async function fixture(t: TestContext) {
@@ -30,6 +87,27 @@ test('both native installers are available without npm and leave their default d
   assert.match(commands[0]!.args.at(-1)!, /chatgpt.com\/codex\/install.ps1/); assert.match(commands[1]!.args.at(-1)!, /claude.ai\/install.ps1/);
   assert.doesNotMatch(JSON.stringify(commands), /npm|--prefix|CODEX_INSTALL_DIR|CODEX_HOME|CLAUDE_CONFIG_DIR/);
   assert.equal(environments[0]!.CODEX_HOME, f.env.CODEX_HOME); assert.equal(environments[0]!.CODEX_RELEASE, 'latest'); assert.equal(environments[0]!.CODEX_NON_INTERACTIVE, '1'); assert.equal((f.env as NodeJS.ProcessEnv).CODEX_RELEASE, undefined);
+});
+
+test('Codex native installation can use a selected drive before first install', async t => {
+  const f = await fixture(t), chosen = path.join(f.home, 'other-drive', 'Codex');
+  const commands: NodeJS.ProcessEnv[] = [];
+  const service = f.service({ isolated: false, run: async (command, options) => {
+    if (command.args[0] === '--version') return '0.157.1';
+    commands.push(options.env);
+    await put(path.join(chosen, 'bin', 'codex.exe'));
+    return '';
+  } });
+  await service.initialize();
+  assert.equal((await service.setCodexInstallDirectory(chosen))[0]!.installDirectory, chosen);
+  assert.equal(service.env.CODEX_HOME,f.env.CODEX_HOME);
+  await service.install('codex');
+  assert.equal(commands[0]!.CODEX_HOME, path.join(chosen, 'home'));
+  assert.equal(commands[0]!.CODEX_INSTALL_DIR, path.join(chosen, 'bin'));
+  assert.equal((await service.list())[0]!.executable, path.join(chosen, 'bin', 'codex.exe'));
+  assert.equal(service.env.CODEX_HOME,f.env.CODEX_HOME);
+  await assert.rejects(service.setCodexInstallDirectory(path.join(f.home, 'different')), /STATE_CHANGED/);
+  await service.dispose();
 });
 
 test('explicit npm selection installs both official packages and their updates stay on npm', async t => {

@@ -1,11 +1,12 @@
-import {existsSync,lstatSync,realpathSync,mkdirSync,renameSync,symlinkSync,unlinkSync,rmdirSync,readdirSync} from 'node:fs';
+import {existsSync,lstatSync,realpathSync,readlinkSync,mkdirSync,renameSync,symlinkSync,unlinkSync,rmdirSync,readdirSync} from 'node:fs';
 import path from 'node:path';
 import {createHash} from 'node:crypto';
+import {completeRelocation,finishPendingRelocation,readDataLocation,relocateAppData,relocateLegacyRuntimeData,relocateClipboardData,saveDataLocation} from './relocation';
 
 export interface AppDataLocation {directory:string;legacyDirectory:string;defaultDirectory:string;migrated:boolean;compatibilityLinks:string[]}
 export interface AppDataHost {getPath(name:'home'|'userData'|'temp'):string;setPath(name:'userData',value:string):void;requestSingleInstanceLock():boolean;releaseSingleInstanceLock():void}
 /** Electron holds a Windows file handle in the lock directory. Keep it outside the profile being moved. */
-export function initializeAppData(host:AppDataHost,override?:string):AppDataLocation|null{
+export function initializeAppData(host:AppDataHost,override?:string,installed?:{directory:string;locator:string}):AppDataLocation|null{
   const home=host.getPath('home'),legacy=host.getPath('userData');
   // An older running build still locks the legacy profile; let it handle the second launch.
   if(!host.requestSingleInstanceLock())return null;
@@ -13,8 +14,65 @@ export function initializeAppData(host:AppDataHost,override?:string):AppDataLoca
   const identity=createHash('sha256').update(process.platform==='win32'?path.resolve(legacy).toLowerCase():path.resolve(legacy)).digest('hex').slice(0,24);
   const lockDirectory=path.join(host.getPath('temp'),'agentworkbench-startup',identity);mkdirSync(lockDirectory,{recursive:true});host.setPath('userData',lockDirectory);
   if(!host.requestSingleInstanceLock())return null;
-  try{const result=prepareAppData(home,legacy,override);host.setPath('userData',result.directory);return result;}
+  try{
+    let result:AppDataLocation;
+    if(!installed||override)result=prepareAppData(home,legacy,override);
+    else{
+      const saved=readDataLocation(installed.locator),defaultDirectory=path.join(home,'.agentworkbench');
+      const current=saved?.directory??(present(defaultDirectory)?defaultDirectory:present(installed.directory)?installed.directory:undefined);
+      if(!current){
+        if(present(legacy)){
+          const old=prepareAppData(home,legacy);
+          saveDataLocation(installed.locator,{version:1,directory:old.directory,pending:installed.directory});
+          relocateAppData(old.directory,installed.directory,undefined,legacyAliases(legacy,old.directory));
+          saveDataLocation(installed.locator,{version:1,directory:installed.directory});
+          completeRelocation(installed.directory);removeLegacyAliases(legacy,old.directory);
+          result={directory:installed.directory,legacyDirectory:legacy,defaultDirectory:installed.directory,migrated:true,compatibilityLinks:[]};
+        }else{
+          mkdirSync(installed.directory,{recursive:true});saveDataLocation(installed.locator,{version:1,directory:installed.directory});
+          result={directory:installed.directory,legacyDirectory:legacy,defaultDirectory:installed.directory,migrated:false,compatibilityLinks:[]};
+        }
+      }else if(saved?.pending){
+        const target=saved.pending;
+        if(present(target))finishPendingRelocation(current,target);
+        else if(!same(current,target))relocateAppData(current,target,undefined,legacyAliases(legacy,current));
+        saveDataLocation(installed.locator,{version:1,directory:target});
+        completeRelocation(target);removeLegacyAliases(legacy,current);
+        result={directory:target,legacyDirectory:legacy,defaultDirectory:installed.directory,migrated:true,compatibilityLinks:[]};
+      }else if(saved||same(current,installed.directory)){
+        result={directory:current,legacyDirectory:legacy,defaultDirectory:installed.directory,migrated:false,compatibilityLinks:[]};
+        if(!present(current))throw Error('APP_DATA_SOURCE_MISSING');
+        if(!saved)saveDataLocation(installed.locator,{version:1,directory:current});
+      }else{
+        if(!saved&&same(current,defaultDirectory)&&present(legacy)&&!lstatSync(legacy).isSymbolicLink())prepareAppData(home,legacy);
+        const target=installed.directory;
+        if(!same(current,target)){
+          saveDataLocation(installed.locator,{version:1,directory:current,pending:target});
+          relocateAppData(current,target,undefined,legacyAliases(legacy,current));
+        }
+        saveDataLocation(installed.locator,{version:1,directory:target});
+        completeRelocation(target);removeLegacyAliases(legacy,current);
+        result={directory:target,legacyDirectory:legacy,defaultDirectory:installed.directory,migrated:true,compatibilityLinks:[]};
+      }
+    }
+    if(installed&&!override){relocateLegacyRuntimeData(home,result.directory);relocateClipboardData(result.directory,path.join(host.getPath('temp'),'agentworkbench-clipboard'));removeLegacyAliases(legacy,path.join(home,'.agentworkbench'));}
+    host.setPath('userData',result.directory);return result;
+  }
   catch(error){host.releaseSingleInstanceLock();throw error;}
+}
+function legacyAliases(legacy:string,previous:string){
+  const aliases:Record<string,string>={};
+  for(const [alias,expected] of [[legacy,previous],[legacy+'-attachments',path.join(previous,'attachments')],[legacy+'-worktrees',path.join(previous,'worktrees')]]){
+    if(!alias||!expected||!present(alias)||!lstatSync(alias).isSymbolicLink())continue;
+    const target=path.resolve(path.dirname(alias),readlinkSync(alias).replace(/^\\\\\?\\/,''));
+    if(same(target,path.resolve(expected)))aliases[alias]=expected;
+  }
+  return aliases;
+}
+function removeLegacyAliases(legacy:string,previous:string){
+  for(const alias of Object.keys(legacyAliases(legacy,previous)))unlinkSync(alias);
+  // Probing an older Electron singleton creates an empty legacy directory.
+  if(present(legacy)&&lstatSync(legacy).isDirectory()&&!lstatSync(legacy).isSymbolicLink()&&!readdirSync(legacy).length)rmdirSync(legacy);
 }
 const same=(a:string,b:string)=>process.platform==='win32'?a.toLowerCase()===b.toLowerCase():a===b;
 const present=(file:string)=>{try{lstatSync(file);return true;}catch(error){if((error as NodeJS.ErrnoException).code==='ENOENT')return false;throw error;}};

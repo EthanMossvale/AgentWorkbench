@@ -25,6 +25,9 @@ jobs:
       - run: npm run check:plugins
       - run: npm run check:ui-preferences
       - run: node --import tsx --test tests/desktop-updates.test.ts
+      - run: node --import tsx --test --test-concurrency=1 tests/plugin-*.test.ts tests/runtime-extensions.test.ts
+      - run: npm run setup:electron
+      - run: npm run test:plugin-recovery
       - name: Assign monotonically increasing build version
         shell: pwsh
         run: npm version "0.1.${{ github.run_number }}" --no-git-tag-version

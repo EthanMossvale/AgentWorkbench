@@ -12,9 +12,9 @@ export interface LocalCli {
   runtime: LocalRuntime; installed: boolean; executable?: string; version?: string; source?: 'npm' | 'native' | 'path';
   latest?: string; channel: 'latest' | 'stable'; checkedAt?: string; updateAvailable: boolean; autoUpdate: boolean;
   busy: boolean; canInstall: boolean; canUpdate: boolean; canUninstall: boolean; revision: string; command?: string; error?: string;
-  installMethods: CliInstallMethod[]; checkedMethod?: InstallMethod;
+  installMethods: CliInstallMethod[]; checkedMethod?: InstallMethod; installDirectory?:string;
 }
-interface Preferences { version: 1; autoUpdate: Record<LocalRuntime, boolean>; lastAttempt: Partial<Record<LocalRuntime, number>> }
+interface Preferences { version: 1; autoUpdate: Record<LocalRuntime, boolean>; lastAttempt: Partial<Record<LocalRuntime, number>>; codexInstallDirectory?:string }
 export interface CliOptions {
   home?: string; env?: NodeJS.ProcessEnv; platform?: NodeJS.Platform; executables?: Partial<Record<LocalRuntime, string>>;
   run?: RunCommand; fetcher?: typeof fetch; idle?: () => boolean; isolated?: boolean;
@@ -39,33 +39,62 @@ export class LocalCliService {
   private busy = new Set<LocalRuntime>(); private errors: Partial<Record<LocalRuntime, string>> = {}; private closed = false;
   private processUnknown = new Set<LocalRuntime>(); private checking = new Set<LocalRuntime>(); private operations = new Set<Promise<unknown>>();
   constructor(directory: string, readonly options: CliOptions = {}) {
-    this.home = options.home ?? os.homedir(); this.env = options.env ?? (options.isolated ? { ...process.env, HOME: this.home, USERPROFILE: this.home, CODEX_HOME: path.join(this.home, '.codex'), CLAUDE_CONFIG_DIR: path.join(this.home, '.claude') } : process.env); this.platform = options.platform ?? process.platform; this.file = path.join(directory, 'local-cli.json');
+    this.home = options.home ?? os.homedir(); this.env = { ...(options.env ?? (options.isolated ? { ...process.env, HOME: this.home, USERPROFILE: this.home, CODEX_HOME: path.join(this.home, '.codex'), CLAUDE_CONFIG_DIR: path.join(this.home, '.claude') } : process.env)) }; this.platform = options.platform ?? process.platform; this.file = path.join(directory, 'local-cli.json');
   }
   async initialize() {
     this.preferences = await readJson(this.file, this.preferences);
     if (this.preferences.version !== 1 || providers.some(p => typeof this.preferences.autoUpdate?.[p] !== 'boolean')) throw Error('CLI_PREFERENCES_INVALID');
+    if(this.preferences.codexInstallDirectory!==undefined&&(!path.isAbsolute(this.preferences.codexInstallDirectory)||this.preferences.codexInstallDirectory.includes('\0')))throw Error('CLI_PREFERENCES_INVALID');
     if (!this.preferences.lastAttempt || typeof this.preferences.lastAttempt !== 'object' || Array.isArray(this.preferences.lastAttempt) || Object.values(this.preferences.lastAttempt).some(value => typeof value !== 'number' || !Number.isFinite(value) || value < 0)) throw Error('CLI_PREFERENCES_INVALID');
     this.timer = setInterval(() => { if (!this.closed) void this.automatic().catch(() => {}); }, 60000); this.timer.unref();
   }
   private async save() { await atomicWrite(this.file, JSON.stringify(this.preferences, null, 2)); }
+  private codexEnvironment(found?:{executable:string}):NodeJS.ProcessEnv{
+    const selected=this.preferences.codexInstallDirectory;
+    // CODEX_HOME here is installer storage only. Runtime/login/resource callers
+    // keep this.env, so choosing a program drive never changes native identity.
+    return selected&&(!found||samePath(found.executable,path.join(selected,'bin','codex.exe')))?{...this.env,CODEX_HOME:path.join(selected,'home'),CODEX_INSTALL_DIR:path.join(selected,'bin')}:{...this.env};
+  }
+  async setCodexInstallDirectory(directory:string){
+    if(this.platform!=='win32'||!path.isAbsolute(directory)||!(/^[A-Za-z]:\\/.test(directory))||directory.includes('\0')||path.resolve(directory)===path.parse(directory).root)throw Error('CLI_INSTALL_DIRECTORY_INVALID');
+    return this.maintain('codex',()=>this.queue.run(async()=>{
+      await noLinks(directory);
+      if(await this.locate('codex'))throw Error('CLI_INSTALL_STATE_CHANGED');
+      const previous=this.preferences.codexInstallDirectory;
+      this.preferences.codexInstallDirectory=path.resolve(directory);
+      try{await this.save();}catch(error){this.preferences.codexInstallDirectory=previous;throw error;}
+    }));
+  }
   isMaintaining() { return this.busy.size > 0; }
   async withNativeOperation<T>(runtime: LocalRuntime, operation: () => Promise<T>): Promise<T> { let value: T; await this.maintain(runtime, async () => { value = await operation(); }); return value!; }
   private async rememberAttempt(runtime: LocalRuntime) { await this.queue.run(async () => { this.preferences.lastAttempt[runtime] = Date.now(); await this.save(); }); }
   private pathCandidates(name: string) {
-    return this.options.isolated ? [] : (this.env.PATH ?? '').split(path.delimiter).filter(Boolean).map(folder => path.join(folder.replace(/^"|"$/g, ''), name));
+    // A copied Windows environment is an ordinary case-sensitive object; unlike
+    // process.env, its usual `Path` key cannot be read as `PATH`.
+    const searchPath = this.env.PATH ?? (this.platform === 'win32' ? Object.entries(this.env).find(([key]) => key.toUpperCase() === 'PATH')?.[1] : undefined);
+    return this.options.isolated ? [] : (searchPath ?? '').split(this.platform === 'win32' ? ';' : ':').filter(Boolean).map(folder => path.join(folder.replace(/^"|"$/g, ''), name));
   }
   async locate(runtime: LocalRuntime): Promise<{ executable: string; source: LocalCli['source'] } | undefined> {
     if (this.options.executables?.[runtime]) return await exists(this.options.executables[runtime]!) ? { executable: this.options.executables[runtime]!, source: 'native' } : undefined;
-    const windows = this.platform === 'win32', native = runtime === 'codex' && windows ? codexWindowsInstall(this.home, this.env).executable : path.join(this.home, '.local', 'bin', runtime + (windows ? '.exe' : ''));
+    const windows = this.platform === 'win32', native = runtime === 'codex' && windows ? codexWindowsInstall(this.home, this.preferences.codexInstallDirectory?{...this.env,CODEX_HOME:path.join(this.preferences.codexInstallDirectory,'home'),CODEX_INSTALL_DIR:path.join(this.preferences.codexInstallDirectory,'bin')}:this.env).executable : path.join(this.home, '.local', 'bin', runtime + (windows ? '.exe' : ''));
     // Keep the official launcher path visible; the versioned target is used by revisions.
     if (await exists(native)) return { executable: native, source: 'native' };
+    if(runtime==='codex'&&windows&&this.preferences.codexInstallDirectory){
+      const original=codexWindowsInstall(this.home,this.env).executable;
+      if(await exists(original))return {executable:original,source:'native'};
+    }
     if (windows) {
       const roots = [path.join(this.env.APPDATA || path.join(this.home, 'AppData/Roaming'), 'npm'), ...this.pathCandidates(runtime + '.cmd').map(p => path.dirname(p))];
       for (const root of new Set(roots)) {
         if (runtime === 'claude') { const file = path.join(root, 'node_modules/@anthropic-ai/claude-code/bin/claude.exe'); if (await exists(file)) return { executable: file, source: 'npm' }; }
         else for (const arch of ['x86_64', 'aarch64']) {
           const suffix = arch === 'x86_64' ? 'x64' : 'arm64';
-          for (const file of [path.join(root, 'node_modules', '@openai', 'codex', 'node_modules', '@openai', 'codex-win32-' + suffix, 'vendor', arch + '-pc-windows-msvc', 'bin', 'codex.exe'), path.join(root, 'node_modules', '@openai', 'codex', 'vendor', arch + '-pc-windows-msvc', 'codex', 'codex.exe')]) if (await exists(file)) return { executable: file, source: 'npm' };
+          const packageRoot = path.join(root, 'node_modules', '@openai', 'codex');
+          const vendors = [path.join(packageRoot, 'node_modules', '@openai', 'codex-win32-' + suffix, 'vendor'), path.join(root, 'node_modules', '@openai', 'codex-win32-' + suffix, 'vendor'), path.join(packageRoot, 'vendor')];
+          for (const vendor of vendors) for (const directory of ['bin', 'codex']) {
+            const file = path.join(vendor, arch + '-pc-windows-msvc', directory, 'codex.exe');
+            if (await exists(file)) return { executable: file, source: 'npm' };
+          }
         }
       }
     }
@@ -81,7 +110,7 @@ export class LocalCliService {
   private async removable(runtime: LocalRuntime, found?: Awaited<ReturnType<LocalCliService['locate']>>) {
     if (!found || this.platform !== 'win32' || (this.options.isolated && !this.options.run)) return false;
     if (found.source === 'npm') return !!await this.npm();
-    if (runtime === 'codex') { try { await codexWindowsRemoval(this.home, this.env, found.executable); return found.source === 'native'; } catch { return false; } }
+    if (runtime === 'codex') { try { await codexWindowsRemoval(this.home, this.codexEnvironment(found), found.executable); return found.source === 'native'; } catch { return false; } }
     return found.source === 'native' && samePath(found.executable, path.join(this.home, '.local', 'bin', 'claude.exe'));
   }
   private async nativeVersion(executable: string) {
@@ -116,7 +145,7 @@ export class LocalCliService {
       const command = await this.command(runtime, !!found, found), catalog = this.catalog[runtime];
       const installMethods = await Promise.all((['native', 'npm'] as const).map(async method => { const value = await this.command(runtime, false, undefined, method); return { method, available: !!value, command: value?.label }; }));
       const revision = await this.revision(found).catch(() => '');
-      return { runtime, installed: !!found, ...found, version, channel: catalog?.channel ?? 'latest', ...catalog, installMethods, updateAvailable: !!(version && catalog?.latest && (!catalog.checkedMethod || catalog.checkedMethod === found?.source) && newerVersion(catalog.latest, version)), autoUpdate: this.preferences.autoUpdate[runtime], busy: this.busy.has(runtime), canInstall: !found && !!command, canUpdate: !!found && !!command && !!version && !!revision, canUninstall: !!revision && await this.removable(runtime, found), revision, command: command?.label, error: error ?? (!found && !command ? 'CLI_INSTALL_PREREQUISITE' : undefined) };
+      return { runtime, installed: !!found, ...found, version, channel: catalog?.channel ?? 'latest', ...catalog, installMethods, installDirectory:runtime==='codex'?this.preferences.codexInstallDirectory:undefined, updateAvailable: !!(version && catalog?.latest && (!catalog.checkedMethod || catalog.checkedMethod === found?.source) && newerVersion(catalog.latest, version)), autoUpdate: this.preferences.autoUpdate[runtime], busy: this.busy.has(runtime), canInstall: !found ? !!command : found.source === 'path' && installMethods.some(item => item.method === 'native' && item.available), canUpdate: !!found && !!command && !!version && !!revision, canUninstall: !!revision && await this.removable(runtime, found), revision, command: command?.label, error: error ?? (!found && !command ? 'CLI_INSTALL_PREREQUISITE' : undefined) };
     }));
   }
   async check(runtime: LocalRuntime, requestedMethod: InstallMethod = 'native') {
@@ -138,7 +167,11 @@ export class LocalCliService {
     return this.maintain(runtime, async () => {
       if (automatic && !this.preferences.autoUpdate[runtime]) return this.list();
       if (this.closed || this.options.idle?.() === false) throw Error('CLI_TASKS_ACTIVE');
-      const found = await this.locate(runtime); if (update !== !!found) throw Error('CLI_INSTALL_STATE_CHANGED');
+      const found = await this.locate(runtime);
+      // Only an explicit native installation may coexist with an unowned PATH
+      // binary. Updating or automatically replacing that binary stays forbidden.
+      const separate = !update && !automatic && requestedMethod === 'native' && found?.source === 'path';
+      if (update !== !!found && !separate) throw Error('CLI_INSTALL_STATE_CHANGED');
       if (requestedMethod !== undefined && requestedMethod !== 'native' && requestedMethod !== 'npm') throw Error('CLI_INSTALL_METHOD_INVALID');
       if (update && requestedMethod && requestedMethod !== found?.source) throw Error('CLI_INSTALL_STATE_CHANGED');
       const method = update && found?.source === 'npm' ? 'npm' : update ? 'native' : requestedMethod ?? 'native';
@@ -146,7 +179,7 @@ export class LocalCliService {
       await this.rememberAttempt(runtime);
       if (automatic && !this.preferences.autoUpdate[runtime]) return;
       if (this.closed || this.options.idle?.() === false) throw Error('CLI_TASKS_ACTIVE');
-      const env = { ...this.env };
+      const env = runtime==='codex'&&method==='native'?this.codexEnvironment(separate?undefined:found):{ ...this.env };
       if (runtime === 'codex' && method === 'native') {
         for (const name of ['CODEX_INSTALL_DAEMON_ONLY', 'CODEX_INSTALL_DEFER_SELECTION', 'CODEX_INSTALL_IF_LATEST', 'CODEX_INSTALL_IF_CURRENT', 'CODEX_UPDATE_FROM_RELEASE']) delete env[name];
         env.CODEX_RELEASE = 'latest'; env.CODEX_NON_INTERACTIVE = '1';
@@ -167,10 +200,10 @@ export class LocalCliService {
         const npm = (await this.npm())!;
         const prefix = (await (this.options.run ?? runCommand)({ executable: powershell, args: ['-NoProfile', '-NonInteractive', '-Command', `& ${quotePs(npm)} prefix -g; exit $LASTEXITCODE`] }, { cwd: this.home, env: this.env, timeout: 15000 })).trim();
         const pkg = runtime === 'codex' ? '@openai/codex' : '@anthropic-ai/claude-code';
-        const relative = path.relative(path.join(prefix, 'node_modules', pkg), found.executable);
-        if (!path.isAbsolute(prefix) || relative.startsWith('..') || path.isAbsolute(relative)) throw Error('CLI_UNINSTALL_UNSUPPORTED');
+        const ownedRoots = [path.join(prefix, 'node_modules', pkg), ...(runtime === 'codex' ? ['x64', 'arm64'].map(arch => path.join(prefix, 'node_modules', '@openai', 'codex-win32-' + arch)) : [])];
+        if (!path.isAbsolute(prefix) || !ownedRoots.some(root => { const relative = path.relative(root, found.executable); return !!relative && !relative.startsWith('..') && !path.isAbsolute(relative); })) throw Error('CLI_UNINSTALL_UNSUPPORTED');
         script = `& ${quotePs(npm)} uninstall -g '${pkg}'; exit $LASTEXITCODE`;
-      } else if (runtime === 'codex') script = await codexWindowsRemoval(this.home, this.env, found.executable, true);
+      } else if (runtime === 'codex') script = await codexWindowsRemoval(this.home, this.codexEnvironment(found), found.executable, true);
       else {
         const binary = path.join(this.home, '.local', 'bin', 'claude.exe'), versions = path.join(this.home, '.local', 'share', 'claude');
         // Unlinking the official launcher's hard link is safe; never follow a

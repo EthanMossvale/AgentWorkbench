@@ -2,7 +2,7 @@ import test, { type TestContext } from 'node:test';
 import assert from 'node:assert/strict';
 import path from 'node:path';
 import os from 'node:os';
-import { mkdtemp, mkdir, readFile, writeFile, rm, readdir, symlink } from 'node:fs/promises';
+import { mkdtemp, mkdir, readFile, writeFile, rm, readdir, symlink, access } from 'node:fs/promises';
 import { NativeMemoryService } from '../packages/native-memory';
 import { BEGIN, END, PROJECTION, readNativeSources } from '../packages/native-memory/sources';
 import { digest } from '../packages/native-resources/files';
@@ -23,7 +23,8 @@ async function fixture(t: TestContext) {
   return { root, data: path.join(root, 'data'), home: path.join(root, 'home'), codexHome: path.join(root, 'home', '.codex'), claudeHome: path.join(root, 'home', '.claude') };
 }
 test('native skills scan both personal and official locations, deduplicate links, resolve conflicts with persistent toggles', async t => {
-  const f = { ...await fixture(t), codexExecutable: process.env.AGENT_WORKBENCH_TEST_CODEX_EXECUTABLE ?? path.join(os.homedir(), 'AppData/Roaming/npm/node_modules/@openai/codex/node_modules/@openai/codex-win32-x64/vendor/x86_64-pc-windows-msvc/bin/codex.exe') }; await put(path.join(f.codexHome, 'skills', '.system', 'system-skill', 'SKILL.md'), skill('official-skill')); await put(path.join(f.codexHome, 'skills', 'first', 'SKILL.md'), skill('same-name')); await put(path.join(f.claudeHome, 'skills', 'second', 'SKILL.md'), skill('same-name'));
+  const candidates=[process.env.AGENT_WORKBENCH_TEST_CODEX_EXECUTABLE,path.join(process.cwd(),'build/runtime/codex-0.155.1/codex.exe'),path.join(os.homedir(),'AppData/Roaming/npm/node_modules/@openai/codex/node_modules/@openai/codex-win32-x64/vendor/x86_64-pc-windows-msvc/bin/codex.exe')].filter((value):value is string=>!!value); let codexExecutable=candidates[0]; for(const candidate of candidates)try{await access(candidate);codexExecutable=candidate;break;}catch{} if(!codexExecutable)codexExecutable=path.join(os.tmpdir(),'agentworkbench-test-codex.exe');
+  const f = { ...await fixture(t), codexExecutable }; await put(path.join(f.codexHome, 'skills', '.system', 'system-skill', 'SKILL.md'), skill('official-skill')); await put(path.join(f.codexHome, 'skills', 'first', 'SKILL.md'), skill('same-name')); await put(path.join(f.claudeHome, 'skills', 'second', 'SKILL.md'), skill('same-name'));
   await put(path.join(f.codexHome, 'plugins', 'cache', 'openai-bundled', 'example', '1.0.0', 'skills', 'one', 'SKILL.md'), skill('bundled'));
   await mkdir(path.join(f.home, '.agents', 'skills'), { recursive: true }); await symlink(path.join(f.codexHome, 'skills', 'first'), path.join(f.home, '.agents', 'skills', 'same-target'), 'junction');
   let service = new NativeSkillsService(f.data, f); await service.initialize(); let scan = await service.scan(); assert.equal(scan.skills.length, 4); assert.equal(scan.errors.length, 0); assert.equal(scan.skills.find(s => s.name === 'official-skill')!.origins[0]!.kind, 'official'); assert.equal(scan.skills.find(s => s.name === 'bundled')!.origins[0]!.kind, 'official');
