@@ -17,7 +17,7 @@ await writeFile(path.join(updates,'latest.yml'),yaml);
 await writeFile(path.join(updates,'bootstrap.json'),JSON.stringify({schemaVersion:1,version,file:legacyFile,size:bytes.length,sha512}));
 await writeFile(path.join(updates,'bootstrap-v2.json'),JSON.stringify({schemaVersion:1,version,file,size:bytes.length,sha512}));
 await writeFile(path.join(site,'.nojekyll'),'');
-await writeFile(path.join(site,'index.html'),'<!doctype html><meta charset="utf-8"><title>AgentWorkbench</title><h1>AgentWorkbench</h1><p>Automatic desktop update channel.</p><a href="https://github.com/EthanMossvale/AgentWorkbench/releases/tag/installer">Download installer</a>');
+await writeFile(path.join(site,'index.html'),'<!doctype html><meta charset="utf-8"><title>AgentWorkbench</title><h1>AgentWorkbench</h1><p>Automatic desktop update channel.</p><a href="https://github.com/EthanMossvale/AgentWorkbench/releases/latest">Download installer</a>');
 let total=0;async function inspect(directory){for(const entry of await readdir(directory,{withFileTypes:true})){const p=path.join(directory,entry.name);if(entry.isDirectory())await inspect(p);else total+=(await stat(p)).size;}}await inspect(site);
 if(total>950*1024*1024)throw Error('PAGES_SIZE_LIMIT');
 console.log(JSON.stringify({version,file,bytes:total,sha512}));

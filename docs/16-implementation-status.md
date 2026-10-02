@@ -2230,6 +2230,8 @@ Validation includes quota coordinator, native reader/calculator, workspace contr
 
 ## Local repair package and installer paths (2026-10-02 JST)
 
+Publication follow-up: the public download entry now uses `/releases/latest` and describes versioned full installers, replacing the stale fixed bootstrap-tag link. The Pages updater and legacy bootstrap compatibility manifests keep their existing protocol, signatures, permissions and lifecycle. This download-link change adds no preference or adjustable UI state. Release publication and removal of superseded releases require explicit user authorization and separate hosted-artifact verification; source checks alone do not establish publication.
+
 Filename clarification: both the NSIS package and newly compiled online bootstrap use `<version>.exe`. `scripts/build-bootstrap.ps1` reads and validates the repository package version instead of emitting the old fixed bootstrap name. This is a build-output change; the installer window text and application identity are unchanged. Existing published attachments require a separate authorized publication to change.
 
 Filename verification: the existing local repair NSIS package reports version `0.1.5`, is named `0.1.5.exe`, and matches its feed SHA-512 before and after copying to the normal distribution directory. An isolated bootstrap compilation emits `0.1.0.exe` from the current source package version; an invalid version is rejected before compilation. TypeScript, plugin contracts, public documentation, UI preference checks and all seven desktop-update tests passed, including approved ZIP activation/disable/reenable. This checks filenames and build compatibility, not a new installed-profile or cross-device SSH acceptance.

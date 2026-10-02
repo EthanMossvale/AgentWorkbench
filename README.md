@@ -4,7 +4,7 @@
 
 ## Windows 安装与更新
 
-从 [在线安装器页面](https://github.com/EthanMossvale/AgentWorkbench/releases/tag/installer) 下载在线安装器。新构建的安装器文件名仅为 `<版本号>.exe`；已发布的旧附件可能仍使用旧名称。安装器获取最新版并默认安装到当前用户目录，创建桌面和开始菜单快捷方式，无需安装 Git 或 Node.js。
+从 [最新安装器页面](https://github.com/EthanMossvale/AgentWorkbench/releases/latest) 下载 `<版本号>.exe`。这是完整安装包，安装向导支持自选位置；新安装默认使用 `%LOCALAPPDATA%\AgentWorkbenchApp`，已有安装沿用原位置并允许改选。安装后创建桌面和开始菜单快捷方式，无需安装 Git 或 Node.js。
 
 主分支推送经自动构建和部署成功后，已安装的工作台会在启动或后续定时检查时后台下载更新；左下角出现“更新并重启”后点击安装。应用更新从 GitHub Pages 获取，不需要逐版发布 Release。更新保留用户数据，普通退出不会自动安装。当前仅提供 Windows x64，安装器尚未配置代码签名。分发流程和限制见 [文档 38](docs/38-desktop-distribution.md)。
 
