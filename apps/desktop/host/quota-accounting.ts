@@ -1,4 +1,3 @@
-import {createHash} from 'node:crypto';
 import {mkdir, readFile, writeFile, rename, readdir, unlink} from 'node:fs/promises';
 import path from 'node:path';
 import type {AccountCatalog, AppState, Session, SshHost} from '../../../packages/contracts';
@@ -9,6 +8,7 @@ import {sharedAccountRef} from '../../../packages/account-selection';
 import {MemberQuotaControl} from '../../../packages/workspace-control/member-quota';
 import {RemoteWorkspaceControl, workspaceHostIdentity} from '../../../packages/workspace-control';
 import {RemoteAccountCatalogService} from '../../../packages/remote-account-catalog';
+import {quotaHistory, quotaScope} from './quota-history';
 
 interface Bound {host: SshHost; workspaceId: string; accountId: string; accountGeneration: string; accountRuntime: 'existing-codex'|'native-owner'; scope: string; threadId: string; active: boolean; turnTokens?: number; observed?: {totalTokens: number; lastTokens: number}}
 interface Observation {window: 'weekly' | 'fiveHour'; usedPercent: number; resetsAt: number}
@@ -75,7 +75,7 @@ export class NativeQuotaAccounting {
     if (context.managed !== true || !context.allocation || context.allocation.weeklyPercent === null) {this.bindings.delete(session.id); return;}
     if (typeof context.workspaceId !== 'string' || !/^[A-Za-z0-9][A-Za-z0-9_.:-]{0,127}$/.test(context.workspaceId)) throw Error('无效的共享额度归属。');
     await this.retry(identity.member);
-    const bound: Bound = {host: structuredClone(identity.member), workspaceId: context.workspaceId, accountId: identity.account.id, accountGeneration: identity.account.generation, accountRuntime:session.binding.accountRuntime??'existing-codex', threadId: handle.threadId, active: true, scope: createHash('sha256').update((session.accountMigration?'':'native-owner\0')+(session.accountMigration?.previousAccountRef??session.binding.accountRef) + '\0' + session.id + '\0' + handle.threadId).digest('hex')};
+    const bound: Bound = {host: structuredClone(identity.member), workspaceId: context.workspaceId, accountId: identity.account.id, accountGeneration: identity.account.generation, accountRuntime:session.binding.accountRuntime??'existing-codex', threadId: handle.threadId, active: true, scope: quotaScope(session,handle.threadId)};
     const windows: Observation[] = []; // the shared authority reads the native provider itself
     await this.send(bound.host, 'quota/observe', {payload: {accountId: bound.accountId, accountGeneration: bound.accountGeneration, windows}},bound.accountRuntime);
     const check = await this.send(bound.host, 'quota/check', {accountId: bound.accountId, accountGeneration: bound.accountGeneration, workspaceId: bound.workspaceId}) as {allowed?: boolean; reason?: string};
@@ -113,20 +113,38 @@ export class NativeQuotaAccounting {
   }
   async read(host: SshHost, catalog: AccountCatalog, usage: AccountUsage, refresh=false): Promise<QuotaLedgerView | undefined> {
     const key=JSON.stringify([workspaceHostIdentity(host),catalog.authorityId,catalog.generation,usage.accountId,catalog.accounts.find(a=>a.id===usage.accountId)?.generation]);
-    const stamp=JSON.stringify([usage.observedAt,catalog.revision]),cached=this.views.get(key);if(!refresh&&cached?.stamp===stamp)return structuredClone(cached.value);
+    const stamp=JSON.stringify([usage.observedAt,catalog.revision,this.state().modelUsage,this.state().sessions?.map(s=>[s.id,s.metrics])]),cached=this.views.get(key);if(!refresh&&cached?.stamp===stamp)return structuredClone(cached.value);
     const value=await this.readView(host,catalog,usage);this.views.set(key,{stamp,value});return structuredClone(value);
   }
   private async readView(host: SshHost, catalog: AccountCatalog, usage: AccountUsage): Promise<QuotaLedgerView | undefined> {
     if (usage.availability !== 'ready') return;
     if(host.role==='workspace'){
       const account=catalog.accounts.find(a=>a.id===usage.accountId);if(!account)return;
-      const view=parseQuotaLedger(await this.member.request(host,'quota/read',{accountId:account.id,accountGeneration:account.generation}),account.id);
-      view.currentWorkspaceId=catalog.workspaceId;return view;
+      const context=await this.member.request(host,'quota/context',{accountId:account.id});
+      if(context.managed!==true)return;
+      await this.queue;await this.retry(host);
+      let raw=await this.member.request(host,'quota/read',{accountId:account.id,accountGeneration:account.generation});
+      if(raw.historyVersion===1&&!raw.windows?.length)raw=await this.send(host,'quota/observe',{payload:{accountId:account.id,accountGeneration:account.generation,windows:[]}},'native-owner');
+      const history=quotaHistory(this.state(),host,sharedAccountRef(catalog,account),raw.windows?.find((w:any)=>w.window==='weekly'));
+      if(raw.historyVersion===1)for(let offset=0;offset<history.length;offset+=100)raw=await this.member.request(host,'quota/observe',{payload:{accountId:account.id,accountGeneration:account.generation,workspaceId:context.workspaceId,history:history.slice(offset,offset+100)}});
+      const view=parseQuotaLedger(raw,account.id);
+      // Account catalogs use login names; the quota authority owns workspace IDs.
+      view.currentWorkspaceId=context.workspaceId;
+      if(context.allocation&&typeof context.workspaceId==='string'){
+        view.allocations??={};view.allocations[context.workspaceId]={weeklyPercent:context.allocation.weeklyPercent??null,fiveHourPercent:context.allocation.fiveHourPercent??null};
+        view.workspaceNames??={};view.workspaceNames[context.workspaceId]??=host.name;
+      }
+      return view;
     }
     const snapshot = await this.remote.list(host), account = catalog.accounts.find(a => a.id === usage.accountId);
     if (!account || snapshot.availability !== 'ready' || !snapshot.workspaces.some(w => w.status !== 'deleted' && w.accountQuotas?.[account.id])) return;
     await this.queue;
     await this.retry(host);
+    for(const member of this.state().hosts.filter(h=>h.role==='workspace'&&h.ownerId===host.ownerId&&h.hostname.toLowerCase()===host.hostname.toLowerCase()&&h.port===host.port&&h.knownHostsFile===host.knownHostsFile)){
+      const memberCatalog=this.state().accountCatalogs?.[member.id];
+      if(memberCatalog?.authorityId!==catalog.authorityId||memberCatalog.generation!==catalog.generation||!memberCatalog.accounts.some(a=>a.id===account.id&&a.generation===account.generation))continue;
+      await this.readView(member,memberCatalog,usage);
+    }
     if(Date.now()-Date.parse(usage.observedAt)>60000)return parseQuotaLedger(await this.remote.quota(host,'quota/read',{accountId:account.id,accountGeneration:account.generation}),account.id);
     const pool = usage.pools.find(p => p.id === 'codex') ?? (usage.pools.length === 1 ? usage.pools[0] : undefined);
     const windows = nativeQuotaWindows({rateLimits: {primary: pool?.primary && {...pool.primary, windowDurationMins: pool.primary.windowMinutes}, secondary: pool?.secondary && {...pool.secondary, windowDurationMins: pool.secondary.windowMinutes}}});

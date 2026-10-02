@@ -52,6 +52,16 @@ def member_request(control, uid, request):
             # Member-created scope IDs cannot collide with another member.
             import hashlib
             params['payload']['scope'] = hashlib.sha256((workspace['id'] + ':' + require_id(params['payload']['scope'])).encode()).hexdigest()
+        if 'history' in params['payload']:
+            import hashlib
+            history = params['payload']['history']
+            if not isinstance(history, list) or len(history) > 100:
+                raise ControlError('INVALID_QUOTA_OBSERVATION')
+            params['payload']['workspaceId'] = workspace['id']
+            for row in history:
+                if not isinstance(row, dict):
+                    raise ControlError('INVALID_QUOTA_OBSERVATION')
+                row['scope'] = hashlib.sha256((workspace['id'] + ':' + require_id(row.get('scope'))).encode()).hexdigest()
     if method == 'quota/check':
         if params.get('workspaceId', workspace['id']) != workspace['id']:
             raise ControlError('UNAUTHORIZED')

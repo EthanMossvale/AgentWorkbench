@@ -122,3 +122,30 @@ test('unconfigured native workspace remains usable without creating a ledger pro
     assert.deepEqual(f.requests.map(r=>r.method),['quota/context']);
   } finally {await f.close();}
 });
+
+for(const runtime of ['codex','claude'] as const)test(runtime+' history restores only bound numeric receipts and member policy fills legacy cards',async()=>{
+ const f=await fixture();try{
+  const {quotaHistory}=await import('../apps/desktop/host/quota-history');
+  f.session.binding.runtime=runtime;f.state.sessions=[f.session];
+  const at=new Date().toISOString(),source=JSON.stringify([runtime,'member','thread']);
+  f.state.modelUsage=[{key:JSON.stringify(['session',source,'turn','receipt']),scope:{kind:'account',id:f.session.binding.accountRef},id:'receipt',source,turnId:'turn',runtime,model:'fixture',steps:1,updatedAt:at,recordedAt:at,inputTokens:80,outputTokens:20,cacheReadTokens:0,cacheWriteTokens:0,totalTokens:100}];
+  assert.equal(quotaHistory(f.state,f.host,f.session.binding.accountRef)[0]!.tokens,100);
+  assert.deepEqual(quotaHistory(f.state,{...f.host,id:'other'},f.session.binding.accountRef),[]);
+  assert.deepEqual(quotaHistory(f.state,f.host,'other-account'),[]);
+  const view=await f.service.read(f.host,f.catalog,{accountId:f.account.id,availability:'ready',observedAt:at,pools:[],cards:[],cardsSupported:false});
+  assert.equal(view!.currentWorkspaceId,'space-one');assert.equal(view!.allocations!['space-one']!.weeklyPercent,33);
+ }finally{await f.close();}
+});
+
+test('history-capable member service receives replay batches on the production read path',async()=>{
+ const f=await fixture();let service:NativeQuotaAccounting|undefined;try{
+  const source=JSON.stringify(['codex','member','thread']),at=new Date().toISOString();f.state.sessions=[f.session];
+  f.state.modelUsage=[{key:JSON.stringify(['session',source,'turn','receipt']),scope:{kind:'account',id:f.session.binding.accountRef},id:'receipt',source,turnId:'turn',runtime:'codex',model:'fixture',steps:1,updatedAt:at,recordedAt:at,inputTokens:80,outputTokens:20,cacheReadTokens:0,cacheWriteTokens:0,totalTokens:100}];
+  const received:any[]=[];
+  const member={request:async(_host:any,method:string,p:any)=>{if(method==='quota/context')return {managed:true,workspaceId:'space-one',allocation:{weeklyPercent:33}};if(p.payload?.history)received.push(p.payload);return {accountId:f.account.id,mode:'estimated',coverage:'workbench-observed',historyVersion:1,windows:[]};}};
+  service=new NativeQuotaAccounting(f.directory,()=>f.state,{} as any,member as any);
+  const usage={accountId:f.account.id,availability:'ready' as const,observedAt:at,pools:[],cards:[],cardsSupported:false};
+  await service.read(f.host,f.catalog,usage,true);await service.read(f.host,f.catalog,usage,true);
+  assert.equal(received.length,2);assert.deepEqual(received[0],received[1]);assert.equal(received[0].history[0].tokens,100);assert.equal(received[0].workspaceId,'space-one');
+ }finally{await f.close();}
+});

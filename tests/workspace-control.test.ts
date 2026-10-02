@@ -390,7 +390,7 @@ pythonCase('disabled overage does not authorize loans and next-turn checks block
 control.state['workspaces'][a]['accountQuotas']['account-one']['allowOverage']=False
 report(a,2000,2000,20)
 w=view();assert w['debts']==[] and w['overrunPercent']==10
-assert sum(w['balances'].values())<=80
+assert w['balances'][b]==60 and w['balances'][c]==30
 assert ledger.check('account-one','ag',a,at)['allowed'] is False
 control.state['workspaces'][a]['accountQuotas']['account-one']['allowOverage']=True
 assert ledger.check('account-one','ag',a,at)['allowed'] is True
@@ -525,4 +525,57 @@ assert view()['balances']=={a:10,b:60,c:30}
 assert view()['reserveUsed']=={} and view()['overdrafts']=={}
 report(used=100,key='fiveHour',reset=at+18000)
 assert view()['balances']=={a:10,b:60,c:30}
+`);
+
+pythonCase('mid-cycle baseline and unknown usage never charge unused workspaces', QUOTA_SETUP+String.raw`
+data.clear();report(used=6)
+assert view()['balances']=={a:10,b:60,c:30}
+report(used=7)
+assert view()['balances']=={a:10,b:60,c:30}
+report(used=100)
+assert ledger.check('account-one','ag',b,at)['allowed'] is False
+`);
+
+pythonCase('numeric history deduplicates live scope and calibrates only its original workspace', QUOTA_SETUP+String.raw`
+data.clear();report(used=6)
+row=dict(scope=a+'-scope',tokens=600,baselineTokens=600,resetsAt=end)
+payload=dict(accountId='account-one',accountGeneration='ag',workspaceId=a,history=[row])
+ledger.observe(payload,at);ledger.observe(payload,at)
+assert ledger.summary('account-one','ag')['tokenTotals'][a]==600
+assert view()['recoveredTokens']=={a:600} and view()['recoveredPercent']=={}
+assert view()['balances'][b]==60
+report(a,9000,200,8)
+assert view()['recoveredPercent']=={a:6}
+assert view()['balances'][a]==2 and view()['balances'][b]==60
+ledger.observe(payload,at)
+assert view()['balances'][a]==2
+assert ledger.summary('account-one','ag')['tokenTotals'][a]==800
+row['tokens']=800
+ledger.observe(payload,at)
+assert ledger.summary('account-one','ag')['tokenTotals'][a]==800
+assert view()['sampleTokens']==200
+at=end+1;report(used=0,reset=end+604800)
+assert view()['recoveredTokens']=={} and view()['balances'][a]==10
+`);
+
+pythonCase('old proportional baseline is restored exactly once while debt is retained', QUOTA_SETUP+String.raw`
+w=next(iter(data.values()))['windows']['weekly']
+w.pop('attributionVersion');w['grantBase']=94*SCALE
+w['balances']={a:9400000,b:56400000,c:28200000}
+ledger=QuotaAccounting(data,control.state['workspaces'])
+assert view()['balances']=={a:10,b:60,c:30}
+ledger=QuotaAccounting(data,control.state['workspaces'])
+assert view()['balances']=={a:10,b:60,c:30}
+`);
+
+pythonCase('member history uses the same authenticated namespace as live observations', String.raw`
+from quota_service import member_request
+spaces=[adopt(name) for name in ('one','two')];a,b=[w['id'] for w in spaces]
+for w in spaces:apply(plan('workspace/update',w['id'],{'accountQuotas':{'account-one':{'weeklyPercent':50,'fiveHourPercent':None}}}))
+payload=dict(accountId='account-one',accountGeneration='ag',history=[dict(scope='same',tokens=600,baselineTokens=600,resetsAt=clock[0]+604800)])
+def send(uid,p):return member_request(control,uid,dict(method='quota/observe',params=dict(payload=p)))
+send(1000,payload);send(1000,payload);send(1001,payload)
+result=send(1000,dict(accountId='account-one',accountGeneration='ag',scope='same',totalTokens=9000,lastTokens=100))
+assert result['tokenTotals']=={a:700,b:600}
+fail('UNAUTHORIZED',lambda:send(1000,dict(payload,workspaceId=b)))
 `);
