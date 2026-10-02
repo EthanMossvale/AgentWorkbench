@@ -7,8 +7,11 @@ export function modelTargets(state:AppState,nativeReady:(session:Session)=>boole
   const result:ModelTarget[]=[];
   for(const connection of (state.modelConnections??[]).filter(item=>item.enabled!==false))for(const model of connection.models.filter(item=>item.enabled))result.push({id:apiTargetId(connection.id,model.id),name:model.name,description:`${connection.name} · ${model.model}`,runtime:'api',ready:connection.auth==='none'||connection.hasKey,binding:{runtime:'api',provider:connection.id,accountRef:`model-api:${connection.id}`,executionId:'local-device',egress:'direct-api',modelConnectionId:connection.id,modelMappingId:model.id},selection:{model:model.model,...(defaultVerifiedEffort(model)?{effort:defaultVerifiedEffort(model)}:{})},contextWindow:model.contextWindow});
   for(const host of state.hosts.filter(item=>item.role==='workspace'&&item.username.toLowerCase()!=='root'))for(const runtime of ['codex','claude'] as const){
-    const accountRef=selectedSharedAccountRef(state.accountCatalogs?.[host.id],runtime);
-    if(!accountRef)continue;
+    const catalog=state.accountCatalogs?.[host.id],accountRef=selectedSharedAccountRef(catalog,runtime);
+    if(!accountRef){
+      if(catalog?.availability==='ready'&&catalog.accounts.some(account=>account.provider===runtime&&account.enabled!==false&&account.workspaceEnabled!==false))result.push({id:`ssh/${encodeURIComponent(host.id)}/${runtime}/unselected`,name:runtime==='codex'?'Codex':'Claude Code',description:`${host.name} · SSH`,runtime,ready:false,unavailableReason:'此工作空间尚无可用默认账号，请先在账号选择器中选择账号。',binding:{runtime,provider:runtime==='codex'?'openai':'anthropic',accountRef:'unselected',executionId:'local-device',egress:'vps',hostId:host.id}});
+      continue;
+    }
     const binding={runtime,provider:runtime==='codex'?'openai':'anthropic',accountRef,executionId:'local-device',egress:'vps' as const,hostId:host.id,accountRuntime:state.accountCatalogs?.[host.id]?.source};
     const ready=nativeReady({binding} as Session);
     result.push({id:`ssh/${encodeURIComponent(host.id)}/${runtime}/${encodeURIComponent(accountRef)}`,name:runtime==='codex'?'Codex':'Claude Code',description:`${host.name} · SSH`,runtime,ready,binding,...(ready?{}:{unavailableReason:runtime==='claude'?'Claude 本机文件和工具执行桥尚未接通':'此 SSH 账号的原生执行连接尚未验收'})});

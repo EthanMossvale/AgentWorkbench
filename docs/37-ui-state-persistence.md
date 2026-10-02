@@ -420,3 +420,9 @@ The deferred conversation snapshot is scheduling state only. It may briefly pres
 ### SSH metadata diagnostics (2026-10-02)
 
 The SSH discovery/account/model read repair changes no adjustable UI node, stable preference key, storage owner or restoration/reset behavior. Error reasons and in-flight retry state are transient operation feedback and must not be persisted as user choices. Existing connection identity, selected account/model, layout and disclosure preferences remain unchanged on a failed read. No preference schema migration or new surface is required; document 36 records the service lifecycle and tests.
+
+### Workspace account selector recovery (2026-10-02 JST)
+
+The existing account control is now also visible for Claude and Codex new API drafts when a workspace is available. Selected account IDs and provider-specific revisions retain the remote workspace catalog owner; the local profile stores the last verified catalog, runtime/model source and lastModelHostId through existing state persistence. No mirrored independent default or new preference key is introduced. User selection explicitly changes the draft source to the chosen workspace; it does not alter existing session bindings. Model refresh and temporary unavailability never erase saved preferences.
+
+Popover visibility, search, pending state, errors and request sequence counters are transient and reset on remount. Window geometry, zoom, reading layouts, editor size, tabs and disclosure preferences are unchanged. Fresh installs have no implicit account selection; no shipped default, update migration, corrupt-preference or monitor fallback behavior changes. The additive composer-account surface restores underlying controls on disable and does not own their saved selections. Full isolated process restart and extension disable/reenable are covered by scripts/test-workspace-account-selector-ui.mjs; real user-profile and release-package acceptance remain separate.

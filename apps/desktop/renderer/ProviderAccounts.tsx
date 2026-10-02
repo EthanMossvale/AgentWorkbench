@@ -18,7 +18,7 @@ export default function ProviderAccounts({host,cachedCatalog,active,notify}:{hos
  useEffect(()=>{setCatalog(cachedCatalog);},[cachedCatalog]);
  const run=async(action:()=>Promise<void>)=>{if(lock.current)return;lock.current=true;setBusy(true);setError('');try{await action();}catch(e){if(live.current)setError(errorText(e));}finally{lock.current=false;if(live.current)setBusy(false);}};
  const refresh=()=>run(async()=>{const version=++epoch.current,value=await api<AccountCatalog>('accounts/list',{id:host.id});if(live.current&&version===epoch.current)setCatalog(value);});
- useEffect(()=>{if(active&&(!cachedCatalog||cachedCatalog.source==='existing-codex'))void refresh();},[active]);
+ useEffect(()=>{if(active&&(!cachedCatalog||cachedCatalog.availability!=='ready'||cachedCatalog.source==='existing-codex'))void refresh();},[active,host.id]);
  const prepare=()=>run(async()=>{const value=await api<AccountSetupPlan>('accounts/setup-plan',{id:host.id});if(live.current)setSetup(value);});
  const ready=catalog?.source==='native-owner'&&catalog.availability==='ready';
  const legacy=catalog?.source==='existing-codex'?catalog.accounts:catalog?.legacy?.accounts??[];

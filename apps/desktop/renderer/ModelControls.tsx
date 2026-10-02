@@ -18,6 +18,7 @@ export default function ModelControls({state,targetId,bindingLocked,onTarget,act
   const [catalogOpen,setCatalogOpen]=useState(false),[configurationRevision,setConfigurationRevision]=useState(0);
   useEffect(()=>{const changed=()=>setConfigurationRevision(v=>v+1);window.addEventListener('remote-configuration-changed',changed);return()=>window.removeEventListener('remote-configuration-changed',changed);},[]);
   const [targets,setTargets]=useState<ModelTarget[]>([]),[reading,setReading]=useState(false);
+  const targetEpoch=useRef(0),targetRefreshing=useRef(false);
   const [position,setPosition]=useState<CSSProperties>({visibility:'hidden'}),[contextPosition,setContextPosition]=useState<CSSProperties>({visibility:'hidden'});
   const trigger=useRef<HTMLButtonElement>(null),ring=useRef<HTMLButtonElement>(null),panel=useRef<HTMLElement>(null),contextPanel=useRef<HTMLDivElement>(null),epoch=useRef(0);
   const hoverTimer=useRef<ReturnType<typeof setTimeout>|undefined>(undefined),closeTimer=useRef<ReturnType<typeof setTimeout>|undefined>(undefined);
@@ -29,8 +30,9 @@ export default function ModelControls({state,targetId,bindingLocked,onTarget,act
   const localAccount=state?.localModelAccounts?.find(account=>account.id===(session?.binding.localAccountId??(parts?.[0]==='account'?parts[1]:undefined)));
   const selected:NativeModelOption|undefined=providerModel?{...providerModel,isDefault:false,efforts:availableReasoningEfforts(providerModel),serviceTiers:[]}:localAccount?.models.find(model=>model.model===(effective?.model??decodeURIComponent(parts?.[2]??'')))??models.find(model=>model.model===effective?.model)??(!effective?models.find(model=>model.isDefault):undefined);
   const revision=JSON.stringify([(state?.modelConnections??[]).map(connection=>[connection.id,connection.revision]),state?.hosts,Object.entries(state?.accountCatalogs??{}).map(([id,c])=>[id,c.authorityId,c.generation,c.selectionRevision,c.selectedAccountId,c.claudeSelectionRevision,c.selectedClaudeAccountId,c.availability,c.accounts.map(a=>[a.id,a.generation,a.status])]),state?.localModelAccounts?.map(a=>[a.id,a.revision,a.status]),state?.runtimeExtensions]);
-  const loadTargets=async(refresh=false)=>{setReading(true);try{setTargets(await api<ModelTarget[]>('model-targets/list',{refresh}));}catch(error){setError(errorText(error));}finally{setReading(false);}};
-  useEffect(()=>{if(!active)return;let current=true;setReading(true);void api<ModelTarget[]>('model-targets/list',{refresh:false}).then(value=>{if(current){setTargets(value);setError('');}}).catch(error=>{if(current)setError(errorText(error));}).finally(()=>{if(current)setReading(false);});return()=>{current=false;};},[active,revision,configurationRevision]);
+  const loadTargets=async(refresh=false)=>{if(targetRefreshing.current)return;const request=++targetEpoch.current;targetRefreshing.current=refresh;setReading(true);try{const next=await api<ModelTarget[]>('model-targets/list',{refresh});if(request===targetEpoch.current){setTargets(next);setError('');}}catch(error){if(request===targetEpoch.current)setError(errorText(error));}finally{if(request===targetEpoch.current)setReading(false);if(refresh)targetRefreshing.current=false;}};
+  useEffect(()=>{if(active)void loadTargets(false);},[active,revision,configurationRevision]);
+  useEffect(()=>()=>{targetEpoch.current++;},[]);
   const effort=selected?.efforts.length?(effective?.effort??selected.defaultEffort??(selected.efforts.includes('medium')?'medium':selected.efforts[0])):undefined;
   const serviceTier=effective ? effective.serviceTier??'default' : selected?.defaultServiceTier;
   const load=async(refresh=false)=>{

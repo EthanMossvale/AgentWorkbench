@@ -203,6 +203,7 @@ export class WorkbenchController {
   private configurationReceipts=new Set<Promise<void>>();
   private modelCatalogs=new Map<string,NativeModelOption[]>();
   private modelRequests=new Map<string,Promise<NativeModelOption[]>>();
+  private modelAccountRefresh?:Promise<void>;
   private targetCatalog:ModelTargetCatalog={list:refresh=>this.modelTargetList(refresh)};
   private skillDiscovery=new Map<string,SharedContextSnapshot>();
   private skillDiscoveryPending=new Map<string,Promise<SharedContextSnapshot>>();
@@ -454,10 +455,20 @@ export class WorkbenchController {
   private assertDraftRuntime(session:Session){if(isPluginRuntime(session.binding.runtime)){this.pluginRuntimes.entry(session);return;}if(session.binding.hostId)this.assertRemoteMaintenance(this.host(session.binding.hostId),session.binding.runtime);if(this.modelSwitching.has(session.id))throw Error('模型正在切换。');if(session.binding.runtime==='demo')return;if(this.providerBinding(session.binding)){if(session.binding.runtime==='claude'&&!this.nativeProvider)throw Error('Claude SSH 工具连接尚未就绪。');if(this.nativeProvider&&session.binding.runtime==='api')throw Error('请选择 Codex 或 Claude Code，再选择此模型来源；旧会话历史保留。');this.providerRunner(session).assertAllowed(session);return;}if(!this.nativeCodex)throw new Error('H 原生桥尚未完成该连接的工具/文件视图验收，提交已阻止。');this.nativeCodex.assertAllowed(session);}
   private assertModelIdle(session:Session){if(this.pluginRuntimes.busy(session.id)||session.archived||!['idle','blocked'].includes(session.status)||this.gate.hasPending(session.id)||this.sessionOperations.has(session.id)||this.permissionChanges.has(session.id)||this.forking.has(session.id)||this.apiRunner.busy(session.id)||this.nativeProvider?.busy(session.id)||this.nativeCodex?.busy(session.id)||this.modelSwitching.has(session.id))throw Error('请等待当前任务完成并关闭发送预览，再切换模型。');}
   private async modelTargetList(refresh:boolean):Promise<ModelTarget[]>{
-    if(refresh)await this.pluginRuntimes.registry.discover();
+    if(refresh){
+      await this.pluginRuntimes.registry.discover();
+      if(!this.modelAccountRefresh){
+        const pending=Promise.all(this.store.snapshot().hosts.filter(item=>item.role==='workspace'&&item.username.toLowerCase()!=='root').map(async host=>{
+          if(this.codexLoginActive(host)||this.hostMaintenanceActive(host))throw Error('工作空间账号正在维护，请稍后刷新模型。');
+          await this.readAccountCatalog(host);
+        })).then(()=>{}).finally(()=>{if(this.modelAccountRefresh===pending)this.modelAccountRefresh=undefined;});
+        this.modelAccountRefresh=pending;
+      }
+      await this.modelAccountRefresh;
+    }
     const state=this.store.snapshot(),targets=modelTargets(state,s=>this.supportsRemoteClaude(s)||!!this.nativeCodex?.supports(s)),extra:ModelTarget[]=[];
     for(const runtime of this.pluginRuntimes.registry.list()){const models=runtime.models?.length?runtime.models:[undefined];for(const model of models)extra.push({id:'runtime/'+encodeURIComponent(runtime.id)+(model?'/'+encodeURIComponent(model.model):''),name:model?runtime.name+' · '+model.name:runtime.name,description:runtime.description,runtime:runtime.id,ready:runtime.ready,binding:{runtime:runtime.id,provider:'runtime-managed',accountRef:'plugin-managed',executionId:'local-device',egress:'runtime-managed'},selection:model?{model:model.model,...(model.defaultEffort?{effort:model.defaultEffort}:{})}:undefined,contextWindow:model?.contextWindow});}
-    for(const target of targets.filter(item=>item.binding.hostId&&(item.runtime==='claude'||item.runtime==='codex'&&item.ready))){
+    for(const target of targets.filter(item=>item.binding.hostId&&item.binding.accountRef!=='unselected'&&(item.runtime==='claude'||item.runtime==='codex'&&item.ready))){
       const sample={id:randomUUID(),binding:target.binding} as Session,key=this.modelKey(sample);let models=this.modelCatalogs.get(key);
       if(refresh||models===undefined){try{models=await this.nativeModelList(sample,refresh);}catch(error){if(target.runtime==='claude')target.unavailableReason=(error as Error).message;/* Keep the last verified catalog when a refresh fails. */}}
       if(target.runtime==='claude'&&this.actions.nativeClaude){target.ready=this.supportsRemoteClaude(sample);target.description+=' · 官方 MCP 工具';if(target.ready)delete target.unavailableReason;else target.unavailableReason??='请安装本机 Claude CLI，并核对 SSH 账号与远端官方 MCP 服务能力。';}

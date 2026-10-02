@@ -62,6 +62,41 @@ async function fixture(accounting=false){
  return {controller,store,directory,plugins,install,targets,create,submit,bridge,native,host,actions,get imports(){return imports;},get ssh(){return ssh;},get closed(){return closed;},get opened(){return opened;},oldBroker(){execution='local-tools-unverified';},readyBroker(){execution='local-mcp-required';},async close(){releaseQuota();await plugins.dispose();await controller.dispose();await rm(directory,{recursive:true,force:true});}};
 }
 
+test('model refresh discovers missing accounts for both providers without selecting or submitting',async()=>{
+ const f=await fixture();try{
+  const plugin=await f.install('test.model-account-refresh',`export function activate(api){
+   let reads=0;const catalog={source:'native-owner',availability:'ready',authorityId:'a',generation:'g',workspaceId:'w',revision:1,selectionRevision:0,claudeSelectionRevision:0,accounts:['codex','claude'].map(provider=>({id:provider,generation:'g',provider,status:'authenticated',observedAt:'fixture'}))};
+   api.services.override('accounts.catalog',{list:async()=>{reads++;return structuredClone(catalog);},select:async(_h,input)=>{const a=catalog.accounts.find(a=>a.id===input.accountId);if(a.provider==='claude'){catalog.selectedClaudeAccountId=a.id;catalog.claudeSelectionRevision++;}else{catalog.selectedAccountId=a.id;catalog.selectionRevision++;}return structuredClone(catalog);}});
+   api.registerCommand('reads',()=>reads);
+  }`);
+  // This fixture did not create a Codex executor; discovery still exposes its blocked source.
+  await f.plugins.setEnabled(plugin.manifest.id,plugin.hash,true,true);
+  await f.store.update(s=>{s.accountCatalogs={};});
+  assert.equal((await f.targets(false)).filter(t=>t.binding.hostId).length,0);
+  const pending=await f.targets(true);
+  for(const runtime of ['codex','claude'])assert.ok(pending.some(t=>t.runtime===runtime&&!t.ready&&/默认账号/.test(t.unavailableReason??'')));
+  assert.equal(await f.plugins.command(plugin.manifest.id,'reads',{}),1);
+  const account=await f.controller.call('accounts/select',{id:f.host.id,provider:'claude',accountId:'claude',expectedRevision:0}) as AccountCatalog;
+  assert.equal(account.selectedClaudeAccountId,'claude');assert.equal(account.selectedAccountId,undefined);
+  assert.ok((await f.targets(true)).some(t=>t.runtime==='claude'&&t.selection?.model==='native'&&t.ready));
+  assert.equal(f.store.snapshot().sessions.length,0);assert.equal(f.opened,0);
+  await f.plugins.setEnabled(plugin.manifest.id,plugin.hash,false);
+  assert.ok((await f.targets(true)).some(t=>t.binding.accountRef.endsWith('/c/cg')));
+  await f.plugins.setEnabled(plugin.manifest.id,plugin.hash,true);
+  assert.ok((await f.targets(true)).some(t=>t.runtime==='claude'&&!t.ready&&/默认账号/.test(t.unavailableReason??'')));
+ }finally{await f.close();}
+});
+
+test('overlapping explicit model refreshes share account discovery and reject changed connections',async()=>{
+ const f=await fixture();try{
+  const original=f.actions.accountCatalog!.list;let reads=0,release!:()=>void;const waiting=new Promise<void>(r=>{release=r;});
+  f.actions.accountCatalog!.list=async h=>{reads++;await waiting;return original(h);};
+  const a=f.targets(true),b=f.targets(true);await until(()=>reads===1);release();await Promise.all([a,b]);assert.equal(reads,1);
+  let done!:()=>void;const hold=new Promise<void>(r=>{done=r;});f.actions.accountCatalog!.list=async h=>{await hold;return original(h);};
+  const request=f.targets(true);await delay(10);await f.store.update(s=>{s.hosts[0]!.hostname='changed.invalid';});done();await assert.rejects(request,/身份已变更/);
+ }finally{await f.close();}
+});
+
 test('approved quota service extension observes real Claude sends while the ledger is stalled and restores on disable',async()=>{
  const f=await fixture(true);try{
   const plugin=await f.install('fixture.quota-advisory',`export function activate(api){let count=0;api.services.register('fixture.quota-observer',{record:()=>{count++;}},{version:1});const observer=api.services.get('fixture.quota-observer');api.services.intercept('actions.quota-accounting','begin',(next,...args)=>{observer.record();return next(...args);});api.registerCommand('count',()=>count);}`);
