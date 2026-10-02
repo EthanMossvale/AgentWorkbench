@@ -5,9 +5,10 @@ import os from 'node:os';
 import path from 'node:path';
 import {execFileSync} from 'node:child_process';
 import {createHash} from 'node:crypto';
-import {finishPendingRelocation,readDataLocation,relocateAppData,relocateLegacyRuntimeData,relocateClipboardData,saveDataLocation,validateDataDestination} from '../packages/app-data/relocation';
+import {finishPendingRelocation,installedDataDirectory,legacyInstalledDataDirectory,readDataLocation,relocateAppData,relocateLegacyRuntimeData,relocateClipboardData,saveDataLocation,validateDataDestination} from '../packages/app-data/relocation';
 
 const fixture=()=>{const root=mkdtempSync(path.join(os.tmpdir(),'awb-relocate-')),source=path.join(root,'old'),target=path.join(root,'new'),locator=path.join(root,'location.json');mkdirSync(source);return {root,source,target,locator,close:()=>rmSync(root,{recursive:true,force:true})};};
+test('packaged Windows data uses a short Local path and retains the old path only as a migration marker',()=>{const root=path.join('C:\\Users','Fixture'),appData=path.join(root,'AppData','Roaming'),executable=path.join(root,'AppData','Local','Programs','AgentWorkbench','AgentWorkbench.exe');assert.equal(installedDataDirectory(executable,root,appData),path.join(root,'AppData','Local','AgentWorkbench'));assert.equal(installedDataDirectory(executable,root),path.join(root,'AppData','Local','AgentWorkbench'));assert.match(legacyInstalledDataDirectory(executable,root),/[\\/]AgentWorkbenchData[\\/][0-9a-f]{16}$/i);});
 test('profile-owned clipboard bytes move with references while unrelated cache remains',()=>{const f=fixture();try{
  const id='00000000-0000-4000-8000-000000000001',temp=path.join(f.root,'clipboard'),file=path.join(temp,id,'file-paste.txt'),metadata=path.join(f.source,'attachments',id,'metadata.json');
  mkdirSync(path.dirname(file),{recursive:true});writeFileSync(file,'clipboard');mkdirSync(path.dirname(metadata),{recursive:true});

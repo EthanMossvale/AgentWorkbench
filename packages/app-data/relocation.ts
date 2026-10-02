@@ -3,7 +3,7 @@ import {execFileSync} from 'node:child_process';
 import {cpSync,existsSync,lstatSync,mkdirSync,openSync,readFileSync,readSync,closeSync,readdirSync,renameSync,rmdirSync,rmSync,writeFileSync} from 'node:fs';
 import path from 'node:path';
 
-interface LocationFile {version:1;directory:string;pending?:string}
+interface LocationFile {version:1;directory:string;pending?:string;defaultDirectory?:string}
 const same=(a:string,b:string)=>process.platform==='win32'?path.resolve(a).toLowerCase()===path.resolve(b).toLowerCase():path.resolve(a)===path.resolve(b);
 const inside=(root:string,target:string)=>{const relative=path.relative(root,target);return !relative||relative!=='..'&&!relative.startsWith('..'+path.sep)&&!path.isAbsolute(relative);};
 const present=(value:string)=>{try{lstatSync(value);return true;}catch(error){if((error as NodeJS.ErrnoException).code==='ENOENT')return false;throw error;}};
@@ -21,7 +21,12 @@ const verifyCopy=(source:string,target:string)=>{
   }else throw Error('APP_DATA_SOURCE_INVALID');
 };
 
-export function installedDataDirectory(executable:string,home:string){
+/** The packaged Windows default is intentionally short and independent of the install folder. */
+export function installedDataDirectory(_executable:string,_home:string,appData?:string){
+  return path.join(appData?path.dirname(appData):path.join(_home,'AppData'),'Local','AgentWorkbench');
+}
+/** The pre-2026-10-02 packaged default, used only to recognize an unqualified old locator. */
+export function legacyInstalledDataDirectory(executable:string,home:string){
   const owner=createHash('sha256').update(process.platform==='win32'?home.toLowerCase():home).digest('hex').slice(0,16);
   return path.join(path.dirname(path.dirname(executable)),'AgentWorkbenchData',owner);
 }
@@ -36,7 +41,7 @@ export function validateDataDestination(source:string,target:string){
 export function readDataLocation(file:string):LocationFile|undefined{
   if(!existsSync(file))return;
   const value=JSON.parse(readFileSync(file,'utf8')) as LocationFile;
-  if(!value||value.version!==1||typeof value.directory!=='string'||!path.isAbsolute(value.directory)||value.directory.includes('\0')||same(value.directory,path.parse(value.directory).root)||value.pending!==undefined&&(typeof value.pending!=='string'||!path.isAbsolute(value.pending)||value.pending.includes('\0')))throw Error('APP_DATA_LOCATION_INVALID');
+  if(!value||value.version!==1||typeof value.directory!=='string'||!path.isAbsolute(value.directory)||value.directory.includes('\0')||same(value.directory,path.parse(value.directory).root)||value.pending!==undefined&&(typeof value.pending!=='string'||!path.isAbsolute(value.pending)||value.pending.includes('\0'))||value.defaultDirectory!==undefined&&(typeof value.defaultDirectory!=='string'||!path.isAbsolute(value.defaultDirectory)||value.defaultDirectory.includes('\0')))throw Error('APP_DATA_LOCATION_INVALID');
   return value;
 }
 export function saveDataLocation(file:string,value:LocationFile){

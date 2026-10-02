@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import {mkdtempSync,mkdirSync,writeFileSync,readFileSync,realpathSync,existsSync,rmSync} from 'node:fs';
 import os from 'node:os';import path from 'node:path';
 import {initializeAppData,prepareAppData} from '../packages/app-data';
-import {saveDataLocation} from '../packages/app-data/relocation';
+import {readDataLocation,saveDataLocation} from '../packages/app-data/relocation';
 const fixture=()=>{const root=mkdtempSync(path.join(os.tmpdir(),'awb-data-')),home=path.join(root,'home'),legacy=path.join(home,'AppData','Roaming','AgentWorkbench');mkdirSync(legacy,{recursive:true});return {root,home,legacy,close:()=>rmSync(root,{recursive:true,force:true})};};
 test('data migration moves opaque stores and old sibling worktrees while preserving legacy path aliases',()=>{const f=fixture();try{
  const opaque=Buffer.from([0,255,19,22,31]);writeFileSync(path.join(f.legacy,'opaque.bin'),opaque);mkdirSync(f.legacy+'-worktrees');writeFileSync(path.join(f.legacy+'-worktrees','fixture.txt'),'unchanged');
@@ -26,4 +26,9 @@ test('installed startup preserves the selected directory across subsequent launc
  assert.equal(initializeAppData(host,undefined,installed)?.directory,chosen);
  assert.equal(initializeAppData(host,undefined,installed)?.directory,chosen);
  assert.equal(existsSync(installed.directory),false);
+}finally{f.close();}});
+test('installed startup moves the previous generated hash directory to the short default once',()=>{const f=fixture();try{
+ const old=path.join(f.root,'old-program','AgentWorkbenchData','0123456789abcdef'),target=path.join(f.root,'AppData','Local','AgentWorkbench');mkdirSync(old,{recursive:true});writeFileSync(path.join(old,'payload'),'kept');const locator=path.join(f.root,'location.json');saveDataLocation(locator,{version:1,directory:old});
+ const host={getPath:(name:'home'|'userData'|'temp')=>name==='home'?f.home:name==='temp'?f.root:f.legacy,setPath:()=>{},requestSingleInstanceLock:()=>true,releaseSingleInstanceLock:()=>{}};
+ const result=initializeAppData(host,undefined,{directory:target,legacyDirectory:path.join(f.root,'new-program','AgentWorkbenchData','0123456789abcdef'),locator});assert.equal(result?.directory,target);assert.equal(existsSync(old),false);assert.equal(readFileSync(path.join(target,'payload'),'utf8'),'kept');assert.equal(readDataLocation(locator)?.directory,target);assert.equal(readDataLocation(locator)?.defaultDirectory,target);
 }finally{f.close();}});

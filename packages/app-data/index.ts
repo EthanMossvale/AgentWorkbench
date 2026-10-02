@@ -6,7 +6,7 @@ import {completeRelocation,finishPendingRelocation,readDataLocation,relocateAppD
 export interface AppDataLocation {directory:string;legacyDirectory:string;defaultDirectory:string;migrated:boolean;compatibilityLinks:string[]}
 export interface AppDataHost {getPath(name:'home'|'userData'|'temp'):string;setPath(name:'userData',value:string):void;requestSingleInstanceLock():boolean;releaseSingleInstanceLock():void}
 /** Electron holds a Windows file handle in the lock directory. Keep it outside the profile being moved. */
-export function initializeAppData(host:AppDataHost,override?:string,installed?:{directory:string;locator:string}):AppDataLocation|null{
+export function initializeAppData(host:AppDataHost,override?:string,installed?:{directory:string;locator:string;legacyDirectory?:string}):AppDataLocation|null{
   const home=host.getPath('home'),legacy=host.getPath('userData');
   // An older running build still locks the legacy profile; let it handle the second launch.
   if(!host.requestSingleInstanceLock())return null;
@@ -19,38 +19,48 @@ export function initializeAppData(host:AppDataHost,override?:string,installed?:{
     if(!installed||override)result=prepareAppData(home,legacy,override);
     else{
       const saved=readDataLocation(installed.locator),defaultDirectory=path.join(home,'.agentworkbench');
-      const current=saved?.directory??(present(defaultDirectory)?defaultDirectory:present(installed.directory)?installed.directory:undefined);
+      const current=saved?.directory??(present(defaultDirectory)?defaultDirectory:present(installed.directory)?installed.directory:installed.legacyDirectory&&present(installed.legacyDirectory)?installed.legacyDirectory:undefined);
       if(!current){
         if(present(legacy)){
           const old=prepareAppData(home,legacy);
-          saveDataLocation(installed.locator,{version:1,directory:old.directory,pending:installed.directory});
+          saveDataLocation(installed.locator,{version:1,directory:old.directory,pending:installed.directory,defaultDirectory:installed.directory});
           relocateAppData(old.directory,installed.directory,undefined,legacyAliases(legacy,old.directory));
-          saveDataLocation(installed.locator,{version:1,directory:installed.directory});
+          saveDataLocation(installed.locator,{version:1,directory:installed.directory,defaultDirectory:installed.directory});
           completeRelocation(installed.directory);removeLegacyAliases(legacy,old.directory);
           result={directory:installed.directory,legacyDirectory:legacy,defaultDirectory:installed.directory,migrated:true,compatibilityLinks:[]};
         }else{
-          mkdirSync(installed.directory,{recursive:true});saveDataLocation(installed.locator,{version:1,directory:installed.directory});
+          mkdirSync(installed.directory,{recursive:true});saveDataLocation(installed.locator,{version:1,directory:installed.directory,defaultDirectory:installed.directory});
           result={directory:installed.directory,legacyDirectory:legacy,defaultDirectory:installed.directory,migrated:false,compatibilityLinks:[]};
         }
       }else if(saved?.pending){
         const target=saved.pending;
         if(present(target))finishPendingRelocation(current,target);
         else if(!same(current,target))relocateAppData(current,target,undefined,legacyAliases(legacy,current));
-        saveDataLocation(installed.locator,{version:1,directory:target});
+        saveDataLocation(installed.locator,{version:1,directory:target,defaultDirectory:installed.directory});
         completeRelocation(target);removeLegacyAliases(legacy,current);
         result={directory:target,legacyDirectory:legacy,defaultDirectory:installed.directory,migrated:true,compatibilityLinks:[]};
       }else if(saved||same(current,installed.directory)){
-        result={directory:current,legacyDirectory:legacy,defaultDirectory:installed.directory,migrated:false,compatibilityLinks:[]};
+        const oldPackagedDefault=!saved?.defaultDirectory&&((!!installed.legacyDirectory&&same(current,installed.legacyDirectory))||generatedLegacyDefault(current))&&!same(current,installed.directory);
         if(!present(current))throw Error('APP_DATA_SOURCE_MISSING');
-        if(!saved)saveDataLocation(installed.locator,{version:1,directory:current});
+        if(oldPackagedDefault){
+          const target=installed.directory;
+          saveDataLocation(installed.locator,{version:1,directory:current,pending:target,defaultDirectory:target});
+          relocateAppData(current,target,undefined,legacyAliases(legacy,current));
+          saveDataLocation(installed.locator,{version:1,directory:target,defaultDirectory:target});
+          completeRelocation(target);removeLegacyAliases(legacy,current);
+          result={directory:target,legacyDirectory:legacy,defaultDirectory:target,migrated:true,compatibilityLinks:[]};
+        }else{
+          result={directory:current,legacyDirectory:legacy,defaultDirectory:installed.directory,migrated:false,compatibilityLinks:[]};
+        }
+        if(!saved&&!oldPackagedDefault)saveDataLocation(installed.locator,{version:1,directory:current,defaultDirectory:installed.directory});
       }else{
         if(!saved&&same(current,defaultDirectory)&&present(legacy)&&!lstatSync(legacy).isSymbolicLink())prepareAppData(home,legacy);
         const target=installed.directory;
         if(!same(current,target)){
-          saveDataLocation(installed.locator,{version:1,directory:current,pending:target});
+          saveDataLocation(installed.locator,{version:1,directory:current,pending:target,defaultDirectory:installed.directory});
           relocateAppData(current,target,undefined,legacyAliases(legacy,current));
         }
-        saveDataLocation(installed.locator,{version:1,directory:target});
+        saveDataLocation(installed.locator,{version:1,directory:target,defaultDirectory:installed.directory});
         completeRelocation(target);removeLegacyAliases(legacy,current);
         result={directory:target,legacyDirectory:legacy,defaultDirectory:installed.directory,migrated:true,compatibilityLinks:[]};
       }
@@ -76,6 +86,7 @@ function removeLegacyAliases(legacy:string,previous:string){
 }
 const same=(a:string,b:string)=>process.platform==='win32'?a.toLowerCase()===b.toLowerCase():a===b;
 const present=(file:string)=>{try{lstatSync(file);return true;}catch(error){if((error as NodeJS.ErrnoException).code==='ENOENT')return false;throw error;}};
+const generatedLegacyDefault=(directory:string)=>path.basename(path.dirname(directory)).toLowerCase()==='agentworkbenchdata'&&/^[a-f0-9]{16}$/i.test(path.basename(directory));
 /** Run once under the app single-instance lock, before Electron readiness or any store opens. Payload files stay opaque. */
 export function prepareAppData(home:string,legacyDirectory:string,override?:string):AppDataLocation{
   const defaultDirectory=path.join(home,'.agentworkbench'),directory=override??defaultDirectory;

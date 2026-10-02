@@ -11,7 +11,7 @@ import {RemoteResourceService} from '../../../packages/remote-account-catalog/re
 import { HtmlPreviewService } from './html-preview';
 import { WorktreeService } from '../../../packages/worktrees';
 import {initializeAppData,type AppDataLocation} from '../../../packages/app-data';
-import {installedDataDirectory,relocateAppData} from '../../../packages/app-data/relocation';
+import {installedDataDirectory,legacyInstalledDataDirectory,relocateAppData} from '../../../packages/app-data/relocation';
 import {DataDirectoryService} from '../../../packages/app-data/service';
 import { AttachmentStore } from './attachments';
 import { protocol, nativeImage, app, BrowserWindow, ipcMain, dialog, clipboard, ClipboardItem, safeStorage, shell, nativeTheme, session as electronSession } from 'electron';
@@ -53,7 +53,8 @@ const testRelocation=!!userDataOverride&&process.env.AGENT_WORKBENCH_TEST_RELOCA
 if(!isRecoveryGuardian&&userDataOverride&&/^\d{4,5}$/.test(process.env.AGENT_WORKBENCH_TEST_APP_PORT??''))app.commandLine.appendSwitch('remote-debugging-port',process.env.AGENT_WORKBENCH_TEST_APP_PORT!);
 const hiddenQa=!!userDataOverride&&process.env.AGENT_WORKBENCH_TEST_HIDDEN==='1';
 const installedLocation=app.isPackaged&&process.platform==='win32'&&!userDataOverride?{
- directory:installedDataDirectory(process.execPath,app.getPath('home')),
+ directory:installedDataDirectory(process.execPath,app.getPath('home'),app.getPath('appData')),
+ legacyDirectory:legacyInstalledDataDirectory(process.execPath,app.getPath('home')),
  locator:path.join(app.getPath('appData'),'AgentWorkbench-location.json'),
 }:undefined;
 let pendingLink=process.argv.find(argument=>argument.startsWith('agent-workbench:'));
