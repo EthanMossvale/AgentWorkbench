@@ -35,7 +35,7 @@ await store.update(s=>{s.plugins={translation:{enabled:false}};s.sessions=[{id:'
 const source=`export function activate(api){const state=api.services.get('workbench.state');let reads=0;
 api.services.intercept('images.viewed','read',(next,input)=>{reads++;return next(input)});
 api.registerCommand('reads',()=>reads);
-api.registerCommand('stream',async()=>{for(let i=0;i<60;i++){await state.update(s=>{const session=s.sessions[0];session.status='running';session.messages.find(m=>m.id==='live').original+=' delta'+i;});await new Promise(r=>setTimeout(r,12));}});
+api.registerCommand('stream',async()=>{for(let i=0;i<60;i++){${process.env.AWB_STREAM_UI_PATH==='session'?"await state.updateSession('fixture',session=>{session.status='running';session.messages.find(m=>m.id==='live').original+=' delta'+i;},{persist:'deferred'});":"await state.update(s=>{const session=s.sessions[0];session.status='running';session.messages.find(m=>m.id==='live').original+=' delta'+i;});"}await new Promise(r=>setTimeout(r,12));}});
 api.registerCommand('finish',()=>state.update(s=>{s.sessions[0].status='idle';s.sessions[0].messages.find(m=>m.id==='live').phase='final';}));
 api.registerCommand('links',()=>state.update(s=>{const session=s.sessions[0];session.messages.find(m=>m.id==='live').original=${JSON.stringify('[pelican-bicycle.html]('+file+')')};}));
 api.registerCommand('navigation',()=>state.update(s=>{s.sessions[0].messages.splice(1,0,{id:'historical-progress',role:'assistant',phase:'commentary',original:'Public progress to locate',translation:'待定位的公开过程',translationStatus:'complete',timestamp:${JSON.stringify(at(6))},demo:false});}));

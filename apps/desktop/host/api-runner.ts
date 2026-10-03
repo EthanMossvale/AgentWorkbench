@@ -18,6 +18,8 @@ import type { ModelConnections } from './model-connections';
 interface Hooks {
   attachments?:AttachmentStore;
   snapshot():AppState;update(change:(state:AppState)=>void):Promise<unknown>;
+  /** Optional cheap paths; the runner falls back to snapshot/update when absent. */
+  updateSession?(id:string,change:(session:Session)=>void,options?:{persist?:'durable'|'deferred'}):Promise<boolean>;read?():Readonly<AppState>;session?(id:string):Session|undefined;
   peers(id:string):{definitions:readonly ApiToolDefinition[];call(name:string,input:unknown,signal?:AbortSignal):Promise<unknown>};
   peerContext(id:string):NativePeerContextSession;
   context(id:string):Promise<string>;
@@ -33,8 +35,9 @@ export class ApiRunner {
   private approvals=new Map<string,{sessionId:string;resolve:(value:boolean)=>void}>();
   constructor(private connections:ModelConnections,private hooks:Hooks,readonly local:ApiLocalTools,private fetcher:typeof fetch=fetch){}
   busy(id:string){return this.active.has(id);}
-  private session(id:string){const session=this.hooks.snapshot().sessions.find(item=>item.id===id);if(!session)throw Error('会话不存在。');return session;}
-  private update(id:string,change:(session:Session)=>void){return this.hooks.update(s=>{const session=s.sessions.find(item=>item.id===id);if(!session)throw Error('会话不存在。');change(session);});}
+  private session(id:string){const session=this.hooks.session?this.hooks.session(id):this.hooks.snapshot().sessions.find(item=>item.id===id);if(!session)throw Error('会话不存在。');return session;}
+  private read():Readonly<AppState>{return this.hooks.read?.()??this.hooks.snapshot();}
+  private async update(id:string,change:(session:Session)=>void,persist?:'deferred'){if(this.hooks.updateSession){if(!await this.hooks.updateSession(id,change,{persist}))throw Error('会话不存在。');return;}return this.hooks.update(s=>{const session=s.sessions.find(item=>item.id===id);if(!session)throw Error('会话不存在。');change(session);});}
   private usage(id:string,protocol:ModelConnection['protocol'],model:ApiModel){return (turn:import('../../../packages/model-api/types').ApiTurn,elapsedMs:number)=>this.update(id,s=>{recordSessionUsage(s,{id:randomUUID(),model:typeof (turn.raw as any)?.model==='string'?(turn.raw as any).model:model.model,...parseTokenCounts((turn.raw as any)?.usage,protocol),elapsedMs},{source:metricsSource(s),turnId:s.nativeTurnId??s.messages.filter(m=>m.role==='user').at(-1)?.id??'',at:new Date().toISOString()});}).then(()=>{});}
   assertAllowed(session:Session){const connection=this.connections.connection(session.binding.modelConnectionId),model=connection.models.find(item=>item.id===session.binding.modelMappingId&&item.enabled);if(connection.enabled===false)throw Error('此 API 连接已关闭，请先开启或选择其他模型。');if(!model)throw Error('此模型已停用或移除，请重新选择。');if(connection.auth==='key'&&!connection.hasKey)throw Error('模型连接尚未设置密钥。');return {connection,model};}
   async submit(id:string,preview:DraftPreview){
@@ -44,7 +47,7 @@ export class ApiRunner {
     const active:Active={callBudget:this.budgets.limit(session),writes:new Map(),staged:new Set(),inflight:new Set(),abort:new AbortController(),done,stopped:false,pending:[],accepting:true,turnId:preview.id};this.active.set(id,active);
     try{
       const key=await this.connections.key(connection);active.abort.signal.throwIfAborted();
-      const provenance=sourceLabel(session,this.hooks.snapshot());
+      const provenance=sourceLabel(session,this.read() as AppState);
       await this.update(id,s=>{if(s.status!=='idle')throw Error('当前会话不能发送。');s.status='running';s.nativeError=undefined;delete s.apiBudgetPause;s.nativeApprovals=[];s.nativeTurnId=preview.id;s.messages.push({id:preview.id,role:'user',original:preview.original,submitted:preview.translated,annotations:preview.annotations,attachments:preview.attachments,draftRevisions:preview.revisions,demo:false,timestamp:new Date().toISOString(),modelSource:provenance});delete s.forkDraft;delete s.forkAttachments;if(s.messages.length===1&&!s.branch&&!s.agentCreated)sessionPresentation.fallback(s,(preview.original||preview.attachments?.[0]?.name||'附件').slice(0,28));});
       void this.run(id,preview,connection,model,key,active).catch(()=>{}).finally(()=>{this.active.delete(id);finish();});
       return {started:true,turnId:preview.id};
@@ -108,7 +111,7 @@ export class ApiRunner {
     const signal=active.abort.signal,peers=this.hooks.peers(id),peerContext=this.hooks.peerContext(id);let claim:Awaited<ReturnType<NativePeerContextSession['prepare']>>|undefined,acknowledged=false;
     try{
       const history=await this.history(id,connection,model,key,signal);claim=await peerContext.prepare(history.at(-1)!.content);history[history.length-1]!.content=claim.input;
-      const context=await this.hooks.context(id),session=this.session(id),provenance=sourceLabel(session,this.hooks.snapshot());
+      const context=await this.hooks.context(id),session=this.session(id),provenance=sourceLabel(session,this.read() as AppState);
       const tools=[...apiLocalToolDefinitions,...peers.definitions],callBudget=active.callBudget;
       const client=new ApiConversationClient({contextPlanning:this.contextPlanning,connection,model,system:system+(connection.tools?'\n'+visualizationPresentation.instructions('api'):'')+(context?'\n'+context:''),history,tools,effort:session.modelSelection?session.modelSelection.effort:model.defaultEffort,onUsage:this.usage(id,connection.protocol,model)},key,this.fetcher);
       const executedCalls=new Map<string,{fingerprint:string;result:unknown;error:boolean}>();
@@ -120,7 +123,7 @@ export class ApiRunner {
           const summary=await client.compact(signal,budget);await this.update(id,s=>{s.activities??=[];const at=new Date().toISOString();s.activities.push({id:randomUUID(),runtime:'api',kind:'tool',toolName:'context_compaction',title:'工具上下文摘要',status:'completed',startedAt:at,updatedAt:at,turnId:preview.id,output:'Public tool context was summarized. Original activity records remain in desktop history.'});});
         }
         const messageId=randomUUID();let saved=false,last=0;
-        const save=async(text:string,force=false)=>{if(!text)return;if(!force&&Date.now()-last<80)return;last=Date.now();await this.update(id,s=>{let message=s.messages.find(m=>m.id===messageId);if(!message){message={id:messageId,role:'assistant',original:'',demo:false,timestamp:new Date().toISOString(),translationStatus:'off',modelSource:provenance,nativeTurnId:preview.id,nativeTurnEnd:false};s.messages.push(message);}message.original=text;});saved=true;};
+        const save=async(text:string,force=false)=>{if(!text)return;if(!force&&Date.now()-last<80)return;last=Date.now();await this.update(id,s=>{let message=s.messages.find(m=>m.id===messageId);if(!message){message={id:messageId,role:'assistant',original:'',demo:false,timestamp:new Date().toISOString(),translationStatus:'off',modelSource:provenance,nativeTurnId:preview.id,nativeTurnEnd:false};s.messages.push(message);}message.original=text;},force?undefined:'deferred');saved=true;};
         active.inflight=new Set(active.staged);
         const turn=await client.next(signal,text=>save(text));await save(turn.text,true);
         if(active.inflight.size){const accepted=new Set(active.inflight);await this.update(id,s=>{for(const m of s.messages)if(accepted.has(m.id))m.delivery='accepted';});for(const acceptedId of accepted)active.staged.delete(acceptedId);active.inflight.clear();}

@@ -1,6 +1,7 @@
 import {useEffect,useRef,useState,type ReactNode} from 'react';
 import type {AccountCatalog,SharedAccount,SshHost} from '../../../packages/contracts';
 import {api} from './App';
+import {stateStream} from './state-stream';
 import {Icon,Modal,Toggle,errorText} from './ui';
 import AccountCard from './AccountCard';
 import AccountUsagePanel from './AccountUsage';
@@ -13,7 +14,7 @@ export default function RemoteAccountCard({host,catalog,account,controls,notify}
  const scope={kind:'account' as const,id:sharedAccountRef(catalog,account)},admin=host.role==='admin';
  useEffect(()=>{live.current=true;return()=>{live.current=false;};},[]);
  useEffect(()=>setCurrent(account),[account]);
- useEffect(()=>window.workbench?.onState(state=>{setUsageRevision(modelUsageRevision(state,scope));const c=state.accountCatalogs?.[host.id],a=c?.authorityId===catalog.authorityId&&c.generation===catalog.generation?c.accounts.find(a=>a.id===account.id&&a.generation===account.generation):undefined;if(a)setCurrent(a);}),[scope.id,host.id]);
+ useEffect(()=>stateStream.onState(state=>{setUsageRevision(modelUsageRevision(state,scope));const c=state.accountCatalogs?.[host.id],a=c?.authorityId===catalog.authorityId&&c.generation===catalog.generation?c.accounts.find(a=>a.id===account.id&&a.generation===account.generation):undefined;if(a)setCurrent(a);}),[scope.id,host.id]);
  const name=current.displayName??current.email??(current.provider==='codex'?'Codex':'Claude')+' 账号';
  const run=async(action:()=>Promise<void>)=>{if(lock.current)return;lock.current=true;setBusy(true);setError('');try{await action();}catch(e){if(live.current){setError(errorText(e));notify(errorText(e));}}finally{lock.current=false;if(live.current)setBusy(false);}};
  const toggle=(enabled:boolean)=>run(async()=>{const value=await api<AccountCatalog>('accounts/set-enabled',{id:host.id,accountId:current.id,accountGeneration:current.generation,expectedRevision:admin?current.accessRevision??0:current.workspaceAccessRevision??0,enabled});const next=value.accounts.find(a=>a.id===current.id&&a.generation===current.generation);if(live.current&&next)setCurrent(next);notify(admin?(enabled?'账号已全局启用，各工作空间保留自身开关。':'账号已全局停用，所有工作空间均不可使用。'):(enabled?'已在此工作空间启用；仍受管理员总开关约束。':'已在此工作空间停用，其他工作空间不受影响。'));});

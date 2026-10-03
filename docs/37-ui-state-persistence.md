@@ -544,3 +544,13 @@ Partial status and the added preview note are derived request outcomes, not adju
 ## D031: larger explicit translation budgets (2026-10-03)
 
 The existing TranslationProfile maxCharacters, maxCalls, timeoutMs and maxOutputTokens fields remain deliberate local-user settings with unchanged keys, defaults, revision comparison, restore and reset behavior. Removing form maxima does not introduce a new adjustable node. Unset output tokens still use the shipped 8192 default; optional limits still use 0 for unlimited. Advanced disclosure stays under TranslationSettings.details.1. Scheduling registrations are plugin policy with cleanup, not a replacement preference file. Hidden production acceptance saves above-old-ceiling values through actual inputs, exits completely and verifies their restoration. Shared store tests remain the evidence for corruption, unknown versions, concurrent writes and packaging exclusion; physical-monitor behavior is unaffected and not newly claimed.
+
+
+
+## D038: per-session reading position (2026-10-04)
+
+New adjustable node: the original conversation pane's reading position per session. Key: session ID in the renderer `readingPositions` controller; scope: one session; default: follow the newest output. It is captured when the workspace leaves a session and restored when the session reopens: following resumes following, otherwise the first visible text block returns to its offset. Reset: scrolling to the bottom resumes following; `readingPositions.forget(sessionId)` removes the saved position.
+
+Deliberate exclusion from restart persistence: the position is an offset into rendered content whose height depends on fonts, width, translation layout, disclosure state and messages that arrive after exit. Restoring a stale offset after a restart would land on unrelated text, so positions last for the application process and a restart opens each session at its newest output, as before. No user-profile key, shipped default or migration is added. Extension overrides never erase saved positions; disabling an override restores the core policy. Streamed state and the store's write scheduling are transient runtime state, not preferences.
+
+Verification: TypeScript, the shared UI preference inventory and plugin contract checks, and `scripts/test-reading-position-ui.mjs` in hidden production windows for Codex and Claude (mid-history restore, resumed following, plugin override and disable). No physical-desktop, real-profile or post-restart behavior is claimed; restart intentionally opens at the newest output.

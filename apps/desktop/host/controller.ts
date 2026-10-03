@@ -192,7 +192,7 @@ export class WorkbenchController {
   private activeTurns=new Map<string,AbortController>();
   private sessionOperations=new Map<string,number>();
   private steeringPreviews=new Map<string,FollowUpIntent>();
-  readonly followUps=new FollowUpService({snapshot:()=>this.store.snapshot(),update:change=>this.update(change),blocked:id=>this.disposing||this.sessionOperations.has(id)||this.permissionChanges.has(id)||this.modelSwitching.has(id)||this.forking.has(id),canSteer:session=>this.canSteer(session),dispatch:(id,preview,action,turnId,beforeDispatch)=>this.withSessionOperation<unknown>(id,()=>this.dispatchDraft(this.session(id),preview,action==='steer'?turnId:undefined,beforeDispatch))});
+  readonly followUps=new FollowUpService({snapshot:()=>this.store.snapshot(),read:()=>this.store.read(),update:change=>this.update(change),blocked:id=>this.disposing||this.sessionOperations.has(id)||this.permissionChanges.has(id)||this.modelSwitching.has(id)||this.forking.has(id),canSteer:session=>this.canSteer(session),dispatch:(id,preview,action,turnId,beforeDispatch)=>this.withSessionOperation<unknown>(id,()=>this.dispatchDraft(this.session(id),preview,action==='steer'?turnId:undefined,beforeDispatch))});
   private canSteer(session:Session){return ['codex','api'].includes(session.binding.runtime)||session.binding.runtime==='claude'&&this.providerBinding(session.binding)||isPluginRuntime(session.binding.runtime)&&!!this.pluginRuntimes.entry(session).catalog.capabilities.steer;}
   private async dispatchDraft(session:Session,preview:DraftPreview,steering?:string,beforeDispatch?:()=>void){
     this.assertDraftRuntime(session);
@@ -264,7 +264,7 @@ export class WorkbenchController {
   async observeNativeSession(sessionId:string,source:Pick<EventEmitter,'on'|'off'>){
     if(this.disposing)throw new Error('The workbench is closing.');
     await this.retireNativeObservation(sessionId);
-    const observation=attachNativeObservation(sessionId,source,()=>this.store.snapshot(),change=>this.update(change),this.generatedImages?{service:this.generatedImages,acknowledge:source instanceof CodexRpcClient?receipt=>source.request('workbench/generatedImage/acknowledge',receipt):undefined}:undefined,this.shared?.native?.plugins?.nativeEvents);
+    const observation=attachNativeObservation(sessionId,source,()=>this.store.snapshot(),async change=>{if(!await this.updateSession(sessionId,(_session,state)=>change(state as AppState)))throw new Error('Native observation requires a native session.');},this.generatedImages?{service:this.generatedImages,acknowledge:source instanceof CodexRpcClient?receipt=>source.request('workbench/generatedImage/acknowledge',receipt):undefined}:undefined,this.shared?.native?.plugins?.nativeEvents);
     this.observations.set(sessionId,observation);await observation.flush();return observation;
   }
   private async retireNativeObservation(sessionId:string){
@@ -276,7 +276,7 @@ export class WorkbenchController {
   constructor(private store:StateStore,private secrets:SecretStore,private actions:HostActions,private changed:(state:AppState)=>void,private shared?:SharedServices){this.translationModule=new TranslationModule(()=>this.store.snapshot(),scope=>this.secrets.get(scope),actions.translationFetcher??fetch,async receipt=>{await this.update(state=>{state.translationUsage=recordTranslationUsage(state.translationUsage,receipt);});},async(sessionId,limit)=>{if(sessionId==='runtime')return;await this.update(state=>{const session=state.sessions.find(item=>item.id===sessionId);if(!session)throw Error('TRANSLATION_SESSION_MISSING');const calls=session.translationCalls??0;if(limit>0&&calls>=limit)throw Error('本会话翻译调用预算已用完。');session.translationCalls=calls+1;});});this.accountCatalog=actions.accountCatalog??new RemoteAccountCatalogService();
     if(actions.attachments)this.viewedImages=new ActivityImageReader(()=>this.store.snapshot(),change=>this.update(change),actions.attachments);
     if(actions.attachments)this.generatedImages=new WorkspaceGeneratedImages(actions.attachments,[],undefined,actions.generatedImageDecoder);
-    this.pluginRuntimes=new PluginRuntimeHost(actions.runtimeExtensions??shared?.native?.plugins?.runtimes??new RuntimeExtensionRegistry(),{snapshot:()=>store.snapshot(),update:fn=>this.update(fn),translate:(id,message)=>{if(this.translationModule.enabled())void this.translateMessage(id,message);}});
+    this.pluginRuntimes=new PluginRuntimeHost(actions.runtimeExtensions??shared?.native?.plugins?.runtimes??new RuntimeExtensionRegistry(),{snapshot:()=>store.snapshot(),update:fn=>this.update(fn),translate:(id,message)=>{if(this.translationModule.enabled())void this.translateMessage(id,message);},updateSession:(id,change)=>this.updateSession(id,change)});
     this.interactionFlow=new NativeInteractionFlow(this.translationModule,{snapshot:()=>store.snapshot(),update:fn=>this.update(fn),send:(session,id,reply)=>this.sendInteraction(session,id,reply)});
     this.planFlow=new NativePlanFlow(this.translationModule,{snapshot:()=>store.snapshot(),update:fn=>this.update(fn)});
     this.modelConnections=new ModelConnections({snapshot:()=>store.snapshot(),update:fn=>this.update(fn),busy:id=>this.translationModule.busy(id)||this.translationTargets?.busy(id)||!!shared?.native?.memory?.background.busy(id)||store.snapshot().sessions.some(s=>s.binding.modelConnectionId===id&&(s.status==='running'||s.status==='uncertain'||this.gate.hasPending(s.id)||this.sessionOperations.has(s.id)||this.apiRunner?.busy(s.id)||this.nativeProvider?.busy(s.id)))},secrets,actions.modelFetcher);
@@ -286,12 +286,12 @@ export class WorkbenchController {
     this.translationNative=new NativeTranslationRunner(store.directory);
     this.translationTargets=new WorkbenchTranslationTargets(()=>store.snapshot(),this.modelConnections,this.localAccounts,this.translationNative,shared?.native?.cli);
     this.translationModule.targets.register('core',this.translationTargets);
-    this.apiRunner=new ApiRunner(this.modelConnections,{attachments:actions.attachments,snapshot:()=>store.snapshot(),update:fn=>this.update(fn),peers:id=>this.nativePeerTools(id),peerContext:id=>this.nativePeerContext(id),context:async id=>this.shared?composeSharedContextInput('',await this.contextSnapshot(this.session(id))).input:'',translate:(id,message)=>{if(this.translationModule.enabled()&&(message.phase!=='commentary'||store.snapshot().translateIntermediate!==false))void this.translateMessage(id,message);}},new ApiLocalTools(actions.modelControlPaths??[],path.join(store.directory,'command-results')),actions.modelFetcher);
-    if(shared?.native)this.nativeProvider=new NativeProviderRunner(this.modelConnections,shared.native.cli,{managedDirectory:store.directory,quota:actions.quotaAccounting,attachments:actions.attachments,snapshot:()=>store.snapshot(),update:fn=>this.update(fn),peers:id=>this.nativePeerTools(id),observe:(id,source)=>this.observeNativeSession(id,source),remoteClaude:actions.nativeClaude,assertRemoteClaude:session=>this.assertRemoteClaude(session),beforeRemoteClaude:async(session,signal)=>{signal.throwIfAborted();const host=this.host(session.binding.hostId);await this.readAccountCatalog(host);signal.throwIfAborted();this.assertRemoteClaude(session);const admin=this.store.snapshot().hosts.find(h=>h.role==='admin'&&h.username==='root'&&this.maintenanceKey(h,'claude')===this.maintenanceKey(host,'claude'));await actions.sessionStorage?.restoreFor(admin,session,{signal});},context:async id=>composeSharedContextInput('',await this.contextSnapshot(this.session(id))).input,translate:(id,message)=>{if(this.translationModule.enabled()&&(message.phase!=='commentary'||store.snapshot().translateIntermediate!==false))void this.translateMessage(id,message);}},actions.modelFetcher,this.localAccounts);
-    this.followUps.modes.subscribe(()=>{if(!this.disposing)this.changed(this.publicState(this.store.snapshot()));});
-    this.translationLayouts.subscribe(()=>{if(!this.disposing)this.changed(this.publicState(this.store.snapshot()));});
-    this.followUps.subscribe(()=>{if(!this.disposing)this.changed(this.publicState(this.store.snapshot()));});
-    if(actions.nativeCodex)this.nativeCodex=new NativeCodexRunner(actions.nativeCodex,{beforeConnect:async(session,host,signal)=>{const admin=this.store.snapshot().hosts.find(h=>h.role==='admin'&&h.username==='root'&&this.maintenanceKey(h,session.binding.runtime)===this.maintenanceKey(host,session.binding.runtime));await actions.sessionStorage?.restoreFor(admin,session,{signal});},attachments:actions.attachments,quota:actions.quotaAccounting,snapshot:()=>this.store.snapshot(),update:change=>this.update(change),context:async id=>({snapshot:await this.contextSnapshot(this.session(id))}),peers:id=>({peerContext:this.nativePeerContext(id),peerTools:this.nativePeerTools(id)}),observe:(id,handle)=>this.observeNativeSession(id,handle.connection.rpc),translate:(id,message)=>{if(this.translationModule.enabled()&&(message.phase!=='commentary'||this.store.snapshot().translateIntermediate!==false))void this.translateMessage(id,message);}});
+    this.apiRunner=new ApiRunner(this.modelConnections,{attachments:actions.attachments,snapshot:()=>store.snapshot(),update:fn=>this.update(fn),updateSession:(id,change,options)=>this.updateSession(id,change,options),read:()=>this.store.read(),session:id=>this.store.sessionSnapshot(id),peers:id=>this.nativePeerTools(id),peerContext:id=>this.nativePeerContext(id),context:async id=>this.shared?composeSharedContextInput('',await this.contextSnapshot(this.session(id))).input:'',translate:(id,message)=>{if(this.translationModule.enabled()&&(message.phase!=='commentary'||store.snapshot().translateIntermediate!==false))void this.translateMessage(id,message);}},new ApiLocalTools(actions.modelControlPaths??[],path.join(store.directory,'command-results')),actions.modelFetcher);
+    if(shared?.native)this.nativeProvider=new NativeProviderRunner(this.modelConnections,shared.native.cli,{managedDirectory:store.directory,quota:actions.quotaAccounting,attachments:actions.attachments,snapshot:()=>store.snapshot(),update:fn=>this.update(fn),updateSession:(id,change,options)=>this.updateSession(id,change,options),read:()=>this.store.read(),session:id=>this.store.sessionSnapshot(id),peers:id=>this.nativePeerTools(id),observe:(id,source)=>this.observeNativeSession(id,source),remoteClaude:actions.nativeClaude,assertRemoteClaude:session=>this.assertRemoteClaude(session),beforeRemoteClaude:async(session,signal)=>{signal.throwIfAborted();const host=this.host(session.binding.hostId);await this.readAccountCatalog(host);signal.throwIfAborted();this.assertRemoteClaude(session);const admin=this.store.snapshot().hosts.find(h=>h.role==='admin'&&h.username==='root'&&this.maintenanceKey(h,'claude')===this.maintenanceKey(host,'claude'));await actions.sessionStorage?.restoreFor(admin,session,{signal});},context:async id=>composeSharedContextInput('',await this.contextSnapshot(this.session(id))).input,translate:(id,message)=>{if(this.translationModule.enabled()&&(message.phase!=='commentary'||store.snapshot().translateIntermediate!==false))void this.translateMessage(id,message);}},actions.modelFetcher,this.localAccounts);
+    this.followUps.modes.subscribe(()=>{if(!this.disposing)this.changed(this.published());});
+    this.translationLayouts.subscribe(()=>{if(!this.disposing)this.changed(this.published());});
+    this.followUps.subscribe(()=>{if(!this.disposing)this.changed(this.published());});
+    if(actions.nativeCodex)this.nativeCodex=new NativeCodexRunner(actions.nativeCodex,{beforeConnect:async(session,host,signal)=>{const admin=this.store.snapshot().hosts.find(h=>h.role==='admin'&&h.username==='root'&&this.maintenanceKey(h,session.binding.runtime)===this.maintenanceKey(host,session.binding.runtime));await actions.sessionStorage?.restoreFor(admin,session,{signal});},attachments:actions.attachments,quota:actions.quotaAccounting,snapshot:()=>this.store.snapshot(),update:change=>this.update(change),updateSession:(id,change,options)=>this.updateSession(id,change,options),read:()=>this.store.read(),session:id=>this.store.sessionSnapshot(id),context:async id=>({snapshot:await this.contextSnapshot(this.session(id))}),peers:id=>({peerContext:this.nativePeerContext(id),peerTools:this.nativePeerTools(id)}),observe:(id,handle)=>this.observeNativeSession(id,handle.connection.rpc),translate:(id,message)=>{if(this.translationModule.enabled()&&(message.phase!=='commentary'||this.store.snapshot().translateIntermediate!==false))void this.translateMessage(id,message);}});
     if(shared?.native?.memory)shared.native.memory.background.registerExecutor(new NativeMemoryTaskExecutor(this.modelConnections,shared.native.cli,actions.modelFetcher,this.localAccounts,{remote:{
       host:id=>this.host(id),codex:actions.nativeCodex,claude:actions.nativeClaude,quota:actions.quotaAccounting,
       assert:session=>{
@@ -323,7 +323,7 @@ export class WorkbenchController {
       'translation.workflow': this.translationWorkflow,
       'native.event-semantics': nativeEventSemantics,
       'sessions.native-titles': nativeSessionTitles,
-      'workbench.state': { get: () => this.publicState(this.store.snapshot()), update: (change: (state: AppState) => void) => this.update(change) },
+      'workbench.state': { get: () => this.publicState(this.store.snapshot()), update: (change: (state: AppState) => void) => this.update(change), updateSession: (id: string, change: (session: Session, state: Readonly<AppState>) => void, options?: {persist?: 'durable'|'deferred'}) => this.updateSession(id, change, options) },
       'workbench.store': this.store, 'workbench.secrets': this.secrets, 'workbench.actions': this.actions,
       'models.account-export': this.accountExport, 'models.account-names': this.accountNames, 'models.accounts': this.localAccounts, 'models.account-access': this.localAccounts.access, 'model.connections': this.modelConnections, 'models.endpoints':apiEndpoints, 'models.reasoning-options':this.modelConnections.reasoningOptions, 'runtime.api': this.apiRunner, 'runtime.api.budgets':this.apiRunner.budgets, 'runtime.api.context':this.apiRunner.contextPlanning, 'runtime.api.tools': this.apiRunner.local, 'runtime.extensions': this.pluginRuntimes,
       'remote.configurations': this.remoteConfigurations,
@@ -511,8 +511,42 @@ export class WorkbenchController {
       return models.length&&this.supportsRemoteClaude(sample)?{ready:true}:{ready:false,reason};
     }catch{return {ready:false,reason:current()?reason:'changed'};}
   }
-  private publicState(s:AppState){s.translationLayouts=this.translationLayouts.list().map(option=>({...option,mode:this.translationLayouts.resolve(option.id)}));for(const session of s.sessions){session.messages.push(...draftRecovery.pendingMessages(session,new Date().toISOString()));session.nativeContextUsage??=nativeContextState.recover(session);}s.followUpModes=this.followUps.modes.list();s.runtimeExtensions=this.pluginRuntimes.registry.list();s.nativeCodexBindings=[];for(const host of s.hosts){const ref=selectedSharedAccountRef(s.accountCatalogs?.[host.id]);if(ref&&this.actions.nativeCodex?.supports(host,{binding:{runtime:'codex',provider:'openai',hostId:host.id,executionId:'local-device',egress:'vps',accountRef:ref,accountRuntime:s.accountCatalogs?.[host.id]?.source}} as Session))s.nativeCodexBindings.push({hostId:host.id,accountRef:ref});}for(const session of s.sessions)session.followUpError=this.followUps.status(session.id).error;for(const session of s.sessions)session.nativeReady=isPluginRuntime(session.binding.runtime)?!!s.runtimeExtensions.find(r=>r.id===session.binding.runtime&&r.owner===session.pluginRuntime?.owner&&r.ready):this.supportsRemoteClaude(session)||!!this.nativeCodex?.supports(session);return s;}
-  private async update(fn:(state:AppState)=>void){const s=this.publicState(await this.store.update(state=>{rememberMemoryDefault(state);rememberRuntimeModel(state);fn(state);rememberMemoryDefault(state);rememberRuntimeModel(state);}));this.changed(s);this.interactionFlow?.observe(s);this.planFlow?.observe(s);this.followUps.observe();return s;}
+  /**
+   * Public view without copying conversations. Session views are cached by the
+   * committed session object, so an unchanged session keeps its identity and the
+   * state stream can send only what changed. The view shares nested committed
+   * objects and must not be mutated.
+   */
+  private present(source:Readonly<AppState>):AppState{
+    const s={...source} as AppState;
+    s.translationLayouts=this.translationLayouts.list().map(option=>({...option,mode:this.translationLayouts.resolve(option.id)}));
+    s.followUpModes=this.followUps.modes.list();s.runtimeExtensions=this.pluginRuntimes.registry.list();s.nativeCodexBindings=[];
+    for(const host of s.hosts){const ref=selectedSharedAccountRef(s.accountCatalogs?.[host.id]);if(ref&&this.actions.nativeCodex?.supports(host,{binding:{runtime:'codex',provider:'openai',hostId:host.id,executionId:'local-device',egress:'vps',accountRef:ref,accountRuntime:s.accountCatalogs?.[host.id]?.source}} as Session))s.nativeCodexBindings.push({hostId:host.id,accountRef:ref});}
+    const runtimes=s.runtimeExtensions;
+    s.sessions=source.sessions.map(session=>{
+      const followUpError=this.followUps.status(session.id).error;
+      const nativeReady=isPluginRuntime(session.binding.runtime)?!!runtimes.find(r=>r.id===session.binding.runtime&&r.owner===session.pluginRuntime?.owner&&r.ready):this.supportsRemoteClaude(session)||!!this.nativeCodex?.supports(session);
+      const cached=this.sessionViews.get(session);
+      if(cached&&cached.followUpError===followUpError&&cached.nativeReady===nativeReady)return cached.view;
+      const pending=draftRecovery.pendingMessages(session,new Date().toISOString());
+      const view:Session={...session,messages:pending.length?[...session.messages,...pending]:session.messages,nativeContextUsage:session.nativeContextUsage??nativeContextState.recover(session),followUpError,nativeReady};
+      this.sessionViews.set(session,{view,followUpError,nativeReady});return view;
+    });
+    return s;
+  }
+  private sessionViews=new WeakMap<Session,{view:Session;followUpError?:string;nativeReady:boolean}>();
+  private publicState(s:AppState){return this.present(s);}
+  /** The window-facing state: the shared view plus projected environment profiles. */
+  private published(){const s=this.present(this.store.read());s.profiles=s.profiles.map(profile=>projectEnvironment(profile,{hostId:profile.hostId,ownerId:profile.ownerId}));return s;}
+  /** Publish the committed state to the window, plugins and observers without deep copies. */
+  private broadcast(){const s=this.published();this.changed(s);this.interactionFlow?.observe(s);this.planFlow?.observe(s);this.followUps.observe();return s;}
+  private async update(fn:(state:AppState)=>void){const s=this.publicState(await this.store.update(state=>{rememberMemoryDefault(state);rememberRuntimeModel(state);fn(state);rememberMemoryDefault(state);rememberRuntimeModel(state);}));this.broadcast();return s;}
+  /**
+   * Session-scoped update for runtime event paths: copies and re-serializes one
+   * session instead of the whole application state. `change` may mutate only the
+   * session; `state` is the next revision for reads.
+   */
+  private async updateSession(id:string,change:(session:Session,state:Readonly<AppState>)=>void,options?:{persist?:'durable'|'deferred'}){const applied=await this.store.updateSession(id,change,options);if(applied)this.broadcast();return applied;}
   private sendInteraction(session:Session,id:RequestId,reply:InteractionReply){this.assertDraftRuntime(session);if(isPluginRuntime(session.binding.runtime))return this.pluginRuntimes.interaction(session.id,id,reply);if(this.providerBinding(session.binding)){if(!this.nativeProvider||session.binding.runtime==='api')throw Error('此会话未连接原生交互。');return this.nativeProvider.interaction(session.id,id,reply);}return this.nativeCodex!.interaction(session.id,id,reply);}
   private assertDraftRuntime(session:Session){if(isPluginRuntime(session.binding.runtime)){this.pluginRuntimes.entry(session);return;}if(session.binding.hostId)this.assertRemoteMaintenance(this.host(session.binding.hostId),session.binding.runtime);if(this.modelSwitching.has(session.id))throw Error('模型正在切换。');if(session.binding.runtime==='demo')return;if(this.providerBinding(session.binding)){if(session.binding.runtime==='claude'&&!this.nativeProvider)throw Error('Claude SSH 工具连接尚未就绪。');if(this.nativeProvider&&session.binding.runtime==='api')throw Error('请选择 Codex 或 Claude Code，再选择此模型来源；旧会话历史保留。');this.providerRunner(session).assertAllowed(session);return;}if(!this.nativeCodex)throw new Error('H 原生桥尚未完成该连接的工具/文件视图验收，提交已阻止。');this.nativeCodex.assertAllowed(session);}
   private assertModelIdle(session:Session){if(this.pluginRuntimes.busy(session.id)||session.archived||!['idle','blocked'].includes(session.status)||this.gate.hasPending(session.id)||this.sessionOperations.has(session.id)||this.permissionChanges.has(session.id)||this.forking.has(session.id)||this.apiRunner.busy(session.id)||this.nativeProvider?.busy(session.id)||this.nativeCodex?.busy(session.id)||this.modelSwitching.has(session.id))throw Error('请等待当前任务完成并关闭发送预览，再切换模型。');}
@@ -664,7 +698,7 @@ export class WorkbenchController {
       return {sessionId:child.id,status:this.session(child.id).status,model:target.name};
     })();this.agentSpawns.set(key,run);try{return await run;}finally{this.agentSpawns.delete(key);}
   }
-  private session(id:unknown):Session{const key=required(id,'会话ID');const session=this.store.snapshot().sessions.find(s=>s.id===key);if(!session)throw new Error('会话不存在。');return session;}
+  private session(id:unknown):Session{const key=required(id,'会话ID');const session=this.store.sessionSnapshot(key);if(!session)throw new Error('会话不存在。');return session;}
   private forkBusy(source:Session,messageId?:string){
     const historical=source.status==='running'&&!!messageId&&!forkUnavailable(source,messageId);
     return !!(this.forking.has(source.id)||this.modelSwitching.has(source.id)||this.permissionChanges.has(source.id)||
@@ -769,7 +803,9 @@ export class WorkbenchController {
     if(this.shared?.native&&['memory/settings','memory/save','memory/delete','skills/import','skills/delete'].includes(method))throw Error('旧共享库写入已停用，请使用原生记忆和技能设置。');
     if(method.startsWith('studio/'))return this.callStudio(method,p);
     switch(method){
-      case 'state/get':{const state=this.publicState(this.store.snapshot());state.profiles=state.profiles.map(profile=>projectEnvironment(profile,{hostId:profile.hostId,ownerId:profile.ownerId}));return state;}
+      case 'state/get':return this.published();
+      // Republish through the incremental state stream; the window reads its merged copy.
+      case 'state/sync':this.changed(this.published());return null;
       case 'session/metrics':return sessionMetrics(this.session(required(p.sessionId,'会话ID')));
       case 'session/catalog':return this.peerInbox.list(required(p.sourceSessionId,'来源会话ID'),object(p.options??{}));
       case 'session/public-history':return this.peerInbox.readSession(required(p.sourceSessionId,'来源会话ID'),object(p.options??{}));
@@ -788,7 +824,7 @@ export class WorkbenchController {
         return resolveAppearance(next.appearance);
       }
       case 'theme/set':{const theme=p.theme;if(theme!=='light'&&theme!=='dark'&&theme!=='system')throw new Error('无效主题。');return this.update(s=>{s.theme=theme;});}
-      case 'runtime/catalog':{const entries=await this.pluginRuntimes.registry.discover();this.changed(this.publicState(this.store.snapshot()));return entries;}
+      case 'runtime/catalog':{const entries=await this.pluginRuntimes.registry.discover();this.changed(this.published());return entries;}
       case 'runtime/select':{
         if(isPluginRuntime(p.runtime)){await this.pluginRuntimes.registry.discover(p.runtime);const entry=this.pluginRuntimes.registry.get(p.runtime);if(!entry.catalog.ready)throw Error('RUNTIME_UNAVAILABLE');const target=p.targetId?(await this.targetCatalog.list(false)).find(t=>t.id===p.targetId&&t.runtime===p.runtime&&t.ready):undefined;if(p.targetId&&!target)throw Error('RUNTIME_MODEL_UNSUPPORTED');const selection=this.pluginRuntimes.selection(p.runtime,p.selection??target?.selection);return this.update(s=>{s.lastSelectedRuntime=p.runtime as RuntimeKind;s.lastModelSelection=selection;s.lastModelTargetId=target?.id;s.lastModelHostId=undefined;});}
         const runtime=p.runtime;if(runtime!=='demo'&&runtime!=='claude'&&runtime!=='codex'&&runtime!=='api')throw new Error('不支持的运行时。');

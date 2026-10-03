@@ -51,6 +51,8 @@ interface Hooks {
   managedDirectory?:string;
   quota?:Pick<NativeQuotaAccounting,'begin'|'observe'|'finish'>;
   snapshot(): AppState; update(fn: (state: AppState) => void): Promise<unknown>;
+  /** Optional cheap paths; runners fall back to snapshot/update when absent. */
+  updateSession?(id: string, change: (session: Session) => void, options?: { persist?: 'durable' | 'deferred' }): Promise<boolean>; read?(): Readonly<AppState>; session?(id: string): Session | undefined;
   peers(id: string): ReturnType<typeof createPeerTools>; observe(id: string, source: EventEmitter): Promise<unknown>;
   context(id: string): Promise<string>; translate(id: string, message: Message): void; attachments?: AttachmentStore;
   failure?(error: unknown): void;
@@ -88,8 +90,9 @@ export class NativeProviderRunner {
   private titleControllers = new Set<AbortController>();
   private titlesClosed = false;
   constructor(private connections: ModelConnections, private cli: LocalCliService, private hooks: Hooks, private fetcher?: typeof fetch, private accounts?: LocalModelAccounts, private processFactory: (spec: ProcessSpec) => ProcessSupervisor = spec => createNativeProcess(spec)) {}
-  private session(id: string) { const session = this.hooks.snapshot().sessions.find(session => session.id === id); if (!session) throw Error('会话不存在。'); return session; }
-  private update(id: string, change: (session: Session) => void) { const attempt=this.attempt.getStore();return this.hooks.update(state => { const session = state.sessions.find(session => session.id === id); if (session&&!attempt?.detached) change(session); }); }
+  private session(id: string) { const session = this.hooks.session ? this.hooks.session(id) : this.hooks.snapshot().sessions.find(session => session.id === id); if (!session) throw Error('会话不存在。'); return session; }
+  private read(): Readonly<AppState> { return this.hooks.read?.() ?? this.hooks.snapshot(); }
+  private update(id: string, change: (session: Session) => void, persist?: 'deferred') { const attempt=this.attempt.getStore();if(this.hooks.updateSession)return this.hooks.updateSession(id, session => { if (!attempt?.detached) change(session); }, { persist });return this.hooks.update(state => { const session = state.sessions.find(session => session.id === id); if (session&&!attempt?.detached) change(session); }); }
   /** Read only the title metadata belonging to this session's native runtime environment. */
   refreshTitle(id:string):Promise<NativeTitleRefreshResult>{
     const previous=this.titleReads.get(id);if(previous)return previous;
@@ -268,14 +271,15 @@ export class NativeProviderRunner {
       active.queue = active.queue.then(()=>this.attempt.run(active,async () => {
         await ready;
         if (active.textBatch === current) active.textBatch = undefined;
+        // Streamed text is rebuilt by the native completion event, so it is persisted lazily.
         await this.update(id, session => {
           for (const [key, value] of current) {
             let message = session.messages.find(m => m.nativeItemId === key);
-            if (!message) { message = { id: randomUUID(), nativeItemId: key, nativeTurnId: session.nativeTurnId, role: 'assistant', original: '', demo: false, timestamp: new Date().toISOString(), translationStatus: 'off', modelSource: sourceLabel(session, this.hooks.snapshot()) }; session.messages.push(message); }
+            if (!message) { message = { id: randomUUID(), nativeItemId: key, nativeTurnId: session.nativeTurnId, role: 'assistant', original: '', demo: false, timestamp: new Date().toISOString(), translationStatus: 'off', modelSource: sourceLabel(session, this.read() as AppState) }; session.messages.push(message); }
             message.original += value.chunks.join('');
             if (value.phase) message.phase = value.phase;
           }
-        });
+        }, 'deferred');
       }));
       active.queue.catch(() => active.abort.abort());
     }
@@ -286,7 +290,7 @@ export class NativeProviderRunner {
     let saved: Message | undefined;
     await this.update(id, session => {
       let message = session.messages.find(message => message.nativeItemId === itemId || !!previousItemId && message.nativeItemId === previousItemId);
-      if (!message) { message = { id: randomUUID(), nativeItemId: itemId, nativeTurnId: session.nativeTurnId, role: 'assistant', original: '', demo: false, timestamp: new Date().toISOString(), translationStatus: 'off', modelSource: sourceLabel(session, this.hooks.snapshot()) }; session.messages.push(message); }
+      if (!message) { message = { id: randomUUID(), nativeItemId: itemId, nativeTurnId: session.nativeTurnId, role: 'assistant', original: '', demo: false, timestamp: new Date().toISOString(), translationStatus: 'off', modelSource: sourceLabel(session, this.read() as AppState) }; session.messages.push(message); }
       if (complete) message.nativeItemId = itemId;
       message.original = complete ? text : message.original + text; if (phase) message.phase = phase;
       if(complete)message.memoryReferences=memoryCitations(text,nativeCitation);

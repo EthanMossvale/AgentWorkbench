@@ -19,18 +19,29 @@ function historicalScope(session: Session, row: UsageRecord): UsageScope | undef
     if (!session.modelLanes?.length && session.binding.accountRuntime==='native-owner' && (target===session.binding.hostId||target===session.modelTargetId)) return usageScope(session);
   } catch { /* Unattributed legacy observations are not charged to a new source. */ }
 }
-/** Keep numeric observations when a chat is removed. Repeated snapshots replace by identity. */
-export function captureModelUsage(previous: AppState, next: AppState) {
+/**
+ * Keep numeric observations when a chat is removed. Repeated snapshots replace by identity.
+ * `only` limits the scan to sessions replaced by a session-scoped update. Their
+ * untouched peers were already captured by earlier commits, so the history and
+ * its identity are kept unless a captured row actually changes.
+ */
+export function captureModelUsage(previous: AppState, next: AppState, only?: ReadonlySet<string>) {
   const entries = new Map((next.modelUsage ?? []).map(row => [row.key, row]));
-  for (const state of [previous, next]) for (const session of state.sessions) for (const row of session.metrics?.records ?? []) {
-    const scope = historicalScope(session, row);
-    if (!scope) continue;
-    const key = JSON.stringify([session.id, row.source, row.turnId, row.id]);
-    const old = entries.get(key);
-    if (old && old.updatedAt > row.updatedAt) continue;
-    entries.set(key, { ...row, scope, key, recordedAt: old?.recordedAt ?? row.recordedAt ?? row.updatedAt });
+  let changed = false;
+  for (const state of [previous, next]) for (const session of state.sessions) {
+    if (only && !only.has(session.id)) continue;
+    for (const row of session.metrics?.records ?? []) {
+      const scope = historicalScope(session, row);
+      if (!scope) continue;
+      const key = JSON.stringify([session.id, row.source, row.turnId, row.id]);
+      const old = entries.get(key);
+      if (old && old.updatedAt > row.updatedAt) continue;
+      const entry = { ...row, scope, key, recordedAt: old?.recordedAt ?? row.recordedAt ?? row.updatedAt };
+      if (only && old && JSON.stringify(old) === JSON.stringify(entry)) continue;
+      entries.set(key, entry); changed = true;
+    }
   }
-  if (entries.size) next.modelUsage = [...entries.values()];
+  if (entries.size && (!only || changed)) next.modelUsage = [...entries.values()];
 }
 /** Refresh only this source, including corrected receipts with equal timestamps. */
 export function modelUsageRevision(state: AppState, scope: UsageScope): string {

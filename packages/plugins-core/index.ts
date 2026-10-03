@@ -86,10 +86,12 @@ export class PluginRegistry {
   writeStorage(id: string, hash: string, revision: string | null, values: Record<string, PluginJson>) { return this.storageFor(id,hash).write(revision,values); }
   private host?: (request: PluginRequest) => Promise<unknown>;
   private eventSink?: (event: PluginHostEvent) => void;
-  connectEvents(sink: (event: PluginHostEvent) => void) { this.eventSink = sink; }
+  private eventSinkAccepts?: (event: PluginHostEvent) => boolean;
+  /** `accepts` filters before the defensive copy, so unrelated events are never cloned. */
+  connectEvents(sink: (event: PluginHostEvent) => void, accepts?: (event: PluginHostEvent) => boolean) { this.eventSink = sink; this.eventSinkAccepts = accepts; }
   connectHost(call: (request: PluginRequest) => Promise<unknown>) { this.host = call; }
   publish(event: PluginHostEvent) {
-    try { this.eventSink?.(structuredClone(event)); } catch { /* A closed renderer must not fail the originating service operation. */ }
+    try { if (this.eventSink && (!this.eventSinkAccepts || this.eventSinkAccepts(event))) this.eventSink(structuredClone(event)); } catch { /* A closed renderer must not fail the originating service operation. */ }
     for (const [id, plugin] of this.runtime) for (const handler of plugin.events) {
       // Queue observers after the originating write; a faulty observer cannot fail it.
       void Promise.resolve().then(() => this.runtime.get(id) === plugin && handler(structuredClone(event))).catch(error => { this.errors.set(id, (error as Error).message); });

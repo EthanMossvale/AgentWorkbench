@@ -20,6 +20,14 @@ import { pluginSettings, coreSettingsTabs, coreSettingsLabels, type PluginSettin
 import type { PluginStorage, PluginDataSnapshot, PluginJson } from '../../../packages/plugins-core/storage-types';
 import { themePresets, type ThemePluginApi, type ThemePresetDefinition } from '../../../packages/appearance/themes';
 import { codeSyntax, type SyntaxPluginApi, type SyntaxHighlighter } from '../../../packages/appearance/syntax';
+import { stateStream } from './state-stream';
+import { readingPositions, type ReadingPosition, type ReadingPositionResolver } from './reading-positions';
+export interface ReadingPositionsPluginApi {
+  get(sessionId: string): ReadingPosition | undefined;
+  remember(sessionId: string, position: ReadingPosition): void;
+  forget(sessionId: string): void;
+  override(resolve: ReadingPositionResolver): () => void;
+}
 
 export interface RendererPluginApi {
   annotations: AnnotationsApi;
@@ -35,6 +43,8 @@ export interface RendererPluginApi {
   fileReferences:FileReferenceRecognitionApi;
   media: MediaPluginApi;
   previews: PreviewPluginApi;
+  /** Per-session reading position of the original pane; `override` replaces restoration with owned cleanup. */
+  readingPositions: ReadingPositionsPluginApi;
   version: 1; id: string; root: HTMLElement; signal: AbortSignal;
   workbench: WorkbenchApi;
   surfaces: typeof workbenchSurfaces;
@@ -161,8 +171,9 @@ export function startPluginRenderers(bridge: WorkbenchApi | undefined, shell: HT
       fileReferences: Object.freeze({code:(text:string)=>{assertActive();return fileReferenceRecognition.code(text);},subscribe:(listener:()=>void)=>{assertActive();return own(fileReferenceRecognition.subscribe(guarded(listener)));},revision:()=>{assertActive();return fileReferenceRecognition.revision();},register:(rule:import('../../../packages/navigation/file-links').FileReferenceRule)=>{assertActive();if(!rule.id.startsWith('plugin:'+entry.id+'/'))throw Error('FILE_REFERENCE_RULE_OWNER');return own(fileReferenceRecognition.register({...rule,recognize:text=>{try{assertActive();return rule.recognize(text);}catch(error){failed(error);return undefined;}}}));}}),
       version: 1 as const, id: entry.id, root: value.root, signal: value.abort.signal,
       media:Object.freeze({openImages:async(ids:string[],initialId?:string)=>{assertActive();const opened=await imageViewerController.open(ids,initialId);if(value.abort.signal.aborted||value.failed){if(imageViewerController.get()===opened)imageViewerController.close();return;}own(()=>{if(imageViewerController.get()===opened)imageViewerController.close();});},closeImages:()=>{assertActive();imageViewerController.close();},addToDraft:(ids:string[])=>{assertActive();return attachmentDraft.add(ids);},registerAttachmentAction:(definition:AttachmentActionDefinition)=>{assertActive();const handle=attachmentActions.register(entry.id,definition);return {id:handle.id,dispose:own(handle.dispose)};},setComposerSizing:(policy:Parameters<typeof setComposerSizing>[0])=>{assertActive();return own(setComposerSizing(policy));},decideTextPaste:(text:string)=>{assertActive();return textPastePolicies.decide(text);},registerTextPastePolicy:(definition:TextPastePolicy)=>{assertActive();const handle=textPastePolicies.register(entry.id,definition);return {id:handle.id,dispose:own(handle.dispose)};}}),
+      readingPositions: Object.freeze({get:(sessionId:string)=>{assertActive();return readingPositions.get(sessionId);},remember:(sessionId:string,position:ReadingPosition)=>{assertActive();readingPositions.remember(sessionId,position);},forget:(sessionId:string)=>{assertActive();readingPositions.forget(sessionId);},override:(resolve:ReadingPositionResolver)=>{assertActive();return own(readingPositions.override((sessionId,saved)=>{if(value.abort.signal.aborted||value.failed)return saved;try{return resolve(sessionId,saved);}catch(error){failed(error);return saved;}}));}}),
       previews: Object.freeze({get:()=>{assertActive();return previewController.get();},subscribe:(listener:Parameters<PreviewPluginApi['subscribe']>[0])=>{assertActive();return own(previewController.subscribe(listener));},confirm:(id:string)=>{assertActive();previewController.confirm(id);},edit:(id:string)=>{assertActive();previewController.edit(id);}}),
-      workbench: Object.freeze(Object.fromEntries(Object.entries(bridge).map(([name, method]) => [name, (...args: unknown[]) => { assertActive(); if(name.startsWith('on')&&typeof args[0]==='function')args[0]=guarded(args[0] as (...values:unknown[])=>unknown);const result = Reflect.apply(method, bridge, args); return name.startsWith('on') && typeof result === 'function' ? own(result as Cleanup) : result; }])) as unknown as WorkbenchApi),
+      workbench: Object.freeze(Object.fromEntries(Object.entries({...bridge,onState:stateStream.onState}).map(([name, method]) => [name, (...args: unknown[]) => { assertActive(); if(name.startsWith('on')&&typeof args[0]==='function')args[0]=guarded(args[0] as (...values:unknown[])=>unknown);const result = Reflect.apply(method, bridge, args); return name.startsWith('on') && typeof result === 'function' ? own(result as Cleanup) : result; }])) as unknown as WorkbenchApi),
       surfaces: workbenchSurfaces,
       mountSurface: (surface: string, placement?: SurfacePlacement) => { assertActive(); const mount = surfaces.mount(entry.id,surface,placement); return {root:mount.root,dispose:own(mount.dispose)}; },
       observeSurfaces: (surface: string, placement: SurfacePlacement, render: SurfaceRenderer) => { assertActive(); return own(surfaces.observe(entry.id,surface,placement,render,failed)); },
@@ -178,7 +189,7 @@ export function startPluginRenderers(bridge: WorkbenchApi | undefined, shell: HT
       onEvent: (listener: (event: PluginHostEvent) => void) => { assertActive(); return own(bridge.onPluginEvent?.(guarded(listener)) ?? (()=>{})); },
       call: <T = unknown>(method: string, payload?: unknown) => { assertActive(); return bridge.call<T>(method, payload); },
       command: <T = unknown>(name: string, payload?: unknown) => { assertActive(); return bridge.call<T>('extensions/command', {id: entry.id, name, payload}); },
-      onState: (listener: (state: AppState) => void) => { assertActive(); return own(bridge.onState(guarded(listener))); },
+      onState: (listener: (state: AppState) => void) => { assertActive(); return own(stateStream.onState(guarded(listener))); },
       onNavigate: (listener: (id: string) => void) => { assertActive(); return own(bridge.onNavigate(guarded(listener))); },
       onCommand: (listener: (command: DesktopCommand) => void) => { assertActive(); return own(bridge.onCommand(guarded(listener))); },
       assetUrl: async (path:string) => { assertActive(); const url=await bridge.call<string>('extensions/asset',{id:entry.id,hash:entry.hash,path});assertActive();return url; },

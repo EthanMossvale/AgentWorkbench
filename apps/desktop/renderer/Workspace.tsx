@@ -2,6 +2,7 @@ import {AnnotationCapsule,SelectionAnnotations,useContextAnnotations} from './Co
 import type {DraftRecovery} from '../../../packages/session-core/draft-recovery';
 import {annotationsNeedInputTranslation} from '../../../packages/context-annotations';
 import {annotationController} from './annotation-controller';
+import {applyReadingPosition,captureReadingPosition,readingPositions} from './reading-positions';
 import {annotationPrompt,annotationBody,type ContextAnnotation} from '../../../packages/context-annotations';
 import {FollowUpQueue} from './FollowUps';
 import {coreFollowUpModes,followUpAction} from '../../../packages/session-core/follow-ups';
@@ -134,7 +135,9 @@ export default function Workspace({ repairDraft,onRepairDraftApplied,onRememberM
   const translationSavingRef = useRef(false);
   const [reviewOpen, setReviewOpen] = useState(false); const [reviewSnapshot, setReviewSnapshot] = useState<DraftPreview | null>(null); const [autoSaving, setAutoSaving] = useState(false); const [stopping, setStopping] = useState(false); const [editingMessageId, setEditingMessageId] = useState<string | null>(null);
   const composerRef = useRef<HTMLTextAreaElement>(null);
-  const followOutput = useRef(true);
+  const followOutput = useRef(session ? readingPositions.resolve(session.id)?.follow ?? true : true);
+  // scrollTop written by the workbench; its scroll event is not reading intent.
+  const programmaticTop = useRef<number | null>(null);
   const readingRef=useRef<ConversationReadingHandle>(null);
   const composing = useRef(false);
   const [showTranslation, setShowTranslation] = useState(translationEnabled && !!session?.messages.length && window.innerWidth >= 980); const [compact, setCompact] = useState(false); const [preferredLeftWidth, setLeftWidth] = useUiPreference<number>('workspace.split'); const [activeBlock, setActiveBlock] = useState<string | null>(null); const [retrying, setRetrying] = useState<Set<string>>(new Set()); const [progressIds,setProgressIds]=useUiPreference<string[]>('workspace.progress-expanded',session?.id??'draft'); const showProgress=new Set(progressIds);
@@ -228,21 +231,63 @@ export default function Workspace({ repairDraft,onRepairDraftApplied,onRememberM
   // App keys genuine navigation separately from lazy creation, so creation never clears a live draft.
   useEffect(() => { if (state && active) composerRef.current?.focus(); }, [!!state, active]);
   useEffect(() => () => { generation.current++; if (pendingId.current) api('draft/cancel', { requestId: pendingId.current }).catch(report); if (previewRef.current) api('draft/cancel', { id: previewRef.current.id }).catch(report); pendingId.current = null; }, []);
-  useLayoutEffect(() => {
-    const element = originalRef.current;
-    if (!element || !followOutput.current) return;
+  const pinOutput = (element: HTMLElement) => {
+    if (!followOutput.current) return;
     // Avoid a layout write when the pane is already at the bottom. This runs
     // for every streamed delta, so the guard matters during long responses.
     const bottom = element.scrollHeight - element.clientHeight;
-    if (Math.abs(element.scrollTop - bottom) > 1) element.scrollTop = bottom;
+    if (Math.abs(element.scrollTop - bottom) > 1) { element.scrollTop = bottom; programmaticTop.current = element.scrollTop; }
+  };
+  useLayoutEffect(() => {
+    const element = originalRef.current;
+    if (element) pinOutput(element);
   }, [session?.messages.length, session?.messages.at(-1)?.original, session?.activities?.length, session?.activities?.at(-1)?.updatedAt,session?.nativeInteractions?.length]);
+  useEffect(() => {
+    // Deferred reading snapshots and opening disclosures grow the content after
+    // the effect above ran; follow those size changes too.
+    const element = originalRef.current;
+    if (!element) return;
+    const resize = new ResizeObserver(() => pinOutput(element));
+    const observe = () => { resize.disconnect(); for (const child of element.children) resize.observe(child); };
+    const children = new MutationObserver(observe);
+    observe(); children.observe(element, { childList: true });
+    return () => { resize.disconnect(); children.disconnect(); };
+  }, []);
+  useLayoutEffect(() => {
+    // Each session reopens where it was left: following output, or at the same text block.
+    const element = originalRef.current, id = session?.id;
+    if (!element || !id) return;
+    const saved = readingPositions.resolve(id);
+    let frame = 0, frames = 0;
+    const stop = () => { cancelAnimationFrame(frame); frame = 0; };
+    if (saved && !saved.follow) {
+      followOutput.current = false;
+      const restore = () => {
+        if (applyReadingPosition(element, saved)) programmaticTop.current = element.scrollTop;
+        // Deferred history and remembered disclosures settle over a few frames.
+        frame = ++frames < 30 ? requestAnimationFrame(restore) : 0;
+      };
+      restore();
+      for (const type of ['wheel', 'pointerdown', 'keydown', 'touchstart']) element.addEventListener(type, stop, { passive: true });
+    }
+    return () => {
+      stop();
+      for (const type of ['wheel', 'pointerdown', 'keydown', 'touchstart']) element.removeEventListener(type, stop);
+      readingPositions.remember(id, captureReadingPosition(element, followOutput.current));
+    };
+  }, [session?.id]);
   const updateFollowOutput = (element: HTMLDivElement) => {
+    // A scroll event for the workbench's own write can arrive after more content
+    // was committed; reading it as the user leaving the bottom stopped following.
+    if (programmaticTop.current !== null && Math.abs(element.scrollTop - programmaticTop.current) <= 1) return;
+    programmaticTop.current = null;
     followOutput.current = element.scrollHeight - element.scrollTop - element.clientHeight < 48;
   };
   const handleOriginalWheel = (event: React.WheelEvent<HTMLDivElement>) => {
     // Capture upward intent before Chromium dispatches the follow-up scroll
     // event. A streamed delta can otherwise win the race and pull the pane
     // back to the bottom while the user is trying to read older output.
+    programmaticTop.current = null;
     if (event.deltaY < 0) followOutput.current = false;
   };
   useEffect(() => { if (translationRef.current) translationRef.current.scrollTop = translationRef.current.scrollHeight; }, [session?.messages.length]);

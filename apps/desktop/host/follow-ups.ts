@@ -3,6 +3,8 @@ import { followUpBinding, FollowUpModeRegistry, type FollowUpAction, type Follow
 
 interface Hooks {
   snapshot(): AppState;
+  /** Optional shared read of the committed state for scans that copy nothing. */
+  read?(): Readonly<AppState>;
   update(change:(state:AppState)=>void):Promise<unknown>;
   blocked(id:string):boolean;
   canSteer(session:Session):boolean;
@@ -27,7 +29,7 @@ export class FollowUpService implements FollowUpsApi {
     await this.hooks.update(state=>{const session=state.sessions.find(s=>s.id===id)!;if(this.closed||session.nativeTurnId!==turnId||!['running','idle'].includes(session.status))throw Error('FOLLOW_UP_TURN_CHANGED');session.followUps??=[];if(session.followUps.some(item=>item.id===preview.id))throw Error('FOLLOW_UP_QUEUE_FULL_OR_DUPLICATE');session.followUps.push({id:preview.id,preview:structuredClone(preview),binding:followUpBinding(session),afterTurnId:turnId,createdAt:new Date().toISOString(),status:'queued'});});
     this.observe();return {queued:true,id:preview.id};
   }
-  observe(){if(this.closed||this.scheduled)return;this.scheduled=true;queueMicrotask(()=>{this.scheduled=false;for(const s of this.hooks.snapshot().sessions)if(!this.errors.has(s.id)&&s.followUps?.some(q=>q.status==='queued'))void this.pump(s.id).catch(()=>this.storageFailure(s.id));});}
+  observe(){if(this.closed||this.scheduled)return;this.scheduled=true;queueMicrotask(()=>{this.scheduled=false;for(const s of (this.hooks.read?.()??this.hooks.snapshot()).sessions)if(!this.errors.has(s.id)&&s.followUps?.some(q=>q.status==='queued'))void this.pump(s.id).catch(()=>this.storageFailure(s.id));});}
   private async pump(id:string){
     const session=this.session(id);if(this.closed||this.sending.has(id)||this.hooks.blocked(id)||session.status==='running')return;
     if(session.status!=='idle'||session.nativeTurnStatus!=='completed'||session.archived){await this.pause(id,'当前回合已停止、失败或结果未确认；排队消息保留。');return;}

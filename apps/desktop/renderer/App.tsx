@@ -1,5 +1,6 @@
 import DesktopUpdate from './DesktopUpdate';
 import {shareState} from './state-sharing';
+import {stateStream} from './state-stream';
 import {useUiPreference,UiPreferenceStatus} from './ui-preferences';
 import { useAppearance } from './appearance';
 import ImageViewerHost from './ImageViewerHost';
@@ -79,7 +80,8 @@ export default function App() {
   const [saving, setSaving] = useState(false);
   const selected = state?.sessions.find(s => s.id === selectedId);
   useEffect(()=>{const open=(event:Event)=>{const tab=(event as CustomEvent).detail;if(pluginSettings.has(tab)){setSettingsTab(tab);setView('settings');}};window.addEventListener('workbench-settings',open);return()=>window.removeEventListener('workbench-settings',open);},[]);
-  const receiveState = (next: AppState) => {
+  /** `streamed` states already share unchanged sessions; full reads are shared here. */
+  const receiveState = (next: AppState, streamed = false) => {
     shortcuts.receive(next.shortcuts);
     // Hydrate once; delayed state notifications must not undo a newer user choice.
     if (lastSelectedRuntime.current === null) {
@@ -87,9 +89,10 @@ export default function App() {
       lastSelectedRuntime.current = runtime;lastModelTarget.current=next.lastModelTargetId;lastModelSelection.current=next.lastModelSelection;lastModelHost.current=next.lastModelHostId;
       setNewDraft(previous => ({ ...previous, runtime,permissionMode:rememberedPermission(next,previous.projectId,runtime),modelTargetId:next.lastModelTargetId,modelSelection:next.lastModelSelection,hostId:next.lastModelHostId }));
     }
-    startTransition(() => setState(previous=>previous?shareState(previous,next):next));
+    startTransition(() => setState(previous=>previous&&!streamed?shareState(previous,next):next));
   };
-  const refresh = async () => { const next = await api<AppState>('state/get'); receiveState(next); return next; };
+  // The incremental stream already carries every change; only a cold or resyncing stream reads the full state.
+  const refresh = async () => { const streamed = await stateStream.sync(); if (streamed) { receiveState(streamed, true); return streamed; } const next = await api<AppState>('state/get'); receiveState(next); return next; };
   const report = (e: unknown) => setError(errorText(e));
   const notify = (text: string) => { setNotice(text); window.setTimeout(() => setNotice(''), 4000); };
   const closeDialog = () => { dialogEpoch.current++; setDialog(null); setSaving(false); setPickingFolders(false); };
@@ -163,7 +166,7 @@ export default function App() {
       try { const next = await api<AppState>('state/get'); if (!live || epoch !== navigationEpoch) return; receiveState(next); const destination = next.sessions.find(item => item.id === id); if (!destination) throw new Error('深度链接指向的会话不在此工作台中。'); setWorkspaceKey(++workspaceEpoch.current); pendingCreation.current = null; setSelectedId(destination.id); setShowArchive(destination.archived); setView('workspace');if(destination.unread)void api('session/update',{id:destination.id,unread:false}).then(refresh).catch(report); }
       catch (e) { if (live && epoch === navigationEpoch) report(e); }
     };
-    const stopState = window.workbench?.onState(next => { if (live) receiveState(next); });
+    const stopState = stateStream.onState(next => { if (live) receiveState(next, true); });
     const stopNavigation = window.workbench?.onNavigate?.(id => { void navigate(id); });
     const releaseShortcuts=shortcuts.configure(api);
     const releaseCommands=shortcuts.bind('global',id=>commandRef.current(id));

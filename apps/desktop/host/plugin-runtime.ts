@@ -6,7 +6,9 @@ import { RuntimeExtensionRegistry, jsonState, type RuntimeContext, type RuntimeE
 import { approvalOptions, type ApprovalReply } from '../../../packages/native-approvals';
 import { expireInteractions, isRequestId, putInteraction, validateAnswers, validateForm, type InteractionReply, type RequestId } from '../../../packages/native-interactions';
 
-interface Host { snapshot(): AppState; update(change: (state: AppState) => void): Promise<unknown>; translate(id: string, message: Message): void }
+interface Host { snapshot(): AppState; update(change: (state: AppState) => void): Promise<unknown>; translate(id: string, message: Message): void;
+  /** Optional session-scoped path; runtime events mutate only their own session. */
+  updateSession?(id: string, change: (session: Session, state: Readonly<AppState>) => void): Promise<boolean> }
 interface Run { entry: RuntimeRegistration; abort: AbortController; context: RuntimeContext; turn: string; closed: boolean; stopping: boolean; failure?: unknown; queue: Promise<void> }
 /** Executes registered adapters through the same persisted sessions and composer. */
 export class PluginRuntimeHost {
@@ -80,7 +82,8 @@ export class PluginRuntimeHost {
   private async event(id: string, run: Run, event: RuntimeEvent) {
     if(!event||JSON.stringify(event).length>1_000_000)throw Error('RUNTIME_EVENT_INVALID');
     let translated:Message|undefined;
-    await this.host.update(state=>{
+    const scoped=(apply:(state:AppState)=>void)=>this.host.updateSession?this.host.updateSession(id,(_session,state)=>apply(state as AppState)).then(found=>{if(!found)throw Error('RUNTIME_OWNER_MISMATCH');}):this.host.update(apply);
+    await scoped(state=>{
       if(run.closed||!this.registry.current(run.entry))throw Error('RUNTIME_EVENT_EXPIRED');
       const s=state.sessions.find(s=>s.id===id);if(!s||s.pluginRuntime?.owner!==run.entry.owner)throw Error('RUNTIME_OWNER_MISMATCH');
       switch(event.type){

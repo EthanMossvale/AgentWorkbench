@@ -25,6 +25,8 @@ interface Hooks {
  attachments?:AttachmentStore;
  quota?:{begin(session:Session,handle:NativeCodexHandle):Promise<void>;observe(sessionId:string,usage:unknown):void;finish(sessionId:string,handle:NativeCodexHandle):Promise<void>};
  snapshot():AppState;update(change:(state:AppState)=>void):Promise<unknown>;
+ /** Optional cheap paths; the runner falls back to snapshot/update when absent. */
+ updateSession?(id:string,change:(session:Session)=>void,options?:{persist?:'durable'|'deferred'}):Promise<boolean>;read?():Readonly<AppState>;session?(id:string):Session|undefined;
  context(sessionId:string):Promise<SharedContextOptions>;
  peers(sessionId:string):Pick<NativeCodexOptions,'peerContext'|'peerTools'>;
  observe(sessionId:string,handle:NativeCodexHandle):Promise<unknown>;
@@ -61,19 +63,20 @@ export class NativeCodexRunner {
  private restorations=new Map<string,AbortController>();
  private leases=new SessionLeaseRegistry();private ledger=new SubmissionLedger(this.leases);private closing=false;
  constructor(readonly service:NativeCodexService,private hooks:Hooks){}
- private session(id:string){const session=this.hooks.snapshot().sessions.find(item=>item.id===id);if(!session)throw Error('会话不存在。');return session;}
- private host(session:Session){const host=this.hooks.snapshot().hosts.find(item=>item.id===session.binding.hostId);if(!host)throw Error('绑定的 SSH 工作空间不存在。');return host;}
+ private session(id:string){const session=this.hooks.session?this.hooks.session(id):this.hooks.snapshot().sessions.find(item=>item.id===id);if(!session)throw Error('会话不存在。');return session;}
+ private read():Readonly<AppState>{return this.hooks.read?.()??this.hooks.snapshot();}
+ private host(session:Session){const host=this.read().hosts.find(item=>item.id===session.binding.hostId);if(!host)throw Error('绑定的 SSH 工作空间不存在。');return host;}
  supports(session:Session){try{return this.service.supports(this.host(session),session);}catch{return false;}}
  assertAllowed(session:Session){if(!this.supports(session))throw Error('H 原生桥尚未完成该连接的工具/文件视图验收，提交已阻止。');}
  busy(id:string){return this.preparing.has(id)||!!this.tracked.get(id)?.active;}
- private updateSession(id:string,change:(session:Session)=>void){const attempt=this.attempt.getStore();return this.hooks.update(state=>{const session=state.sessions.find(item=>item.id===id);if(session&&!attempt?.detached)change(session);});}
+ private updateSession(id:string,change:(session:Session)=>void,persist?:'deferred'){const attempt=this.attempt.getStore();if(this.hooks.updateSession)return this.hooks.updateSession(id,session=>{if(!attempt?.detached)change(session);},{persist});return this.hooks.update(state=>{const session=state.sessions.find(item=>item.id===id);if(session&&!attempt?.detached)change(session);});}
  private enqueue(id:string,tracked:Tracked,operation:()=>Promise<unknown>){tracked.drainText?.();tracked.textBatch=undefined;tracked.queue=tracked.queue.then(()=>tracked.detached?undefined:this.attempt.run(tracked,operation)).then(()=>{}).catch(async()=>{tracked.active=false;this.release(tracked);if(tracked.detached)return;await this.updateSession(id,s=>{s.status='uncertain';s.nativeError='保存原生事件失败；不会自动重发。';}).catch(()=>{});void this.service.close(id);});}
  private appendText(id:string,tracked:Tracked,change:(session:Session)=>void){
   if(tracked.textBatch){tracked.textBatch.push(change);return;}
   const batch=[change],windowMs=nativeEventSemantics.batchWindowMs();
   let drain:()=>void=()=>{};
   const ready=new Promise<void>(resolve=>{if(!Number.isFinite(windowMs)||windowMs<=0){resolve();return;}drain=()=>{clearTimeout(timer);if(tracked.drainText===drain)tracked.drainText=undefined;resolve();};const timer=setTimeout(drain,Math.min(windowMs,100));});
-  this.enqueue(id,tracked,async()=>{await ready;if(tracked.textBatch===batch)tracked.textBatch=undefined;await this.updateSession(id,session=>{for(const apply of batch)apply(session);});});
+  this.enqueue(id,tracked,async()=>{await ready;if(tracked.textBatch===batch)tracked.textBatch=undefined;await this.updateSession(id,session=>{for(const apply of batch)apply(session);},'deferred');});
   tracked.textBatch=batch;tracked.drainText=drain;
  }
  private release(tracked:Tracked){clearInterval(tracked.renew);if(tracked.lease){this.leases.revoke(tracked.lease.sessionId);tracked.lease=undefined;}}
@@ -139,7 +142,7 @@ export class NativeCodexRunner {
    const itemId=String(p.itemId??item.id??'');if(!itemId)return;
    const complete=v.method==='item/completed';const value=complete?item.text:p.delta;if(typeof value!=='string')return;
    let result:Message|undefined;const change=(s:Session)=>{
-    let message=s.messages.find(m=>m.nativeItemId===itemId);if(!message){message={id:randomUUID(),nativeItemId:itemId,nativeOrder:frame.sequence,role:'assistant',original:'',demo:false,timestamp:frame.receivedAt,translationStatus:'off',modelSource:s.messages.filter(m=>m.role==='user').at(-1)?.modelSource??sourceLabel(s,this.hooks.snapshot())};s.messages.push(message);}
+    let message=s.messages.find(m=>m.nativeItemId===itemId);if(!message){message={id:randomUUID(),nativeItemId:itemId,nativeOrder:frame.sequence,role:'assistant',original:'',demo:false,timestamp:frame.receivedAt,translationStatus:'off',modelSource:s.messages.filter(m=>m.role==='user').at(-1)?.modelSource??sourceLabel(s,this.read() as AppState)};s.messages.push(message);}
     if(complete&&item.type==='plan')message.planReview={receipt:randomUUID(),status:'pending'};message.original=complete?value:message.original+value;message.nativeTurnId=typeof p.turnId==='string'?p.turnId:s.nativeTurnId;message.nativeTurnEnd=false;if(complete){message.phase=item.type==='plan'||item.phase==='final_answer'?'final':item.phase==='commentary'?'commentary':undefined;message.memoryReferences=memoryCitations(value,item.type==='agentMessage'?item.memoryCitation:undefined);if(item.questions?.length){try{recordAsyncQuestions(s,message,questions(item.questions,'async'));}catch{s.nativeError='原生异步问题格式尚不支持，请在输入框直接回复。';}}}result=structuredClone(message);
    };if(complete)this.enqueue(id,t,async()=>{await this.updateSession(id,change);if(result)this.hooks.translate(id,{...result,phase:result.phase??'commentary'});});else this.appendText(id,t,change);
   }else if(v.method==='thread/tokenUsage/updated'&&p.threadId===t.handle.threadId){

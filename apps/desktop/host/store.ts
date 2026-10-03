@@ -8,7 +8,7 @@ import { mkdir, readFile, writeFile, rename, rm } from 'node:fs/promises';
 import path from 'node:path';
 import { randomUUID } from 'node:crypto';
 import { API_DEFAULTS } from '../../../packages/model-api/config';
-import type { AppState } from '../../../packages/contracts/index';
+import type { AppState, Session } from '../../../packages/contracts/index';
 import { resolvePermissionMode } from '../../../packages/session-core/permissions';
 import { initialCollaborationState } from '../../../packages/collaboration-core/types';
 import { recoverCollaborationState } from '../../../packages/collaboration-core/inbox';
@@ -27,7 +27,7 @@ export function initialState():AppState {
 export class StateStore {
   readonly sidebarOrdering = createSidebarOrderingService();
   private state=initialState();private queue:Promise<void>=Promise.resolve();
-  constructor(readonly directory:string){}
+  constructor(readonly directory:string){deepFreeze(this.state);}
   async load(){
     await mkdir(this.directory,{recursive:true,mode:0o700});
     try{const saved=JSON.parse(await readFile(path.join(this.directory,'state.json'),'utf8')) as AppState;
@@ -91,26 +91,184 @@ export class StateStore {
         for(const child of session.nativeChildren??[])for(const message of [...(child.messages??[]),...(child.taskTranslation?[child.taskTranslation]:[])])if(message.translationStatus==='pending'){message.translationStatus='failed';message.translationError='上次翻译已中断，可单独重试。';}
       }
     }catch(e){if((e as NodeJS.ErrnoException).code!=='ENOENT')throw e;}
+    deepFreeze(this.state);this.visible=this.state;
     return this.snapshot();
   }
-  snapshot(){return structuredClone(this.state);}
+  snapshot(){return structuredClone(this.visible);}
+  /**
+   * The visible state, shared by reference. Committed objects are deeply frozen
+   * and never mutated: every update replaces only the objects it changes, so
+   * unchanged sessions, messages and activities keep their identity across
+   * revisions. A durable change becomes visible only after it is written, as
+   * before; only deferred streaming partials are visible ahead of their write.
+   */
+  read():Readonly<AppState>{return this.visible;}
+  /** Deep copy of one session; avoids cloning every conversation to inspect one. */
+  sessionSnapshot(id:string):Session|undefined{const session=this.visible.sessions.find(item=>item.id===id);return session&&structuredClone(session);}
+  private visible=this.state;private visibleRevision=0;
+  private show(revision:number,state:AppState){if(revision>this.visibleRevision){this.visibleRevision=revision;this.visible=state;}}
+  /** Generic mutation of a private deep copy. Prefer updateSession for one conversation. */
   async update(mutator:(state:AppState)=>void){
-    const operation=this.queue.then(async()=>{
-      const next=this.snapshot();mutator(next);
-      captureModelUsage(this.state, next);
-      const previous = new Map(this.state.sessions.map(session => [session.id, session]));
-      const observedAt = new Date().toISOString();
-      this.sidebarOrdering.observe(this.state, next, observedAt);
-      for (const session of next.sessions) {
-        draftRecovery.observe(previous.get(session.id), session);
-        observeTurnTiming(previous.get(session.id), session, observedAt);
-      }
-      const temp=path.join(this.directory,`state-${randomUUID()}.tmp`);
-      await writeFile(temp,JSON.stringify(next,null,2),{mode:0o600});
-      await rename(temp,path.join(this.directory,'state.json'));this.state=next;
-    });this.queue=operation.catch(()=>{});await operation;return this.snapshot();
+    // Boxed so the in-memory queue does not wait for the disk write it schedules.
+    const operation=this.queue.then(()=>{
+      const previous=this.state,next=structuredClone(previous) as AppState;mutator(next);
+      this.observe(previous,next);this.share(previous,next);return {written:this.commit(next)};
+    });this.queue=operation.then(()=>{},()=>{});await (await operation).written;return this.snapshot();
+  }
+  /**
+   * Session-scoped mutation. `change` may mutate only `session`; `state` is the
+   * next revision for reads. The draft copies the session shell, its arrays and
+   * their newest entries; older entries stay frozen and shared. A change that
+   * writes to a shared entry is replayed once on a complete copy, so callers see
+   * ordinary mutable data either way. Returns false without committing when the
+   * session no longer exists.
+   * `persist:'deferred'` resolves after the in-memory commit and writes within
+   * DEFERRED_WRITE_MS; use it only for streamed partials that a later durable
+   * update supersedes (native completion events, final API saves).
+   */
+  async updateSession(id:string,change:(session:Session,state:Readonly<AppState>)=>void,options:{persist?:'durable'|'deferred'}={}){
+    const operation=this.queue.then(()=>{
+      const previous=this.state,index=previous.sessions.findIndex(item=>item.id===id);
+      if(index<0)return undefined;
+      const before=previous.sessions[index]!,only=new Set([id]);
+      const attempt=(draft:Session)=>{const sessions=previous.sessions.slice();sessions[index]=draft;const next:AppState={...previous,sessions};change(draft,next);this.observe(previous,next,only);return next;};
+      let next:AppState;
+      try{next=attempt(draftSession(before));}
+      catch(error){if(!frozenWrite(error))throw error;next=attempt(structuredClone(before));}
+      next.sessions[index]=this.finalize(before,next.sessions[index]!);
+      if(next.sidebarSessionOrder&&previous.sidebarSessionOrder&&next.sidebarSessionOrder.length===previous.sidebarSessionOrder.length&&next.sidebarSessionOrder.every((item,i)=>item===previous.sidebarSessionOrder![i]))next.sidebarSessionOrder=previous.sidebarSessionOrder;
+      return {written:this.commit(next,options.persist==='deferred')};
+    });this.queue=operation.then(()=>{},()=>{});const result=await operation;if(!result)return false;await result.written;return true;
+  }
+  /** Resolves once every committed revision is on disk; used before exit, relocation and updates. */
+  async flush(){await this.queue;if(this.deferredTimer){clearTimeout(this.deferredTimer);this.deferredTimer=undefined;}if(this.written<this.committed)await this.persist();else await this.writing;}
+  private observe(previous:AppState,next:AppState,only?:ReadonlySet<string>){
+    captureModelUsage(previous,next,only);
+    const before=new Map(previous.sessions.map(session=>[session.id,session]));
+    const observedAt=new Date().toISOString();
+    this.sidebarOrdering.observe(previous,next,observedAt);
+    for(const session of next.sessions){
+      if(only&&!only.has(session.id))continue;
+      draftRecovery.observe(before.get(session.id),session);
+      observeTurnTiming(before.get(session.id),session,observedAt);
+    }
+  }
+  /** Restore the committed identity of everything a generic update left unchanged. */
+  private share(previous:AppState,next:AppState){
+    const before=new Map(previous.sessions.map(session=>[session.id,session]));
+    next.sessions=next.sessions.map(session=>{const old=before.get(session.id);return old?this.finalize(old,session):isolate(session) as Session;});
+    const target=next as unknown as Record<string,unknown>,source=previous as unknown as Record<string,unknown>;
+    for(const key of Object.keys(target))if(key!=='sessions'&&target[key]!==source[key]&&target[key]!==null&&typeof target[key]==='object')target[key]=Object.hasOwn(source,key)&&this.same(target[key],source[key])?source[key]:isolate(target[key]);
+  }
+  /**
+   * Committed form of a changed session: equal fields and array entries reuse
+   * the previous objects; new values are copied so committed state never aliases
+   * objects a caller keeps.
+   */
+  private finalize(old:Session,draft:Session):Session{
+    const before=old as unknown as Record<string,unknown>,after=draft as unknown as Record<string,unknown>,result:Record<string,unknown>={};
+    const keys=Object.keys(after);let same=keys.length===Object.keys(before).length;
+    for(const key of keys){
+      const value=after[key],previous=before[key];let shared:unknown;
+      if(value===previous)shared=previous;
+      else if(Array.isArray(value)&&Array.isArray(previous))shared=this.shareArray(previous,value);
+      else if(value!==null&&typeof value==='object'&&previous!==null&&typeof previous==='object'&&this.same(value,previous))shared=previous;
+      else shared=isolate(value);
+      if(shared!==previous||!Object.hasOwn(before,key))same=false;
+      result[key]=shared;
+    }
+    return same?old:result as unknown as Session;
+  }
+  private shareArray(previous:unknown[],next:unknown[]){
+    if(next.length===previous.length&&next.every((item,index)=>item===previous[index]))return previous;
+    const known=new Set(previous);
+    const result=next.map((item,index)=>known.has(item)?item:item!==null&&typeof item==='object'&&index<previous.length&&this.same(item,previous[index])?previous[index]:isolate(item));
+    return result.length===previous.length&&result.every((item,index)=>item===previous[index])?previous:result;
+  }
+  /** Encoded JSON, cached for frozen (committed) objects; equal to JSON.stringify. */
+  private bytes(value:unknown):Buffer{
+    if(value===null||typeof value!=='object')return Buffer.from(JSON.stringify(value)??'null');
+    const frozen=Object.isFrozen(value),cached=frozen?this.encoded.get(value):undefined;if(cached)return cached;
+    const bytes=Buffer.from(JSON.stringify(value));if(frozen)this.encoded.set(value,bytes);return bytes;
+  }
+  private same(a:unknown,b:unknown){return this.bytes(a).equals(this.bytes(b));}
+  private encoded=new WeakMap<object,Buffer>();
+  /** Session JSON as cached chunks: unchanged messages and activities are never re-encoded or copied. */
+  private serialized(session:Session):Buffer[]{
+    let chunks=this.sessionBytes.get(session);if(chunks)return chunks;
+    chunks=[];let first=true;
+    for(const [key,value] of Object.entries(session)){
+      if(value===undefined||typeof value==='function')continue;
+      const name=(first?'{':',')+JSON.stringify(key)+':';first=false;
+      if(!Array.isArray(value)){chunks.push(Buffer.from(name),this.bytes(value));continue;}
+      chunks.push(Buffer.from(name+'['));
+      value.forEach((item,index)=>{if(index)chunks!.push(COMMA);chunks!.push(item===undefined||typeof item==='function'?NULL:this.bytes(item));});
+      chunks.push(CLOSE_ARRAY);
+    }
+    chunks.push(first?EMPTY_OBJECT:CLOSE_OBJECT);this.sessionBytes.set(session,chunks);return chunks;
+  }
+  private sessionBytes=new WeakMap<Session,Buffer[]>();
+  private committed=0;private written=0;private writing:Promise<void>=Promise.resolve();private writeWaiters:{revision:number;resolve():void;reject(error:unknown):void}[]=[];private deferredTimer?:ReturnType<typeof setTimeout>;
+  /** Group commit: one write covers every revision committed before it starts. */
+  private commit(next:AppState,deferred=false):Promise<void>{
+    deepFreeze(next);
+    this.state=next;const revision=++this.committed;
+    if(deferred){this.show(revision,next);if(!this.deferredTimer&&!this.draining)this.deferredTimer=setTimeout(()=>{this.deferredTimer=undefined;void this.persist().catch(()=>{});},DEFERRED_WRITE_MS);return Promise.resolve();}
+    const written=new Promise<void>((resolve,reject)=>this.writeWaiters.push({revision,resolve,reject}));
+    void this.persist().catch(()=>{});return written;
+  }
+  private draining=false;
+  private persist():Promise<void>{
+    if(this.draining)return this.writing;
+    if(this.deferredTimer){clearTimeout(this.deferredTimer);this.deferredTimer=undefined;}
+    this.draining=true;
+    this.writing=(async()=>{
+      try{
+        while(this.written<this.committed){
+          const revision=this.committed,written=this.state,{sessions,...root}=written,head=JSON.stringify(root),comma=Buffer.from(',');
+          const chunks:Buffer[]=[Buffer.from(`${head.slice(0,-1)}${head.length>2?',':''}"sessions":[`)];
+          sessions.forEach((session,index)=>{if(index)chunks.push(comma);for(const chunk of this.serialized(session))chunks.push(chunk);});chunks.push(Buffer.from(']}'));
+          const temp=path.join(this.directory,`state-${randomUUID()}.tmp`);
+          try{await writeFile(temp,Buffer.concat(chunks),{mode:0o600});await replaceFile(temp,path.join(this.directory,'state.json'));}
+          // Memory stays committed and the next update retries the write; every
+          // waiting durable update observes the failure instead of hanging.
+          catch(error){await rm(temp,{force:true}).catch(()=>{});this.settle(Infinity,error);throw error;}
+          this.written=revision;this.show(revision,written);this.settle(revision);
+        }
+      }finally{this.draining=false;}
+    })();
+    return this.writing;
+  }
+  private settle(revision:number,error?:unknown){
+    const done=this.writeWaiters.filter(waiter=>waiter.revision<=revision);this.writeWaiters=this.writeWaiters.filter(waiter=>waiter.revision>revision);
+    for(const waiter of done)if(error===undefined)waiter.resolve();else waiter.reject(error);
   }
 }
+const COMMA=Buffer.from(','),NULL=Buffer.from('null'),CLOSE_ARRAY=Buffer.from(']'),CLOSE_OBJECT=Buffer.from('}'),EMPTY_OBJECT=Buffer.from('{}');
+/** Upper bound on how long streamed text may stay in memory only. */
+export const DEFERRED_WRITE_MS=750;
+/** Newest entries copied into a session draft; runtime events touch these. Other arrays are copied whole. */
+const DRAFT_TAIL:Record<string,number>={messages:4,activities:16,nativeChildren:4};
+function draftSession(session:Session):Session{
+  const draft:Record<string,unknown>={};
+  for(const [key,value] of Object.entries(session)){
+    if(Array.isArray(value)){const tail=DRAFT_TAIL[key];draft[key]=tail===undefined?structuredClone(value):value.map((item,index)=>index>=value.length-tail?structuredClone(item):item);}
+    else draft[key]=value!==null&&typeof value==='object'?structuredClone(value):value;
+  }
+  return draft as unknown as Session;
+}
+/** A strict-mode write into frozen committed state. */
+function frozenWrite(error:unknown){return error instanceof TypeError&&/read[ -]only|not extensible|Cannot (add|delete|define|redefine) property|Cannot assign to/.test(error.message);}
+/** Copy everything that is not already committed (frozen) state. */
+function isolate(value:unknown):unknown{
+  if(value===null||typeof value!=='object'||Object.isFrozen(value))return value;
+  if(Array.isArray(value))return value.map(isolate);
+  const result:Record<string,unknown>={};for(const [key,item] of Object.entries(value))result[key]=isolate(item);return result;
+}
+/** Windows refuses to replace a file another process (indexer, antivirus, reader) holds open; retry briefly. */
+async function replaceFile(from:string,to:string){for(let attempt=0;;attempt++){try{await rename(from,to);return;}catch(error){const code=(error as NodeJS.ErrnoException).code;if(attempt>=20||!['EPERM','EACCES','EBUSY'].includes(code??''))throw error;await new Promise(resolve=>setTimeout(resolve,Math.min(100,10*(attempt+1))));}}}
+/** Committed state is immutable; a write to it throws in the (strict-mode) host instead of corrupting shared revisions. */
+function deepFreeze(value:unknown){if(!value||typeof value!=='object'||Object.isFrozen(value))return;Object.freeze(value);for(const item of Object.values(value))deepFreeze(item);}
 export interface CryptoStore { encrypt(text:string):Buffer;decrypt(data:Buffer):string }
 export class SecretStore {
   private modelFile(id:string){if(!/^[a-f0-9-]{36}$/.test(id))throw Error('Invalid model credential reference.');return path.join(this.directory,`model-${id}.bin`);}

@@ -47,6 +47,7 @@ import { claudeReferenceFont, referenceFontResponse } from './claude-reference-f
 import { PluginRecoveryStore } from '../../../packages/plugins-core/recovery';
 import { acknowledgePluginRepairDraft, readPluginRepairDraft, writeRecoveryLanguage } from '../../../packages/plugins-core/repair-draft';
 import { repairCompatibilityBatch } from '../../../packages/plugins-core/compatibility-repair';
+import { createStatePublisher } from '../../../packages/session-core/state-stream';
 
 if(!isRecoveryGuardian)protocol.registerSchemesAsPrivileged([{scheme:'awb-preview',privileges:{standard:true,secure:true,supportFetchAPI:true,corsEnabled:true}},{scheme:'awb-font',privileges:{standard:true,secure:true,supportFetchAPI:true,corsEnabled:true}}]);
 app.setName('AgentWorkbench');
@@ -117,6 +118,11 @@ async function boot(){
   ...getLocalExecutorCapabilities(),
   {id:'egress',label:'原生模型远端出网',status:'unverified' as const,detail:'尚未执行真实模型任务和网络出口验证，不以进程位置代替证据。'}
  ].map(item=>accepted()&&['codex-h-native','local-executor-contract','egress'].includes(item.id)?{...item,status:'implemented' as const,detail:item.id==='egress'?'已验收绑定的 Codex 0.155.1：真实模型任务期间，VPS 原生进程具有外部 HTTPS 连接；未宣称工具网络也统一从 VPS 出口。':'已验收绑定的 Codex 0.155.1：VPS 原生认证、本机文件读取/补丁/PowerShell、审批、恢复和停止清理；其它连接仍须独立验收。'}:item);
+ // Only changed root fields and sessions cross IPC; a reload or resync request sends everything.
+ const statePublisher=createStatePublisher();let publishedState:import('../../../packages/contracts').AppState|undefined;
+ const sendState=()=>{if(!publishedState||window.isDestroyed())return;const patch=statePublisher.next(publishedState);if(patch)window.webContents.send('workbench:state-patch',patch);};
+ window.webContents.on('did-start-loading',()=>statePublisher.reset());
+ ipcMain.on('workbench:state-resync',event=>{if(event.sender!==window.webContents)return;statePublisher.reset();sendState();});
  const controller=new WorkbenchController(state,secrets,{
   worktrees:new WorktreeService(directory),
   generatedImageDecoder:data=>decodeGeneratedImage(data,script=>window.webContents.executeJavaScript(script)),
@@ -145,7 +151,7 @@ async function boot(){
   getNavigation:()=>navigationSessionId,
   openSession:sessionId=>{if(lifecycle.isQuitting()||window.isDestroyed())throw Error('SESSION_NAVIGATION_UNAVAILABLE');navigationSessionId=sessionId;window.webContents.send('workbench:navigate',sessionId);},
   openPath:async target=>{const failure=await shell.openPath(target);if(failure)throw new Error('无法在文件管理器打开目录。');},openExternal:async url=>{if(!officialLoginUrl(url,'codex')&&!officialLoginUrl(url,'claude'))throw new Error('LOCAL_ACCOUNT_BROWSER_URL_REJECTED');await shell.openExternal(url);},copy:value=>clipboard.writeText(value),nativeCapabilities:capabilities
- },updated=>{const changed=nativeTheme.themeSource!==updated.theme;if(changed)nativeTheme.themeSource=updated.theme;const nextShortcuts=JSON.stringify(updated.shortcuts);if(changed||nextShortcuts!==shortcutRevision){shortcutRevision=nextShortcuts;desktopMenu?.refresh();}shared.native?.plugins.publish({type:'state',payload:updated});if(!window.isDestroyed())window.webContents.send('workbench:state',updated);},shared);
+ },updated=>{const changed=nativeTheme.themeSource!==updated.theme;if(changed)nativeTheme.themeSource=updated.theme;const nextShortcuts=JSON.stringify(updated.shortcuts);if(changed||nextShortcuts!==shortcutRevision){shortcutRevision=nextShortcuts;desktopMenu?.refresh();}shared.native?.plugins.publish({type:'state',payload:updated});publishedState=updated;sendState();},shared);
  hasSessionWork=()=>controller.hasActiveSessionWork();
  controller.remoteConfigurations.subscribe(()=>{if(!window.isDestroyed())window.webContents.send('workbench:extensions');});
  controller.localAccounts.access.subscribe(()=>{if(!window.isDestroyed())window.webContents.send('workbench:extensions');});
@@ -197,20 +203,20 @@ async function boot(){
  dataDirectoryService=new DataDirectoryService({directory,defaultDirectory:dataLocation?.defaultDirectory??directory,locator:installedLocation?.locator,testOverride:testRelocation,
   busy:()=>updateInstalling||controller.hasActiveSessionWork()||state.snapshot().sessions.some(session=>session.status==='running'||session.status==='uncertain')||shared.native!.cli.isMaintaining(),
   pick:async kind=>{const result=await dialog.showOpenDialog(window,{title:kind==='codex'?'选择 Codex 原生安装目录的父目录':'选择工作台资料所在的磁盘和目录',properties:['openDirectory','createDirectory']});if(result.canceled)return null;const parent=result.filePaths[0];return parent?kind==='codex'?path.join(parent,'Codex'):path.join(parent,'AgentWorkbenchData',path.basename(installedLocation?.directory??directory)):null;},
-  flush:async()=>{await flushRenderer();await windowState.flush();},
+  flush:async()=>{await flushRenderer();await windowState.flush();await state.flush();},
   relocate:testRelocation?target=>{relocateAppData(directory,target);testRelocationTarget=target;}:undefined,
   restart:()=>{if(testRelocation&&testRelocationTarget){process.env.AGENT_WORKBENCH_TEST_DATA=testRelocationTarget;}app.relaunch();app.quit();},
  });
  const distribution:unknown=JSON.parse(readFileSync(path.join(app.getAppPath(),'package.json'),'utf8')).workbenchDistribution;
- const desktopUpdates=new DesktopUpdates(()=>createDesktopUpdateBackend(async()=>{updateInstalling=true;try{await flushRenderer();await windowState.flush();}catch(error){updateInstalling=false;throw error;}},()=>{updateInstalling=false;}),()=>!!dataDirectoryService?.isChanging()||controller.hasActiveSessionWork()||state.snapshot().sessions.some(s=>s.status==='running'||s.status==='uncertain'),desktopUpdatesEnabled({packaged:app.isPackaged,platform:process.platform,testProfile:!!userDataOverride,distribution}));
+ const desktopUpdates=new DesktopUpdates(()=>createDesktopUpdateBackend(async()=>{updateInstalling=true;try{await flushRenderer();await windowState.flush();await state.flush();}catch(error){updateInstalling=false;throw error;}},()=>{updateInstalling=false;}),()=>!!dataDirectoryService?.isChanging()||controller.hasActiveSessionWork()||state.snapshot().sessions.some(s=>s.status==='running'||s.status==='uncertain'),desktopUpdatesEnabled({packaged:app.isPackaged,platform:process.platform,testProfile:!!userDataOverride,distribution}));
  const stopUpdateEvents=desktopUpdates.subscribe(payload=>shared.native!.plugins.publish({type:'plugin',id:'workbench.updates',topic:'changed',payload}));
  const core=async(request:{method:string;payload:unknown})=>request.method==='desktop-updates/status'?desktopUpdates.snapshot():request.method==='desktop-updates/check'?desktopUpdates.check():request.method==='desktop-updates/install'?desktopUpdates.install():request.method.startsWith('plugin-recovery/')?recoveryCall(request.method,request.payload):request.method==='branding/get'?shared.native!.plugins.branding.get():request.method==='branding/list'?shared.native!.plugins.branding.list():request.method==='ui-preferences/get'?uiPreferences.snapshot():request.method==='ui-preferences/update'?uiPreferences.update(request.payload as import('../../../packages/ui-preferences').UiPreferenceChange):request.method==='ui-preferences/flush-ready'?(flushAcknowledged?.((request.payload as {token:string}).token),null):request.method==='visualizations/instructions'?visualizationPresentation.instructions((request.payload as {runtime?:string})?.runtime):request.method==='visualizations/read'?(()=>{const p=request.payload as {sessionId?:string;path:string};const session=state.snapshot().sessions.find(s=>s.id===p.sessionId);if(p.sessionId&&!session)throw Error('VISUALIZATION_SESSION_UNAVAILABLE');return htmlPreviews.readVisualization(session?.projectPath??'',p.path);})():request.method==='visualizations/render'?htmlPreviews.createVisualization(request.payload as import('../../../packages/visualizations/document').VisualizationPageOptions):request.method==='visualizations/release'?htmlPreviews.releaseVisualization((request.payload as {url:string}).url):request.method==='html/preview'?(()=>{const p=request.payload as {sessionId?:string;path:string};const cwd=state.snapshot().sessions.find(s=>s.id===p.sessionId)?.projectPath??'';return htmlPreviews.create(cwd,p.path);})():request.method==='desktop/titlebar'?desktopMenu!.setAppearance(request.payload):request.method==='desktop/action'?desktopMenu!.execute((request.payload as {id?:unknown})?.id):request.method==='desktop/menu'?desktopMenu!.popup((request.payload??{}) as Record<string,unknown>):request.method==='desktop/data-directory'?dataDirectoryService!.get():request.method==='desktop/data-directory/choose'?dataDirectoryService!.choose((request.payload as {kind?:'codex'})?.kind):request.method==='desktop/data-directory/migrate'?dataDirectoryService!.migrate((request.payload as {target:string})?.target):request.method==='desktop/info'?{version:app.getVersion()}:controller.call(request.method,request.payload);
  shared.native.plugins.connectHost(core);
- shared.native.plugins.connectEvents(event=>{if(event.type==='plugin'&&!window.isDestroyed())window.webContents.send('workbench:plugin-event',event);});
+ shared.native.plugins.connectEvents(event=>{if(!window.isDestroyed())window.webContents.send('workbench:plugin-event',event);},event=>event.type==='plugin');
  desktopMenu=installDesktopMenu(window,()=>state.snapshot().theme,value=>shared.native!.plugins.dispatch({method:'theme/set',payload:{theme:value}},core),async()=>{guardian?.show();},()=>state.snapshot().shortcuts,()=>{void windowState.zoomChanged();});
  const cleanupTimer=setInterval(()=>{void controller.maintainWorktrees().catch(()=>{});void controller.maintainRemote().catch(()=>{});},60000);cleanupTimer.unref();
  const stopBrandingEvents=shared.native.plugins.branding.subscribe(payload=>shared.native!.plugins.publish({type:'plugin',id:'workbench.branding',topic:'changed',payload}));
- const lifecycle=installTray(window,async()=>{desktopUpdates.dispose();stopUpdateEvents();stopBrandingEvents();clearInterval(cleanupTimer);stopBootWatch();await flushRenderer();await windowState.flush();windowState.dispose();await controller.dispose();await recovery.closed();guardian?.close();},!!userDataOverride,shared.native.plugins.branding);
+ const lifecycle=installTray(window,async()=>{desktopUpdates.dispose();stopUpdateEvents();stopBrandingEvents();clearInterval(cleanupTimer);stopBootWatch();await flushRenderer();await windowState.flush();windowState.dispose();await controller.dispose();await state.flush().catch(()=>{});await recovery.closed();guardian?.close();},!!userDataOverride,shared.native.plugins.branding);
  const developmentServices:Record<string,object|undefined>={
   ...controller.developmentServices(),
   'desktop.updates':desktopUpdates,
