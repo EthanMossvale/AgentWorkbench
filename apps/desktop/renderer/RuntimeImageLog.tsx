@@ -12,7 +12,7 @@ function Thumbnails({sessionId,item}:{sessionId?:string;item:RuntimeActivity}) {
   useEffect(()=>{
     let live=true;setImages(null);setError('');
     if(!sessionId){setError('此图像日志没有可用的预览来源。');return;}
-    void api<AttachmentView[]>('attachments/activity-images',{sessionId,activityId:item.id}).then(value=>{if(live)setImages(value);}).catch(reason=>{if(live)setError(String(reason).includes('REMOTE_UNAVAILABLE')?'运行时未提供可在本机预览的图片。':String(reason).includes('PROTECTED')?'图片路径位于受保护的配置或凭据目录，无法预览。':'图片暂不可用，原文件可能已移动或更改。');});
+    void api<AttachmentView[]>('attachments/activity-images',{sessionId,activityId:item.id}).then(value=>{if(live)setImages(value);}).catch(reason=>{if(live)setError(String(reason).includes('REMOTE_UNAVAILABLE')?'运行时未提供可在本机预览的图片。':'图片暂不可用，原文件可能已移动或更改。');});
     return()=>{live=false;};
   },[sessionId,item.id,sourceKey,item.status,retry]);
   return <div className="runtime-image-thumbnails">{images?<AttachmentList items={images} presentation="thumbnails" context="activity"/>:error?<p role="status">{error} <button type="button" className="text-button" onClick={()=>setRetry(value=>value+1)}>重新读取</button></p>:<p role="status">正在读取图片…</p>}</div>;

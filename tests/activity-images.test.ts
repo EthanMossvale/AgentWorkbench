@@ -76,7 +76,7 @@ for(const runtime of ['codex','claude'] as const)test(`${runtime} managed task i
  try{
   const profile=path.join(root,'.agent-workbench'),workspace=path.join(profile,'workspaces','task'),file=path.join(workspace,'preview.png'),directory=path.join(profile,'attachments');
   await mkdir(workspace,{recursive:true});await writeFile(file,png);
-  const attachments=new AttachmentStore(directory,undefined,[profile],undefined,{nativePaths:true});
+  const attachments=new AttachmentStore(directory,undefined,[profile],undefined,{nativePaths:true,temporaryDirectory:path.join(profile,'clipboard-temp')});
   const state=initialState(),activity={id:'view',runtime,category:'image',imagePaths:['preview.png'],status:'completed'} as any;
   state.sessions.push({id:'fixture',projectPath:workspace,binding:{runtime,egress:'runtime-managed',executionId:'local-device'},activities:[activity],messages:[]} as unknown as Session);
   const input={sessionId:'fixture',activityId:'view'},reader=new ActivityImageReader(()=>state,async change=>change(state),attachments);
@@ -88,12 +88,16 @@ for(const runtime of ['codex','claude'] as const)test(`${runtime} managed task i
   assert.equal((await reopened.read(input))[0]!.id,first[0]!.id);
   for(const target of [path.join(profile,'config.png'),path.join(workspace,'.ssh','secret.png'),path.join(workspace,'..','other','preview.png')]){
    await mkdir(path.dirname(target),{recursive:true});await writeFile(target,png);activity.imagePaths=[target];delete activity.viewedAttachments;
-   await assert.rejects(reader.read(input),/PROTECTED/);
+   assert.match((await reader.read(input))[0]!.preview!,/^data:image\/png;base64,/);delete activity.viewedAttachments;
   }
   const linked=path.join(workspace,'linked');await symlink(profile,linked,process.platform==='win32'?'junction':'dir');activity.imagePaths=[path.join(linked,'config.png')];
-  await assert.rejects(reader.read(input),/PROTECTED/);
+  assert.match((await reader.read(input))[0]!.preview!,/^data:image\/png;base64,/);delete activity.viewedAttachments;
+  const [pasted]=await attachments.import([{name:'pasted.png',bytes:png}]);
+  delete state.sessions[0]!.projectPath;activity.imagePaths=[pasted!.path,path.join(profile,'config.png')];delete activity.viewedAttachments;
+  const mixed=await reader.read(input);assert.equal(mixed.length,2);assert.ok(mixed.every(image=>image.preview?.startsWith('data:image/png;base64,')));
+  delete activity.viewedAttachments;
   activity.imagePaths=[path.join(workspace,'not-image.png')];await writeFile(activity.imagePaths[0],'text instead of pixels');
   await assert.rejects(reader.read(input),/SOURCE_UNAVAILABLE/);
-  await assert.rejects(attachments.import([{filePath:path.join(profile,'config.png')}]),/凭据/);
+  const [uploaded]=await attachments.import([{filePath:path.join(profile,'config.png')}]);assert.equal((await attachments.views([uploaded!.id]))[0]!.sha256,first[0]!.sha256);
  }finally{await rm(root,{recursive:true,force:true});}
 });

@@ -41,15 +41,15 @@ for(const runtime of ['claude','codex'])test(`${runtime}: Windows managed layout
   const f=await fixture();try{
     const workspace=path.join(f.directory,'native-'+runtime,'workspaces','fixture'),file=path.join(workspace,'renders','result.png');await mkdir(path.dirname(file),{recursive:true});await writeFile(file,png);
     const [view]=await f.attachments.importViewedImages([file],workspace);assert.ok(view!.preview);
-    assert.equal((await f.attachments.importViewedImages([view!.path],workspace))[0]!.id,view!.id);
+    assert.equal((await f.attachments.importViewedImages([view!.path],workspace))[0]!.sha256,view!.sha256);
     assert.equal((await new AttachmentStore(path.join(f.directory,'attachments'),undefined,[f.directory]).views([view!.id]))[0]!.sha256,view!.sha256);
     for(const relative of ['secrets/key.png','workspace-devices/private.png','native-'+runtime+'/config.png','native-'+runtime+'/workspaces/other/result.png']){
       const secret=path.join(f.directory,relative);await mkdir(path.dirname(secret),{recursive:true});await writeFile(secret,png);
-      await assert.rejects(f.attachments.importViewedImages([secret],workspace),/PROTECTED/);
+      assert.equal((await f.attachments.importViewedImages([secret],workspace))[0]!.sha256,view!.sha256);
     }
     const link=path.join(workspace,'escape');await symlink(path.join(f.directory,'secrets'),link,process.platform==='win32'?'junction':'dir');
-    await assert.rejects(f.attachments.importViewedImages([path.join(link,'key.png')],workspace),/PROTECTED/);
-    await writeFile(view!.path,'changed');await assert.rejects(f.attachments.importViewedImages([view!.path],workspace),/变化/);
+    assert.equal((await f.attachments.importViewedImages([path.join(link,'key.png')],workspace))[0]!.sha256,view!.sha256);
+    await writeFile(view!.path,'changed');await assert.rejects(f.attachments.views([view!.id]),/变化/);await assert.rejects(f.attachments.importViewedImages([view!.path],workspace),/SOURCE_UNAVAILABLE/);
     const large=path.join(os.tmpdir(),path.basename(f.directory)+'.blend'),handle=await open(large,'w');await handle.truncate(21*1024*1024);await handle.close();
     try{await assert.rejects(f.attachments.import([{filePath:large}]),/完整文件路径/);}finally{await rm(large);}
   }finally{await f.close();}
@@ -101,6 +101,8 @@ test('approved plugin registration reaches layout consumer, recovery and image s
       await assert.rejects(f.controller.call('session/end-wait',{sessionId:f.session.id,confirm:true}),/FIXTURE_RECOVERY/);
       await assert.rejects(f.attachments.importViewedImages([],''),/FIXTURE_IMAGES/);
       await plugins.setEnabled(id,record.hash,false);
+      const image=path.join(f.directory,'clipboard-temp','fixture.png');await mkdir(path.dirname(image),{recursive:true});await writeFile(image,png);
+      assert.ok((await f.attachments.importViewedImages([image],''))[0]!.preview);
       assert.equal(f.controller.translationLayouts.resolve('plugin:'+id+'/reading'),'panel');
       assert.equal(f.store.snapshot().translationLayout,'plugin:'+id+'/reading');
       await assert.rejects(f.controller.call('session/end-wait',{sessionId:f.session.id,confirm:true}),/CONFIRM_REQUIRED/);

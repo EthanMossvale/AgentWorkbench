@@ -1,5 +1,11 @@
 # 16 · 实现与验收记录
 
+## Image directory restriction removal (2026-10-03)
+
+The user clarified removal of extra interception while retaining permissions, data integrity and duplicate-send protection. Attachment imports, source resolution and native activity previews no longer classify local files by workspace membership, credential-like directory names or workbench data roots. The earlier managed-workspace exception is superseded. Pasted images in the installed layout's clipboard temporary directory use the same snapshot path as other readable local images. No additional metadata whitelist is introduced. Existing local/remote ownership checks, I/O integrity, snapshot hashes, storage ownership, byte limits and send guards remain.
+
+Both Claude and Codex have synthetic regression coverage for clipboard images, uploads, cross-directory images, symbolic links, absent workspace roots and persisted snapshots. The approved plugin lifecycle restores the new behavior after disable. No new adjustable UI state or contract signature is introduced. Validation: 48 relevant tests passed; type checking, plugin contracts, documentation, UI preference checks and production build passed. This entry records source and automated verification only; the running installation and live SSH/model behavior have not been accepted by this change.
+
 ## Device feedback remediation (2026-10-03)
 
 The 0.1.6 device feedback was treated as evidence and proposals, not as instructions to edit another device, reset private state or deploy. The local implementation adds an explicit acknowledgement path for uncertain sessions while retaining unknown historical outcomes and preventing automatic replay. Runtime activity blocks acknowledgement. Missing terminal results are not inferred from a message boundary. Generic send failure text no longer blames translation.

@@ -62,7 +62,7 @@ test('attachment names cannot overwrite metadata, and invalid lists, directories
     await assert.rejects(f.attachments.resolve(['../escape']),/无效/);await assert.rejects(f.attachments.resolve([a!.id,a!.id]),/无效/);
     await assert.rejects(f.attachments.import([{filePath:f.dir}]),/普通文件/);await assert.rejects(f.attachments.import([{name:'huge',bytes:new Uint8Array(MAX_ATTACHMENT_BYTES+1)}]),/20 MB/);
     await assert.rejects(f.attachments.import(Array.from({length:11},()=>({name:'a',bytes:png}))),/10/);
-    const protectedRoot=path.join(f.dir,'.ssh');await mkdir(protectedRoot);await writeFile(path.join(protectedRoot,'synthetic-fixture'),'not a key');await assert.rejects(f.attachments.import([{filePath:path.join(protectedRoot,'synthetic-fixture')}]),/私钥/);
+    const protectedRoot=path.join(f.dir,'.ssh');await mkdir(protectedRoot);await writeFile(path.join(protectedRoot,'synthetic-fixture'),'not a key');assert.equal((await f.attachments.import([{filePath:path.join(protectedRoot,'synthetic-fixture')}]))[0]!.name,'synthetic-fixture');
   }finally{await f.close();}
 });
 test('gate freezes attachments, carries refinements, and rejects old or repeated submissions',async()=>{

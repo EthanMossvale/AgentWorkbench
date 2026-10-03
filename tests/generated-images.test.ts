@@ -54,10 +54,10 @@ test('image source hardlinks fail verification and arbitrary identifiers cannot 
  const f=await fixture();try{const a=await f.service.receive({...f.input,itemId:'../../escaped'});assert.equal(path.dirname(a.path),path.join(f.projectPath,'generated_images'));await link(a.path,path.join(f.directory,'linked'));await assert.rejects(f.service.receive({...f.input,itemId:'../../escaped'}),/FILE_CHANGED/);
  }finally{await f.close();}
 });
-test('managed workspaces are explicitly authorized and generated records do not allow arbitrary protected reads',async()=>{
+test('managed image records retain content integrity after source paths change',async()=>{
  const f=await fixture();try{const protectedStore=new AttachmentStore(path.join(f.directory,'controlled-attachments'),undefined,[f.directory]);const rejected=new WorkspaceGeneratedImages(protectedStore,[f.directory]);await assert.rejects(rejected.receive(f.input),/WORKSPACE_INVALID/);
   const allowed=new WorkspaceGeneratedImages(protectedStore,[f.directory],async(id,root)=>id===f.input.sessionId&&root===f.projectPath);const a=await allowed.receive(f.input);assert.equal((await protectedStore.payloads([a.id]))[0]!.data.length,bytes.length);
-  const metadata=path.join(f.directory,'controlled-attachments',a.id,'metadata.json');await writeFile(metadata,JSON.stringify({...a,path:path.join(f.directory,'secret.json')}));await assert.rejects(protectedStore.payloads([a.id]),/SOURCE_INVALID/);
+  const metadata=path.join(f.directory,'controlled-attachments',a.id,'metadata.json');await writeFile(metadata,JSON.stringify({...a,path:path.join(f.directory,'secret.json')}));await assert.rejects(protectedStore.payloads([a.id]),/ENOENT/);
  }finally{await f.close();}
 });
 test('native image frames larger than the former 8 MiB limit arrive intact without logging payload bytes',async()=>{

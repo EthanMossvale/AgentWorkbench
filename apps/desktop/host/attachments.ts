@@ -9,8 +9,7 @@ const validId = (id: string) => /^[0-9a-f-]{36}$/.test(id);
 const credentialPath=(value:string)=>value.split(/[\\/]/).some(part=>['.ssh','.gnupg','.aws','.azure','.kube','.codex','.claude','.agent-workbench','.agentworkbench'].includes(part.toLowerCase()));
 const specialPath=(value:string)=>process.platform==='win32'&&(value.startsWith('\\\\')||value.slice(2).includes(':'));
 const samePath=(a:string,b:string)=>process.platform==='win32'?a.toLowerCase()===b.toLowerCase():a===b;
-const inside=(root:string,target:string)=>{const relative=path.relative(root,target);return !!relative&&relative!=='..'&&!relative.startsWith('..'+path.sep)&&!path.isAbsolute(relative);};
-const generatedPath=(item:Pick<Attachment,'id'|'path'|'generatedRoot'>)=>typeof item.generatedRoot==='string'&&path.isAbsolute(item.generatedRoot)&&!item.generatedRoot.split(/[\\/]/).some(v=>['.ssh','.gnupg','.aws','.azure','.kube','.codex','.claude'].includes(v.toLowerCase()))&&samePath(item.path,path.join(item.generatedRoot,'generated_images','image-'+item.id.replaceAll('-','')+'.png'));
+const generatedPath=(item:Pick<Attachment,'id'|'path'|'generatedRoot'>)=>typeof item.generatedRoot==='string'&&path.isAbsolute(item.generatedRoot)&&samePath(item.path,path.join(item.generatedRoot,'generated_images','image-'+item.id.replaceAll('-','')+'.png'));
 function mime(data: Buffer, name: string): string {
   if (data.subarray(0,8).equals(Buffer.from([137,80,78,71,13,10,26,10]))) return 'image/png';
   if (data[0] === 255 && data[1] === 216 && data[2] === 255) return 'image/jpeg';
@@ -80,46 +79,23 @@ export class AttachmentStore {
   }
   /** Display-only snapshots of a bound native view; never attached to a model turn. */
   async importViewedImages(filePaths:string[],workspaceRoot:string):Promise<AttachmentView[]> {
-    const root=path.isAbsolute(workspaceRoot)?await realpath(workspaceRoot):undefined;
-    // Reuse owned snapshots only after verifying metadata, path and content hash.
-    if(filePaths.length===1){
-      const file=filePaths[0]!,relative=path.relative(this.directory,file),parts=relative.split(path.sep);
-      if(parts.length===2&&validId(parts[0]!)){
-        const views=await this.views([parts[0]!]);
-        if(samePath(views[0]!.path,file))return views;
-        throw Error('ACTIVITY_IMAGE_PROTECTED');
-      }
-    }
-    return this.importFiles(filePaths.map(filePath=>({filePath})),root,true);
+    if(!Array.isArray(filePaths)||!filePaths.length||filePaths.length>MAX_ATTACHMENTS)throw Error('ACTIVITY_IMAGE_SOURCE_UNAVAILABLE');
+    // Viewed images are display-only snapshots.  Their source location is not
+    // classified by directory; the normal snapshot integrity checks still apply.
+    return this.importFiles(filePaths.map(filePath=>({filePath})),true);
   }
   async import(inputs: AttachmentInput[]): Promise<AttachmentView[]> {return this.importFiles(inputs);}
-  private async importFiles(inputs:AttachmentInput[],workspaceRoot?:string,viewed=false):Promise<AttachmentView[]> {
+  private async importFiles(inputs:AttachmentInput[],viewed=false):Promise<AttachmentView[]> {
     if (!Array.isArray(inputs) || !inputs.length || inputs.length > MAX_ATTACHMENTS) throw Error('一次最多添加 10 个附件。');
     const staged: {item:Attachment;data:Buffer;source?:string}[] = []; let total=0;
     for (const input of inputs) {
       let data:Buffer, name:string,originalPath:string|undefined;
       if (typeof input.filePath === 'string' && input.filePath) {
         if (!path.isAbsolute(input.filePath)) throw Error('附件必须是本机文件。');
-        // Reject remote/device and credential locations before resolving or opening them.
+        // Reject remote/device paths; the OS still enforces access permissions.
         if(specialPath(input.filePath))throw Error('不支持网络共享、设备路径或备用数据流附件。');
-        const workspaceImage=(value:string)=>{
-          if(!viewed||!workspaceRoot)return false;
-          const relative=path.relative(workspaceRoot,value);
-          if(!inside(workspaceRoot,value)||credentialPath(relative)||relative.split(/[\\/]/).some(part=>['secrets','workspace-devices'].includes(part.toLowerCase())))return false;
-          if(this.controlPaths.some(root=>['workspaces','native-claude/workspaces','native-codex/workspaces'].some(subtree=>{
-            const base=path.join(root,...subtree.split('/'));
-            return inside(base,workspaceRoot)&&!credentialPath(path.relative(base,workspaceRoot));
-          })))return true;
-          // Only the workbench's managed task subtree is exempt from the profile
-          // guard. Selecting a credential/config directory never grants an exemption.
-          const parts=workspaceRoot.split(/[\\/]/),index=parts.findIndex(part=>['.agent-workbench','.agentworkbench'].includes(part.toLowerCase()));
-          return index>=0&&parts[index+1]==='workspaces'&&!!parts[index+2]&&!credentialPath(parts.slice(0,index).join('/'))&&!credentialPath(parts.slice(index+2).join('/'));
-        };
-        if(credentialPath(input.filePath)&&!workspaceImage(input.filePath))throw Error('ACTIVITY_IMAGE_PROTECTED: 不能将原生凭据或私钥目录中的文件添加为附件。');
         const source=await realpath(input.filePath);originalPath=source;
         if(specialPath(source))throw Error('不支持网络共享、设备路径或备用数据流附件。');
-        if(this.controlPaths.some(root=>(samePath(root,source)||inside(root,source))&&!(workspaceImage(source)&&inside(root,workspaceRoot!))))throw Error('ACTIVITY_IMAGE_PROTECTED: 工作台配置与凭据文件不能添加为附件。');
-        if(credentialPath(source)&&!workspaceImage(source))throw Error('ACTIVITY_IMAGE_PROTECTED: 不能将原生凭据或私钥目录中的文件添加为附件。');
         const file=await open(source,'r');
         try { const info=await file.stat(); if(!info.isFile()||info.nlink>1)throw Error('请添加普通文件，不能直接添加文件夹或硬链接。'); if(info.size>MAX_ATTACHMENT_BYTES)throw Error('单个附件不能超过 20 MB。分析本机大文件时，可将完整文件路径粘贴到输入框，由原生运行时读取；文件不会作为附件上传。'); data=Buffer.alloc(info.size);let offset=0;while(offset<data.length){const result=await file.read(data,offset,data.length-offset,offset);if(!result.bytesRead)throw Error('附件正在变化，请重新添加。');offset+=result.bytesRead;}const after=await file.stat();if(after.size!==info.size||after.mtimeMs!==info.mtimeMs||after.ctimeMs!==info.ctimeMs||await realpath(input.filePath)!==source)throw Error('附件正在变化，请重新添加。'); } finally { await file.close(); }
         name=path.basename(source);
@@ -146,7 +122,7 @@ export class AttachmentStore {
     const items=await Promise.all(ids.map(async id=>{
       const item=JSON.parse(await readFile(path.join(this.directory,id,'metadata.json'),'utf8')) as Attachment;
       if(item.id!==id||!Number.isSafeInteger(item.size)||item.size<0||item.size>MAX_ATTACHMENT_BYTES||typeof item.path!=='string')throw Error('附件记录无效，请重新添加。');
-      if(item.storage==='source'){const generated=generatedPath(item);if(!path.isAbsolute(item.path)||specialPath(item.path)||!generated&&(credentialPath(item.path)||this.controlPaths.some(root=>{const rel=path.relative(root,item.path);return !rel||rel!=='..'&&!rel.startsWith('..'+path.sep)&&!path.isAbsolute(rel);})))throw Error('ATTACHMENT_SOURCE_INVALID');}
+      if(item.storage==='source'){if(!path.isAbsolute(item.path)||specialPath(item.path))throw Error('ATTACHMENT_SOURCE_INVALID');}
       else{const expected=path.join(item.storage==='clipboard'?this.temporaryDirectory:this.directory,id);if(!samePath(await realpath(path.dirname(item.path)),await realpath(expected)))throw Error('ATTACHMENT_RECORD_INVALID');item.path=path.join(expected,path.basename(item.path));}
       return item;
     }));
