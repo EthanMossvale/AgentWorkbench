@@ -1,3 +1,4 @@
+import {apiEndpoints} from './endpoints';
 import { createServer, type IncomingMessage, type ServerResponse } from 'node:http';
 import { randomBytes } from 'node:crypto';
 import { once } from 'node:events';
@@ -113,7 +114,7 @@ export async function openNativeGateway(options: NativeGatewayOptions) {
       const usageStarted = performance.now();
       if (native === connection.protocol && typeof request.headers['anthropic-beta'] === 'string') headers['anthropic-beta'] = request.headers['anthropic-beta'];
       const signal = upstreamSignal = AbortSignal.any([abort.signal, AbortSignal.timeout(connection.timeoutMs)]);
-      const result = await (options.fetcher ?? fetch)(`${connection.baseUrl}/${upstreamRoute}`, { method: 'POST', headers, body: JSON.stringify(mapped), signal, redirect: 'error' });
+      const result = await (options.fetcher ?? fetch)(apiEndpoints.resolve({baseUrl:connection.baseUrl,resource:upstreamRoute,defaultVersion:false}), { method: 'POST', headers, body: JSON.stringify(mapped), signal, redirect: 'error' });
       if (!result.ok) { const diagnostic=await nativeProviderDiagnostic(result,[key,token]);reportDiagnostic(diagnostic);response.writeHead(result.status, { 'Content-Type': 'application/json' }); response.end(JSON.stringify({ error: { type: 'upstream_error', message: diagnosticMessage(diagnostic) } })); return; }
       if (native === connection.protocol) {
         eventStream = !!result.headers.get('content-type')?.includes('text/event-stream');

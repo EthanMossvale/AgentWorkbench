@@ -112,7 +112,7 @@ test('model directory maps only actual metadata and leaves unknown capabilities 
   const known=modelMetadata({context_length:128000,top_provider:{max_completion_tokens:12000},reasoning:{efforts:['low','high'],default_effort:'high'}});
   assert.equal(known.contextWindow,128000);assert.deepEqual(known.efforts,['low','high']);assert.equal(known.defaultEffort,'high');assert.equal(known.maxOutputTokens,12000);assert.deepEqual(modelMetadata({capabilities:{effort:{supported:true,low:{supported:true},high:{supported:true},max:{supported:false}},thinking:{types:{adaptive:{supported:true}}}}}).efforts,['low','high']);
   assert.equal(compactionBudget(model,1024),undefined);assert.equal(compactionBudget({...model,contextWindow:10000},1024),8976);
-  assert.throws(()=>validateConnection({...input(),baseUrl:'https://example.com/?key=secret'}));
+  assert.equal(validateConnection({...input(),baseUrl:'http://gateway.example/?api-version=2026#note'}).baseUrl,'http://gateway.example?api-version=2026#note');
   assert.throws(()=>validateConnection({...input(),baseUrl:'https://claude.ai/v1'}));
 });
 

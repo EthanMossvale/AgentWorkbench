@@ -1,3 +1,4 @@
+import {apiEndpoints} from '../model-api/endpoints';
 import type { Protocol, TranslationDirection, TranslationProfile, TranslationResult } from '../contracts/index';
 import { randomUUID } from 'node:crypto';
 import { parseTokenCounts, tokenCount, type TokenCounts } from '../session-metrics';
@@ -9,10 +10,7 @@ import { isModelId, maxOutputTokens, normalizeBaseUrl, validateReasoning, valida
 export { normalizeBaseUrl, reasoningOptions, validateReasoning, validateTranslationProfile } from './config';
 export type Fetcher = typeof fetch;
 export function endpoint(base: string, resource: string): URL {
-  if (!['models','responses','messages','chat/completions'].includes(resource)) throw new Error('不支持的翻译 API 路径。');
-  const u = new URL(normalizeBaseUrl(base));
-  u.pathname=u.pathname.replace(/\/+$/,'')+'/'+resource;
-  return u;
+  return new URL(apiEndpoints.resolve({baseUrl:base,resource,defaultVersion:true}));
 }
 export function protocolCandidates(base: string): { protocol: Protocol; evidence: string }[] {
   const host=endpoint(base,'models').hostname;

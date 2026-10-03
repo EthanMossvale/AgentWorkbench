@@ -2401,3 +2401,7 @@ Historical attachments no longer fail at 100 MiB, and summaries can process more
 ## D028: extensible manual reasoning choices (2026-10-03)
 
 Model mappings accept custom reasoning names and lists beyond seven/twenty entries. The editor provides an Add field alongside standard suggestions, persists exact selected tokens and restores after restart. Saving requires no inference probe; explicit probe rejection/inconclusive results remain diagnostics. Registered suggestions enter the actual editor and saved model/native protocol paths, and named surfaces restore on extension disable. Unit/protocol and hidden production checks cover custom selection, all three API shapes, both native wire families, approved plugin lifecycle and process restart. No live model, native CLI, SSH, installed package or active user desktop was used.
+
+## D029: endpoint addresses follow explicit configuration (2026-10-03)
+
+HTTP and LAN/link-local addresses are accepted without extra hostname interception. Query/fragment-bearing addresses persist; request resources append to the pathname while preserving queries and omitting fragments on the wire. Translation, direct API, probes and both native gateway paths share a typed production endpoint registry, verified with an approved plugin and disable restoration. Existing independent credentials and login-web boundaries remain. All 78 focused tests passed; type/plugin/docs/preference gates apply. No external endpoint, real model, native CLI, live SSH or user installation was changed.

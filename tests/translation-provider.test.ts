@@ -21,21 +21,22 @@ test('API base and pasted resource URLs preserve custom prefixes without duplica
   assert.equal(protocolCandidates('https://not-api.anthropic.com/v1').length,3);
 });
 
-test('plaintext is restricted to explicitly spelled loopback hosts',()=>{
+test('HTTP and user-selected network addresses reach endpoint construction',()=>{
   for(const host of ['localhost','127.0.0.1','[::1]'])assert.equal(endpoint(`http://${host}:8000/v1/chat/completions`,'models').href,`http://${host}:8000/v1/models`);
-  for(const value of ['http://127.1/v1','http://2130706433/v1','http://0x7f000001/v1','http://127.0.0.2/v1','http://localhost.example/v1','http://localhost./v1','http://[::ffff:127.0.0.1]/v1','http://10.0.0.1/v1','https://169.254.169.254/v1','https://0.0.0.0/v1','https://[::]/v1'])assert.throws(()=>normalizeBaseUrl(value));
+  for(const value of ['http://127.1/v1','http://2130706433/v1','http://0x7f000001/v1','http://127.0.0.2/v1','http://localhost.example/v1','http://localhost./v1','http://[::ffff:127.0.0.1]/v1','http://10.0.0.1/v1','https://169.254.169.254/v1','https://0.0.0.0/v1','https://[::]/v1'])assert.doesNotThrow(()=>normalizeBaseUrl(value));
   assert.equal(normalizeBaseUrl('https://127.0.0.1:8443/v1'),'https://127.0.0.1:8443/v1');
 });
 
 test('URL and header validation does not expose credential text',async()=>{
   const secret='SYNTHETIC-credential-12345';
-  for(const value of [`https://user:${secret}@gateway.example/v1`,`https://gateway.example/v1?key=${secret}`,'https:\\gateway.example\v1','https://gateway.example/a b','not a url']){
+  for(const value of [`https://user:${secret}@gateway.example/v1`,'file:///tmp/api','not a url']){
     assert.throws(()=>normalizeBaseUrl(value),error=>error instanceof Error&&!error.message.includes(secret));
   }
+  assert.equal(endpoint('http://remote.example/custom/responses?api-version=2026-10#section','models').href,'http://remote.example/custom/models?api-version=2026-10');
   let calls=0;const translator=new Translator(async()=>{calls++;return completed(base.protocol);});
   for(const key of ['',`${secret}\ninvalid`,'key with space'])await assert.rejects(translator.translate('文本','input',base,key));
   assert.equal(calls,0);
-  assert.throws(()=>endpoint(base.baseUrl,'../admin'));
+  assert.equal(endpoint(base.baseUrl,'extensions/catalog').pathname,'/custom/v1/extensions/catalog');
 });
 
 test('reasoning options describe protocol candidates and preserve default omission',()=>{

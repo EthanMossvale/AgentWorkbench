@@ -1,3 +1,4 @@
+import {apiEndpoints} from '../../../packages/model-api/endpoints';
 import {SidebarProjects} from './sidebar-projects';
 import {errorDiagnostics} from '../../../packages/diagnostics';
 import {modelUsageRevision} from '../../../packages/model-management/usage';
@@ -320,7 +321,7 @@ export class WorkbenchController {
       'sessions.native-titles': nativeSessionTitles,
       'workbench.state': { get: () => this.publicState(this.store.snapshot()), update: (change: (state: AppState) => void) => this.update(change) },
       'workbench.store': this.store, 'workbench.secrets': this.secrets, 'workbench.actions': this.actions,
-      'models.account-export': this.accountExport, 'models.account-names': this.accountNames, 'models.accounts': this.localAccounts, 'models.account-access': this.localAccounts.access, 'model.connections': this.modelConnections, 'models.reasoning-options':this.modelConnections.reasoningOptions, 'runtime.api': this.apiRunner, 'runtime.api.budgets':this.apiRunner.budgets, 'runtime.api.context':this.apiRunner.contextPlanning, 'runtime.api.tools': this.apiRunner.local, 'runtime.extensions': this.pluginRuntimes,
+      'models.account-export': this.accountExport, 'models.account-names': this.accountNames, 'models.accounts': this.localAccounts, 'models.account-access': this.localAccounts.access, 'model.connections': this.modelConnections, 'models.endpoints':apiEndpoints, 'models.reasoning-options':this.modelConnections.reasoningOptions, 'runtime.api': this.apiRunner, 'runtime.api.budgets':this.apiRunner.budgets, 'runtime.api.context':this.apiRunner.contextPlanning, 'runtime.api.tools': this.apiRunner.local, 'runtime.extensions': this.pluginRuntimes,
       'remote.configurations': this.remoteConfigurations,
       'models.targets': this.targetCatalog,
       'runtime.native-provider': this.nativeProvider, 'runtime.codex': this.nativeCodex,

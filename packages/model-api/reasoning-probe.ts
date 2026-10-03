@@ -1,3 +1,4 @@
+import {apiEndpoints} from './endpoints';
 import { createHash } from 'node:crypto';
 import type { ApiModel, ModelConnection } from './types';
 import { apiHeaders } from './provider';
@@ -38,7 +39,7 @@ async function check(connection: ModelConnection, model: ApiModel, key: string, 
   const {route,body}=reasoningProbeRequest(connection,model,effort);
   const signal=AbortSignal.any([budget.signal,AbortSignal.timeout(30000)]);
   try{
-    const response=await fetcher(`${connection.baseUrl}/${route}`,{method:'POST',headers:apiHeaders(connection,key),body:JSON.stringify(body),redirect:'manual',signal});
+    const response=await fetcher(apiEndpoints.resolve({baseUrl:connection.baseUrl,resource:route,defaultVersion:false}),{method:'POST',headers:apiHeaders(connection,key),body:JSON.stringify(body),redirect:'manual',signal});
     const httpStatus=response.status;
     if([401,403,429].includes(httpStatus)||httpStatus>=500){const result:Result={state:'unknown',reason:httpStatus===429?'rate-limit':httpStatus>=500?'server':'auth',httpStatus};if(httpStatus<500)budget.unavailable=result;await response.body?.cancel().catch(()=>{});return result;}
     let data:any;try{data=await readJson(response);}catch(error){if(signal.aborted)throw error;return {state:'unknown',reason:'format',httpStatus};}

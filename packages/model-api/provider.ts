@@ -1,3 +1,4 @@
+import {apiEndpoints} from './endpoints';
 import {ApiContextPlanning,summaryInstructions} from './context-planning';
 import {availableReasoningEfforts} from './reasoning-info';
 import { apiAttachmentContent, publicContextJson } from '../attachments/input';
@@ -60,7 +61,7 @@ async function json(result: Response, limit = 4_000_000): Promise<Json> {
   try { return object(JSON.parse(Buffer.concat(chunks).toString('utf8'))); } catch { throw new ModelRequestError('API 未返回有效 JSON。'); }
 }
 export async function discoverModels(connection: ModelConnection, key: string, fetcher: typeof fetch = fetch): Promise<ApiModel[]> {
-  const url = new URL(connection.baseUrl + '/models'), headers = apiHeaders(connection, key);
+  const url = new URL(apiEndpoints.resolve({baseUrl:connection.baseUrl,resource:'models',defaultVersion:false})), headers = apiHeaders(connection, key);
   const signal = AbortSignal.timeout(Math.min(connection.timeoutMs, 30000)), all = new Map<string, ApiModel>(), cursors = new Set<string>();
   if (connection.protocol === 'anthropic-messages') url.searchParams.set('limit', '1000');
   for (let page = 0; page < 10; page++) {
@@ -112,7 +113,7 @@ export class ApiConversationClient {
     }
     const combined = AbortSignal.any([signal, AbortSignal.timeout(c.timeoutMs)]);
     const usageStarted = performance.now();
-    const result = await response(this.fetcher, `${c.baseUrl}/${route}`, { method: 'POST', headers: apiHeaders(c, this.key), body: JSON.stringify(body) }, combined);
+    const result = await response(this.fetcher, apiEndpoints.resolve({baseUrl:c.baseUrl,resource:route,defaultVersion:false}), { method: 'POST', headers: apiHeaders(c, this.key), body: JSON.stringify(body) }, combined);
     try {
     let data: Json;
     if (!result.headers.get('content-type')?.includes('text/event-stream')) data = await json(result);
