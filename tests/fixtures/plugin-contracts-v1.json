@@ -505,6 +505,19 @@
       "export interface LocalClaudeTask {\n    id: string;\n    requestId: string;\n    shell: LocalClaudeShell;\n    command: string;\n    description?: string;\n    state: 'starting' | 'running' | 'completed' | 'failed' | 'cancelled' | 'uncertain';\n    startedAt: string;\n    finishedAt?: string;\n    collected: boolean;\n    result?: unknown;\n    error?: string;\n    output?: ClaudeResultReference;\n    outputError?: string;\n}",
       "export type LocalClaudeShell = 'Bash' | 'PowerShell';"
     ],
+    "services/owner-file-service/index.ts": [
+      "export interface FileContext {\n    grantId: string;\n    ownerId: string;\n    deviceId: string;\n    generation: string;\n    sessionId: string;\n    workspaceId: string;\n    operationId: string;\n    os: NodeJS.Platform;\n}",
+      "export interface FileGrant {\n    id: string;\n    ownerId: string;\n    deviceId: string;\n    generation: string;\n    expiresAt: string;\n    operations: ('read' | 'write')[];\n}",
+      "export interface FileReadOptions {\n    offset?: number;\n    limit?: number;\n    encoding?: 'utf8' | 'base64';\n    version?: string;\n    signal?: AbortSignal;\n}",
+      "export interface FileReadPage extends FileSnapshot {\n    encoding: 'utf8' | 'base64';\n    offset: number;\n    totalCharacters?: number;\n    nextOffset?: number;\n    truncated: boolean;\n}",
+      "export interface FileSnapshot {\n    realPath: string;\n    content: string;\n    version: string;\n    bytes: number;\n}",
+      "export interface OwnerFileOptions {\n    ownerId: string;\n    deviceId: string;\n    generation: string;\n    controlPaths: string[];\n    verifyOwner?: OwnerVerifier;\n    expectedUid?: number;\n    maxBytes?: number;\n    now?: () => number;\n}",
+      "export interface WritePreview {\n    id: string;\n    bindingHash: string;\n    realPath: string;\n    expectedVersion: string;\n    nextVersion: string;\n    bytes: number;\n    expiresAt: string;\n}",
+      "export type OwnerVerifier = (resolvedPath: string, file: Stats) => Promise<boolean>;"
+    ],
+    "apps/desktop/host/api-local-tools.ts": [
+      "export interface ApiFileReader {\n    id: `plugin:${string}`;\n    read(path: string, options: FileReadOptions, next: () => Promise<FileReadPage>): FileReadPage | undefined | Promise<FileReadPage | undefined>;\n}"
+    ],
     "packages/generated-images/types.ts": [
       "export interface GeneratedImageDecoder {\n    id: `plugin:${string}`;\n    decode(bytes: Uint8Array): GeneratedImageFormat | undefined | Promise<GeneratedImageFormat | undefined>;\n}",
       "export interface GeneratedImageDelivery {\n    status: 'receiving' | 'saved' | 'failed';\n    attachment?: Attachment;\n    remoteCopy?: 'pending' | 'removed' | 'retained' | 'not-applicable';\n    error?: string;\n}",

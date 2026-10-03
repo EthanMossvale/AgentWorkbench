@@ -297,7 +297,7 @@ test('API to SSH to API restores distinct native lane identity and hands off onl
 
 test('known context window triggers bounded summary during an explicit task and keeps original history',async()=>{
   let summaries=0;const f=await fixture(async(_url,init)=>{const body=JSON.parse(String(init!.body));if(/Summarize/.test(body.messages[0].content)){summaries++;return json(finished('A concise summary of prior requests.'));}return json(finished('Final after compaction'));});
-  try{let c=await f.save();c=await f.controller.call('model-api/save',{id:c.id,revision:c.revision,connection:{...c,tools:false,maxOutputTokens:512,models:[{...model,metadataSource:'manual',contextWindow:20000}]}}) as ModelConnection;const chat=await f.create(c);await f.store.update(s=>{s.sessions[0]!.messages=Array.from({length:24},(_,i)=>({id:'history-'+i,role:i%2?'assistant':'user',original:'history-'+i+' '+'x'.repeat(1000),demo:false,timestamp:new Date().toISOString()}));});await f.submit(chat.id,'Continue');await wait(()=>f.store.snapshot().sessions[0]!.status==='idle');assert.ok(summaries>0);assert.equal(f.store.snapshot().sessions[0]!.messages.length,26);assert.ok(f.store.snapshot().sessions[0]!.apiSummary);assert.equal(f.store.snapshot().sessions[0]!.messages[0]!.original.length,1010);assert.equal(f.store.snapshot().sessions[0]!.messages.at(-1)!.original,'Final after compaction');}finally{await f.close();}
+  try{let c=await f.save();c=await f.controller.call('model-api/save',{id:c.id,revision:c.revision,connection:{...c,tools:false,maxOutputTokens:512,models:[{...model,metadataSource:'manual',contextWindow:20000,maxOutputTokens:512}]}}) as ModelConnection;const chat=await f.create(c);await f.store.update(s=>{s.sessions[0]!.messages=Array.from({length:24},(_,i)=>({id:'history-'+i,role:i%2?'assistant':'user',original:'history-'+i+' '+'x'.repeat(1000),demo:false,timestamp:new Date().toISOString()}));});await f.submit(chat.id,'Continue');await wait(()=>f.store.snapshot().sessions[0]!.status==='idle');assert.ok(summaries>0);assert.equal(f.store.snapshot().sessions[0]!.messages.length,26,JSON.stringify({error:f.store.snapshot().sessions[0]!.nativeError,activity:f.store.snapshot().sessions[0]!.activities}));assert.ok(f.store.snapshot().sessions[0]!.apiSummary);assert.equal(f.store.snapshot().sessions[0]!.messages[0]!.original.length,1010);assert.equal(f.store.snapshot().sessions[0]!.messages.at(-1)!.original,'Final after compaction');}finally{await f.close();}
 });
 
 test('API tool execution reads actual owner files, requests write approval and never repeats a call ID',async()=>{
@@ -379,4 +379,22 @@ test('a missing model directory does not prevent manual mappings and inference, 
     c=await f.controller.call('model-api/save',{id:c.id,revision:c.revision,connection:{...c,baseUrl:'https://other.example/v1',models:[{...model,contextWindow:128000,efforts:['high'],adaptiveThinking:true}]},key:'new-synthetic-key'}) as ModelConnection;
     assert.equal(c.models[0]!.contextWindow,undefined);assert.equal(c.models[0]!.adaptiveThinking,undefined);assert.deepEqual(c.discoveredModels,[]);assert.equal(c.discoveredAt,undefined);
   }finally{await f.close();}
+});
+
+
+test('approved file-reader extension runs through actual API tool calls and restores core large/binary pages',async()=>{
+ let step=0;const f=await fixture(async()=>++step%2===1?json({choices:[{finish_reason:'tool_calls',message:{role:'assistant',tool_calls:[{id:'read-'+step,type:'function',function:{name:'read_file',arguments:JSON.stringify({path:'binary.dat',encoding:'base64',offset:65530,limit:70000})}}]}}]}):json(finished()));
+ const plugins=new PluginRegistry(path.join(f.directory,'plugins'));await plugins.initialize();
+ try{
+  const file=path.join(f.directory,'binary.dat'),bytes=Buffer.alloc(2*1024*1024,255);await writeFile(file,bytes);if(process.platform==='win32'){const {stdout}=await promisify(execFile)('whoami',[],{windowsHide:true});await promisify(execFile)('icacls',[file,'/setowner',stdout.trim()],{windowsHide:true});}
+  for(const[id,service]of Object.entries(f.controller.developmentServices()))if(service)plugins.services.register(id,service,{version:1});
+  const id='test.file-reader',manifest={schemaVersion:1,apiVersion:1,id,name:'File reader fixture',version:'1.0.0',description:'Synthetic only',capabilities:['host'],main:'main.mjs'};
+  const source=`export function activate(api){api.onDispose(api.services.get('runtime.api.tools').registerFileReader({id:'plugin:'+api.id+'/format',read:async(path,options,next)=>({...await next(),content:'PLUGIN_PAGE'})}));}`;
+  const zip=path.join(f.directory,'reader.zip');await writeFile(zip,encodeZip([{name:'workbench.plugin.json',data:Buffer.from(JSON.stringify(manifest))},{name:'main.mjs',data:Buffer.from(source)}]));await plugins.importZip(zip);const hash=(await plugins.list())[0]!.hash;await plugins.setEnabled(id,hash,true,true);
+  const connection=await f.save();await f.store.update(s=>{Object.assign(s.modelConnections![0]!.models[0]!,{contextWindow:1000000,metadataSource:'manual'});});const chat=await f.create(connection);
+  for(const enabled of [true,false,true]){
+   await plugins.setEnabled(id,hash,enabled);await f.submit(chat.id,'Read the synthetic binary page.');await wait(()=>f.store.snapshot().sessions[0]!.status==='idle');
+   const request=JSON.parse(String(f.requests.at(-1)!.init.body)),result=JSON.parse(request.messages.at(-1).content);assert.ok(result.content,JSON.stringify({result,error:f.store.snapshot().sessions[0]!.nativeError}));assert.equal(result.content,enabled?'PLUGIN_PAGE':bytes.subarray(65530,135530).toString('base64'));assert.equal(result.nextOffset,135530);assert.equal(result.bytes,bytes.length);
+  }
+ }finally{await plugins.dispose();await f.close();}
 });

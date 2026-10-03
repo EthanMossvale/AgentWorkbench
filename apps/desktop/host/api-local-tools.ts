@@ -5,24 +5,39 @@ import { randomUUID } from 'node:crypto';
 import { StringDecoder } from 'node:string_decoder';
 import type { Session } from '../../../packages/contracts';
 import type { ApiToolDefinition } from '../../../packages/model-api/types';
-import { OwnerFileService, type FileContext } from '../../../services/owner-file-service';
+import { OwnerFileService, type FileContext, type FileReadOptions, type FileReadPage } from '../../../services/owner-file-service';
 import { verifyCurrentWindowsOwner } from '../../../services/owner-file-service/windows-owner';
 import { buildSshEnvironment } from '../../../packages/ssh-transport';
 
 const text={type:'string'};
 export const apiLocalToolDefinitions:ApiToolDefinition[]=[
-  {name:'read_file',description:'Read a UTF-8 ordinary file owned by this OS user, in bounded character slices. Owner-wide access is not confined to the working directory. OS ownership and device grants apply regardless of directory names. The returned version is required for edits; a truncated slice is not the complete file.',inputSchema:{type:'object',properties:{path:text,offset:{type:'integer',minimum:0},limit:{type:'integer',minimum:1,maximum:32000}},required:['path'],additionalProperties:false}},
-  {name:'list_directory',description:'List an ordinary directory belonging to this OS user. This is file browsing, not device or system inventory.',inputSchema:{type:'object',properties:{path:text},required:['path'],additionalProperties:false}},
-  {name:'write_file',description:'Replace an existing UTF-8 file using the exact version from read_file. Never overwrite concurrent edits. Default permissions require approval; read-only forbids edits.',inputSchema:{type:'object',properties:{path:text,version:text,content:text},required:['path','version','content'],additionalProperties:false}},
+  {name:'read_file',description:'Read an ordinary file in pages. UTF-8 offsets/limits count characters; base64 offsets/limits count bytes. Use nextOffset and the returned version to continue a consistent read. There is no total size or fixed page-length cap. Owner-wide access is not confined to the working directory. OS ownership and device grants apply regardless of directory names. The returned version is required for edits; a truncated slice is not the complete file.',inputSchema:{type:'object',properties:{path:text,offset:{type:'integer',minimum:0},limit:{type:'integer',minimum:1},encoding:{type:'string',enum:['utf8','base64']},version:text},required:['path'],additionalProperties:false}},
+  {name:'list_directory',description:'List an ordinary directory belonging to this OS user. This is file browsing, not device or system inventory.',inputSchema:{type:'object',properties:{path:text,offset:{type:'integer',minimum:0},limit:{type:'integer',minimum:1}},required:['path'],additionalProperties:false}},
+  {name:'write_file',description:'Replace an existing file using the exact version from read_file. Content is UTF-8 by default, or canonical base64 for binary bytes. Never overwrite concurrent edits. Default permissions require approval; read-only forbids edits.',inputSchema:{type:'object',properties:{path:text,version:text,content:text,encoding:{type:'string',enum:['utf8','base64']}},required:['path','version','content'],additionalProperties:false}},
   {name:'run_command',description:'Execute a local shell command. Default permissions require approval; full-access uses the permission already selected by the user. Read-only and plan modes forbid this tool. It runs on the real local device with no API credentials in its environment. Do not request access to new devices, other owners, credentials or administrator controls.',inputSchema:{type:'object',properties:{command:{type:'string',maxLength:16000}},required:['command'],additionalProperties:false}},
 ];
+export interface ApiFileReader { id:`plugin:${string}`; read(path:string,options:FileReadOptions,next:()=>Promise<FileReadPage>):FileReadPage|undefined|Promise<FileReadPage|undefined> }
 type Approve=(kind:'command'|'file',details:string,signal:AbortSignal)=>Promise<boolean>;
 export class ApiLocalTools {
   private service?:Promise<OwnerFileService>;
   private generation=randomUUID();
+  private readers=new Map<string,ApiFileReader>();
+  registerFileReader(reader:ApiFileReader):()=>void{
+    if(!/^plugin:[a-z\d][a-z\d._-]*\/[a-z\d][a-z\d._-]*$/i.test(reader.id)||typeof reader.read!=='function')throw Error('FILE_READER_INVALID');
+    if(this.readers.has(reader.id))throw Error('FILE_READER_DUPLICATE');
+    const entry={...reader};this.readers.set(entry.id,entry);return()=>{if(this.readers.get(entry.id)===entry)this.readers.delete(entry.id);};
+  }
+  async readFile(context:FileContext,file:string,options:FileReadOptions):Promise<FileReadPage>{
+    const files=await this.files(),next=()=>files.readRange(context,file,options);
+    for(const reader of [...this.readers.values()].reverse()){
+      try{const result=await reader.read(file,options,next);if(result&&this.readers.get(reader.id)===reader)return result;}
+      catch(error){if(this.readers.get(reader.id)===reader)throw error;}
+    }
+    return next();
+  }
   constructor(private controlPaths:string[]){}
   executeCommand(command:string,cwd:string,signal:AbortSignal):Promise<unknown>{return runApiCommand(command,cwd,signal);}
-  private files(){return this.service??=OwnerFileService.create({ownerId:'local-owner',deviceId:'local-device',generation:this.generation,controlPaths:this.controlPaths,verifyOwner:process.platform==='win32'?verifyCurrentWindowsOwner:undefined,expectedUid:process.getuid?.(),maxBytes:1_000_000});}
+  private files(){return this.service??=OwnerFileService.create({ownerId:'local-owner',deviceId:'local-device',generation:this.generation,controlPaths:this.controlPaths,verifyOwner:process.platform==='win32'?verifyCurrentWindowsOwner:undefined,expectedUid:process.getuid?.()});}
   async call(session:Session,name:string,args:Record<string,unknown>,signal:AbortSignal,approve:Approve,current:()=>Session=()=>session):Promise<unknown>{
     signal.throwIfAborted();
     const writing=name==='write_file'||name==='run_command';
@@ -40,9 +55,9 @@ export class ApiLocalTools {
     const context:FileContext={grantId:grant.id,ownerId:grant.ownerId,deviceId:grant.deviceId,generation:grant.generation,sessionId:session.id,workspaceId:session.projectId??'projectless',operationId:randomUUID(),os:process.platform};
     const target=String(args.path);if(!target||target.includes('\0'))throw Error('INVALID_PATH');
     const absolute=path.isAbsolute(target)?target:path.resolve(session.projectPath||os.homedir(),target);
-    if(name==='read_file'){const offset=args.offset??0,limit=args.limit??16000;if(!Number.isSafeInteger(offset)||(offset as number)<0||!Number.isSafeInteger(limit)||(limit as number)<1||(limit as number)>32000)throw Error('INVALID_READ_RANGE');const result=await files.read(context,absolute);return {...result,content:result.content.slice(offset as number,(offset as number)+(limit as number)),offset,totalCharacters:result.content.length,truncated:(offset as number)>0||result.content.length>(limit as number)};}
-    if(name==='list_directory')return files.list(context,absolute);
-    const preview=await files.prepareWrite(context,absolute,String(args.version),String(args.content));
+    if(name==='read_file')return this.readFile(context,absolute,{offset:(args.offset??0) as number,limit:(args.limit??16000) as number,encoding:(args.encoding??'utf8') as 'utf8'|'base64',version:args.version as string|undefined,signal});
+    if(name==='list_directory')return files.list(context,absolute,{offset:args.offset as number|undefined,limit:args.limit as number|undefined});
+    const preview=await files.prepareWrite(context,absolute,String(args.version),String(args.content),(args.encoding??'utf8') as 'utf8'|'base64');
     if(current().permissionMode!=='full-access'&&!await approve('file',JSON.stringify({path:absolute,expectedVersion:args.version,content:args.content},null,2),signal))return {status:'declined',written:false};
     signal.throwIfAborted();if(['read-only','plan'].includes(current().permissionMode??'default'))throw Error('READ_ONLY: Permissions changed before file execution.');files.confirmWrite(preview.id,preview.bindingHash);
     try{return await files.write(context,preview.id,preview.bindingHash);}catch(error){if(typeof (error as any)?.code==='string'&&/^(ACCESS_DENIED|INVALID_APPROVAL|VERSION_CONFLICT|WRITE_BUSY|PATH_CHANGED|OTHER_OWNER|CONTROL_PLANE_DENIED|UNSUPPORTED_FILE|FILE_TOO_LARGE)$/.test((error as any).code))throw error;throw Object.assign(Error('FILE_WRITE_OUTCOME_UNCERTAIN'),{code:'RESULT_UNCERTAIN'});}
