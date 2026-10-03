@@ -120,7 +120,9 @@ test('Chinese-only selections require confirmed translated preview even with aut
   const {store,controller,session}=await fixture(t);
   const selection=[{id:'zh',text:'保留文件名',source:{sessionId:session.id,side:'translation' as const}}];
   await controller.annotations.update({sessionId:session.id,revision:0,items:selection});await controller.call('translation/auto-submit',{enabled:true});
-  for(const options of [{bypass:true},{demo:true,text:'other'}])await assert.rejects(controller.call('draft/prepare',{sessionId:session.id,text:'',annotationRevision:1,...options}));
+  await assert.rejects(controller.call('draft/prepare',{sessionId:session.id,text:'other',annotationRevision:1,demo:true}));
+  const original=await controller.call('draft/prepare',{sessionId:session.id,text:'',annotationRevision:1,bypass:true}) as DraftPreview;
+  assert.ok(original.translated.includes('保留文件名'));await assert.rejects(controller.call('draft/submit',{sessionId:session.id,id:original.id,sourceHash:original.sourceHash,automatic:true}));await controller.call('draft/cancel',{id:original.id});
   const service=controller.developmentServices().translation as any;
   service.segments=async()=>{throw Error('offline');};await assert.rejects(controller.call('draft/prepare',{sessionId:session.id,text:'',annotationRevision:1}),/offline/);
   service.segments=async()=>({value:{}});await assert.rejects(controller.call('draft/prepare',{sessionId:session.id,text:'',annotationRevision:1}),/翻译不完整/);

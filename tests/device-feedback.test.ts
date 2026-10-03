@@ -71,8 +71,7 @@ test('seamless preset persists, explicit original fallback requires review and n
     await f.controller.call('translation/seamless');
     let state=await new StateStore(f.directory).load();assert.equal(state.translationLayout,'translated-only');assert.equal(state.autoSubmitTranslated,true);
     assert.equal(translationPlacement('translated-only',true,true),'translated-only');
-    await assert.rejects(f.controller.call('draft/prepare',{sessionId:f.session.id,text:'保留原稿',bypass:true}),/翻译/);
-    const preview=await f.controller.call('draft/prepare',{sessionId:f.session.id,text:'保留原稿',bypass:true,confirmOriginal:true}) as DraftPreview;
+    const preview=await f.controller.call('draft/prepare',{sessionId:f.session.id,text:'保留原稿',bypass:true}) as DraftPreview;
     assert.equal(preview.translated,'保留原稿');assert.equal(preview.bypass,true);
     await assert.rejects(f.controller.call('draft/submit',{sessionId:f.session.id,id:preview.id,sourceHash:preview.sourceHash,automatic:true}),/核对预览/);
     assert.equal(f.store.snapshot().sessions[0]!.messages.length,0);await f.controller.call('draft/cancel',{id:preview.id});

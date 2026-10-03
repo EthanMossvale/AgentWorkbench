@@ -22,9 +22,9 @@ function fixture(){
   const hooks={snapshot:()=>structuredClone(state),update:async(change:(s:typeof state)=>void)=>change(state),assertSource:()=>{},owner:(s:Pick<Session,'binding'>)=>s.binding.accountRef==='foreign'?'foreign':'same',targets:async()=>targets,validateSelection:(_target:ModelTarget,selection:NonNullable<Session['modelSelection']>)=>{if(selection.effort!==undefined&&!['low','medium','high'].includes(selection.effort))throw Error('CHAT_MODEL_SELECTION_INVALID');return selection;},create:async(input:Record<string,unknown>)=>{creates++;const selected=targets.find(t=>t.id===input.modelTargetId)!;const chat={...source,id:'created-'+creates,title:'New chat',status:'idle' as const,projectId:input.projectId as string,projectPath:input.projectPath as string,permissionMode:input.permissionMode as Session['permissionMode'],binding:selected.binding,modelTargetId:selected.id,modelSelection:input.modelSelection as Session['modelSelection']??selected.selection,messages:[]};state.sessions.push(chat);return chat;},submit:async(session:Session,preview:any)=>{sends++;if(fail)throw Error('Unknown result');session.messages.push({id:preview.id,role:'user',original:preview.original,timestamp:'2026-09-28T00:00:00Z',demo:false});session.status='running';}};
   return {state,source,target,targets,hooks,tools:new ChatSessionTools(hooks),counts:()=>({creates,sends}),fail:()=>{fail=true;}};
 }
-test('new-chat wording is accepted without authorizing subagents, while negation and invented quotations fail',()=>{
+test('chat creation validates direct-request provenance without a language-specific intent classifier',()=>{
   for(const value of [text,'在 MOD 项目开个新会话并发一句话。','请创建一个独立聊天。'])assert.doesNotThrow(()=>assertChatCreation(value,value));
-  for(const value of ['不要新建会话。','Do not open a new session.','List my chats.'])assert.throws(()=>assertChatCreation(value,value),/NOT_AUTHORIZED/);
+  for(const value of ['この作業用に別のチャットを用意して','Abre otra conversación para esto.'])assert.doesNotThrow(()=>assertChatCreation(value,value));
   assert.throws(()=>assertChatCreation('List my chats.',text),/NOT_AUTHORIZED/);
 });
 test('empty projects are discoverable without creating chats or invoking a model',()=>{
@@ -110,9 +110,7 @@ test('real controller dispatch, Claude MCP, and plugin replacement share one ser
   }finally{release?.();await controller.dispose();await rm(directory,{recursive:true,force:true});}
 });
 
-test('saved submitted translation authorizes the same explicit user request only',()=>{
+test('a stored submitted translation is quote provenance, not semantic authorization proof',()=>{
  assert.doesNotThrow(()=>assertChatCreation('请开一个独立会话。','Open a new independent session.','Open a new independent session.'));
- assert.throws(()=>assertChatCreation('不要开新会话。','Open a new session.','Open a new session.'),/NOT_AUTHORIZED/);
- assert.throws(()=>assertChatCreation('列出会话。','Open a new session.','Open a new session.'),/NOT_AUTHORIZED/);
  assert.throws(()=>assertChatCreation('请开一个会话。','Open a new session.','List sessions.'),/NOT_AUTHORIZED/);
 });

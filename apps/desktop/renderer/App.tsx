@@ -29,7 +29,7 @@ export const api = async <T,>(method: string, payload?: unknown): Promise<T> => 
 };
 export type View = 'workspace' | 'settings';
 type Dialog = 'project' | 'project-edit' | 'rename' | 'group' | null;
-type SidebarConfirmation = {kind:'project-remove'|'project-archive';project:Project}|{kind:'session-delete';session:Session};
+type SidebarConfirmation = {kind:'session-delete';session:Session};
 const blankSession = (runtime: NewSessionDraft['runtime'] = 'demo'): NewSessionDraft => ({ projectId: null, projectPath: '', runtime });
 
 export default function App() {
@@ -46,6 +46,7 @@ export default function App() {
   const selectedIdRef = useRef(selectedId);selectedIdRef.current=selectedId;
   const [sidebarConfirmation,setSidebarConfirmation]=useState<SidebarConfirmation|null>(null);
   const [confirmingSidebar,setConfirmingSidebar]=useState(false);
+  const [sidebarUndo,setSidebarUndo]=useState<{id:string;label:string}>();
   const [newDraft, setNewDraft] = useState<NewSessionDraft>(() => blankSession());
   const lastModelTarget = useRef<string | undefined>(undefined);
   const lastModelSelection = useRef<NewSessionDraft['modelSelection']>(undefined);
@@ -209,12 +210,20 @@ export default function App() {
   };
   const theme = async () => { try { await api('theme/set', { theme: document.documentElement.dataset.theme === 'dark' ? 'light' : 'dark' }); await refresh(); } catch (e) { report(e); } };
   const updateProject = async (id:string,patch:{pinned?:boolean}) => {try{await api('project/update',{id,...patch});await refresh();}catch(e){report(e);}};
+  const mutateProject=async(project:Project,remove:boolean)=>{
+    try{
+      const result=await api<{sidebarUndoId:string}>(remove?'project/remove':'project/archive-sessions',{id:project.id});
+      if(remove&&project.id!==RECENT_PROJECT_ID)setNewDraft(previous=>previous.projectId===project.id?{...previous,projectId:null,projectPath:''}:previous);
+      setSidebarUndo({id:result.sidebarUndoId,label:remove?'项目已从侧栏移除，文件和会话已保留。':'项目内会话已归档。'});
+      await refresh();
+    }catch(e){report(e);}
+  };
+  const undoProject=async()=>{if(!sidebarUndo)return;try{await api('project/undo',{id:sidebarUndo.id});setSidebarUndo(undefined);await refresh();notify('已撤销。');}catch(e){report(e);}};
   const confirmSidebar = async () => {
     const target=sidebarConfirmation;if(!target||confirmingSidebar)return;setConfirmingSidebar(true);
     try{
-      if(target.kind==='session-delete'){await api('session/delete',{id:target.session.id,confirm:true,...(target.session.status==='uncertain'?{discardUncertain:true}:{})});if(selectedIdRef.current===target.session.id)newSession();notify('本机会话记录已删除。');}
-      else if(target.kind==='project-remove'){await api('project/remove',{id:target.project.id,confirm:true});if(target.project.id!==RECENT_PROJECT_ID)setNewDraft(previous=>previous.projectId===target.project.id?{...previous,projectId:null,projectPath:''}:previous);notify('项目已从侧栏移除；会话和磁盘文件已保留。');}
-      else {await api('project/archive-sessions',{id:target.project.id,confirm:true});notify('项目内会话已归档。');}
+      await api('session/delete',{id:target.session.id,confirm:true,...(target.session.status==='uncertain'?{discardUncertain:true}:{})});
+      if(selectedIdRef.current===target.session.id)newSession();notify('本机会话记录已删除。');
       await refresh();setSidebarConfirmation(null);
     }catch(e){report(e);}finally{setConfirmingSidebar(false);}
   };
@@ -254,7 +263,7 @@ export default function App() {
     }
   };
   return <div className="desktop-frame"><DesktopUpdate/><UiPreferenceStatus/><PluginAppearanceLayer/><ImageViewerHost/><TitleBar back={historyIndex.current>0} forward={historyIndex.current<history.current.length-1} onBack={()=>moveHistory(-1)} onForward={()=>moveHistory(1)} sidebarCompact={sidebarLayout.compact} sidebarAvailable={view==='workspace'} onToggleSidebar={()=>commandRef.current('toggle-sidebar')} report={report}/><div className="app-shell">
-    <SidebarFrame layout={sidebarLayout} onWidth={setSidebarWidth} hidden={view==='settings'}><Sidebar state={state} selectedId={selectedId} view={view} archived={false} compact={sidebarLayout.compact} onExpand={()=>setSidebarCompact(false)} onSelect={selectSession} onView={next => { if(next==='settings')openSettings();else setView(next); }} onArchive={() => openSettings('archive')} onNew={newSession} onProject={openProject} onRename={session => openDialog('rename', session)} onGroup={session => openDialog('group', session)} onUpdate={updateSession} onUpdateProject={updateProject} onArchiveProject={project=>setSidebarConfirmation({kind:'project-archive',project})} onRemoveProject={project=>setSidebarConfirmation({kind:'project-remove',project})} onDeleteSession={session=>setSidebarConfirmation({kind:'session-delete',session})} onFork={forkSession} forkingId={forkingId} onTheme={theme} report={report} notify={notify} /></SidebarFrame>
+    <SidebarFrame layout={sidebarLayout} onWidth={setSidebarWidth} hidden={view==='settings'}><Sidebar state={state} selectedId={selectedId} view={view} archived={false} compact={sidebarLayout.compact} onExpand={()=>setSidebarCompact(false)} onSelect={selectSession} onView={next => { if(next==='settings')openSettings();else setView(next); }} onArchive={() => openSettings('archive')} onNew={newSession} onProject={openProject} onRename={session => openDialog('rename', session)} onGroup={session => openDialog('group', session)} onUpdate={updateSession} onUpdateProject={updateProject} onArchiveProject={project=>void mutateProject(project,false)} onRemoveProject={project=>void mutateProject(project,true)} onDeleteSession={session=>setSidebarConfirmation({kind:'session-delete',session})} onFork={forkSession} forkingId={forkingId} onTheme={theme} report={report} notify={notify} /></SidebarFrame>
     <main className="main-panel">
       {error && <div className="error-banner" role="alert"><span>{error}</span><button className="icon-button" aria-label="关闭错误提示" onClick={() => setError('')}><Icon name="close" size={16} /></button></div>}
       <div hidden={view !== 'workspace'} style={{ display: view === 'workspace' ? 'contents' : 'none' }}><Workspace repairDraft={repairDraft} onRepairDraftApplied={repairDraftApplied} onRememberModel={rememberModel} key={workspaceKey} active={view === 'workspace'} state={state} session={selected} draft={newDraft} onDraftChange={setNewDraft} onSwitchDraft={switchDraft} onCreateProject={() => openProject(undefined, true)} ensureSession={ensureSession} onFork={forkSession} forkingId={forkingId} onOpenSource={openBranchSource} focusMessageId={messageLocation?.sessionId===selectedId?messageLocation.messageId:undefined} report={report} notify={notify} refresh={refresh} /></div>
@@ -262,9 +271,9 @@ export default function App() {
       {!state && view !== 'workspace' && <div className="empty-state"><Mark /><h2>等待桌面服务</h2><p>请从桌面应用打开工作台。</p></div>}
     </main>
     {forkRequest&&state?.sessions.find(item=>item.id===forkRequest.sessionId)&&<ForkDialog session={state.sessions.find(item=>item.id===forkRequest.sessionId)!} messageId={forkRequest.messageId} initialOptions={forkRequest.options} busy={!!forkingId} error={forkError} onChoose={location=>void forkSession(forkRequest.sessionId,forkRequest.messageId,location)} onClose={()=>{if(!forkPending.current)setForkRequest(null);}}/>}
-    {notice && <div className="toast" role="status"><Icon name="check" size={16} />{notice}</div>}
-    {sidebarConfirmation && <Modal title={sidebarConfirmation.kind==='session-delete'?'永久删除会话':sidebarConfirmation.kind==='project-remove'?'移除项目':'归档项目内会话'} onClose={()=>{if(!confirmingSidebar)setSidebarConfirmation(null);}}><form onSubmit={event=>{event.preventDefault();void confirmSidebar();}}><p>{sidebarConfirmation.kind==='session-delete'?`永久删除「${sidebarConfirmation.session.title}」的本机会话、消息和译文？此操作不可撤销，不删除项目文件或远端原生历史。${sidebarConfirmation.session.status==='uncertain'?' 当前回合结果仍未知；确认删除将丢弃本地记录，不会重发旧请求，也不能撤销已经发生的原生操作。':''}`:sidebarConfirmation.kind==='project-remove'?sidebarConfirmation.project.id===RECENT_PROJECT_ID?`从侧栏移除「${sidebarConfirmation.project.name}」？会话、工作目录和文件都会保留，可在设置的常规页面重新显示。`:`从工作台移除「${sidebarConfirmation.project.name}」？其中会话将保留在最近会话中，既有工作目录和磁盘文件保持不变。`:`归档「${sidebarConfirmation.project.name}」中的所有未归档会话？之后可以在归档会话中恢复。`}</p><div className="modal-actions"><button type="button" className="button secondary" disabled={confirmingSidebar} onClick={()=>setSidebarConfirmation(null)}>取消</button><button data-testid="confirm-sidebar-action" className="button primary" disabled={confirmingSidebar}>{confirmingSidebar?'处理中…':sidebarConfirmation.kind==='session-delete'?'永久删除':sidebarConfirmation.kind==='project-remove'?'移除项目':'归档会话'}</button></div></form></Modal>}
-    {(dialog==='project'||dialog==='project-edit')&&<ProjectDialog editing={dialog==='project-edit'} builtin={editingProjectId===RECENT_PROJECT_ID&&dialog==='project-edit'} name={formName} paths={formPaths} saving={saving} picking={pickingFolders} onName={setFormName} onPaths={setFormPaths} onAdd={()=>void addFolders()} onClose={closeDialog} onSave={()=>void saveDialog()} onRemove={()=>{const project=state?(editingProjectId===RECENT_PROJECT_ID?recentProject(state):state.projects.find(item=>item.id===editingProjectId)):undefined;if(project){closeDialog();setSidebarConfirmation({kind:'project-remove',project});}}}/>}
+    {(notice||sidebarUndo)&&<div className="toast" role="status" data-workbench-sidebar-undo={sidebarUndo?'':undefined}><Icon name="check" size={16}/>{sidebarUndo?.label??notice}{sidebarUndo&&<><button className="text-button" data-testid="sidebar-undo" onClick={()=>void undoProject()}>撤销</button><button className="icon-button" aria-label="关闭撤销提示" onClick={()=>setSidebarUndo(undefined)}><Icon name="close" size={14}/></button></>}</div>}
+    {sidebarConfirmation && <Modal title="永久删除会话" onClose={()=>{if(!confirmingSidebar)setSidebarConfirmation(null);}}><form onSubmit={event=>{event.preventDefault();void confirmSidebar();}}><p>{`永久删除「${sidebarConfirmation.session.title}」的本机会话、消息和译文？此操作不可撤销，不删除项目文件或远端原生历史。${sidebarConfirmation.session.status==='uncertain'?' 当前回合结果仍未知；确认删除将丢弃本地记录，不会重发旧请求，也不能撤销已经发生的原生操作。':''}`}</p><div className="modal-actions"><button type="button" className="button secondary" disabled={confirmingSidebar} onClick={()=>setSidebarConfirmation(null)}>取消</button><button data-testid="confirm-sidebar-action" className="button primary" disabled={confirmingSidebar}>{confirmingSidebar?'处理中…':'永久删除'}</button></div></form></Modal>}
+    {(dialog==='project'||dialog==='project-edit')&&<ProjectDialog editing={dialog==='project-edit'} builtin={editingProjectId===RECENT_PROJECT_ID&&dialog==='project-edit'} name={formName} paths={formPaths} saving={saving} picking={pickingFolders} onName={setFormName} onPaths={setFormPaths} onAdd={()=>void addFolders()} onClose={closeDialog} onSave={()=>void saveDialog()} onRemove={()=>{const project=state?(editingProjectId===RECENT_PROJECT_ID?recentProject(state):state.projects.find(item=>item.id===editingProjectId)):undefined;if(project){closeDialog();void mutateProject(project,true);}}}/>}
     {(dialog==='rename'||dialog==='group') && <Modal title={dialog==='rename'?'重命名会话':'移动到分组'} onClose={closeDialog}><form onSubmit={e => { e.preventDefault(); saveDialog(); }}>
       {dialog === 'rename' && <Field label="会话标题"><input autoFocus required value={formName} onChange={e => setFormName(e.target.value)} /></Field>}
       {dialog === 'group' && <Field label="分组名称" hint="留空将会话移回所属项目或无项目会话区。"><input autoFocus value={formGroup} onChange={e => setFormGroup(e.target.value)} /></Field>}

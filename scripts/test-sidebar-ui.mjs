@@ -15,7 +15,7 @@ const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const output = path.join(root, 'build/qa');
 const dataDir = path.join(output, `sidebar-synthetic-${Date.now()}`);
 await mkdir(dataDir, { recursive: true });
-const env = { ...process.env, AGENT_WORKBENCH_TEST_DATA: dataDir };
+const env = { ...process.env, AGENT_WORKBENCH_TEST_DATA: dataDir, AGENT_WORKBENCH_TEST_HIDDEN:'1' };
 delete env.ELECTRON_RUN_AS_NODE;
 const checks = [];
 const errors = [];
@@ -76,13 +76,17 @@ try {
   ];
   await app.evaluate(({ ipcMain, BrowserWindow }, fixture) => {
     const harness = globalThis.__sidebarHarness = { state: fixture, requests: [], unexpected: [], clipboard: '', opened: [] };
+    const original=ipcMain._invokeHandlers.get('workbench:call');
     ipcMain.removeHandler('workbench:call');
     ipcMain.handle('workbench:call', async (_event, method, payload = {}) => {
       harness.requests.push({ method, payload });
       const ok = value => ({ ok: true, value });
+      if(method.startsWith('ui-preferences/'))return original(_event,method,payload);
       if (method === 'state/get') return ok(harness.state);
       if (method === 'navigation/get') return ok({ sessionId: null });
       if (method === 'translation/usage') return ok({ calls: 0, cost: null });
+      if (method === 'desktop-updates/status') return ok({phase:'disabled'});
+      if (method === 'session/prepare-runtime') return ok(null);
       // Current shell discovery and presentation IPC stay synthetic as well.
       if (['extensions/renderers','model-targets/list','runtime/catalog','local-cli/list'].includes(method)) return ok([]);
       if (method === 'extensions/appearance') return ok({variables:{}});
@@ -503,8 +507,6 @@ try {
   });
   for (const spec of [
     { item: 'session-delete', title: '永久删除会话', method: 'session/delete', sessionId: 'a5', text: detailSession.title },
-    { item: 'project-archive-chats', title: '归档项目内会话', method: 'project/archive-sessions', projectId: 'alpha', text: 'Alpha 合成项目' },
-    { item: 'project-remove', title: '移除项目', method: 'project/remove', projectId: 'alpha', text: 'Alpha 合成项目' },
   ]) {
     await check(`${spec.item} opens a bound confirmation and cancel sends no mutation`, async () => {
       const before = await count(spec.method);

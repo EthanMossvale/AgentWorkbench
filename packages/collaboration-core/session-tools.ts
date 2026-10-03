@@ -13,7 +13,5 @@ export const chatSessionToolDefinitions:readonly ApiToolDefinition[]=[
 ];
 
 export function assertChatCreation(original:string,quote:unknown,submitted?:string):asserts quote is string {
-  const intent=/(?:新建|创建|开启|建立|再开|开).{0,40}(?:会话|聊天|对话|任务)|(?:create|open|start|make)\b.{0,60}\b(?:new|another|separate|a)\b.{0,30}\b(?:chat|session|conversation|task)\b/i;
-  const denied=/(?:不要|禁止|不得|不许|别|暂停).{0,12}(?:新建|创建|开启|建立|开).{0,40}(?:会话|聊天|对话|任务)|\b(?:do not|don't|never)\s+(?:create|open|start|make)\b.{0,60}\b(?:chat|session|conversation|task)\b/i;
-  if(typeof quote!=='string'||!quote.trim()||quote.length>2000||(!original.includes(quote)&&!(submitted?.includes(quote)&&intent.test(original)))||!intent.test(quote)||denied.test(original))throw Error('CHAT_CREATION_NOT_AUTHORIZED: Quote the latest direct user request to create a new chat.');
+  if(typeof quote!=='string'||!quote.trim()||quote.length>2000||(!original.includes(quote)&&!submitted?.includes(quote)))throw Error('CHAT_CREATION_NOT_AUTHORIZED: Quote the latest direct original user request to create a new chat.');
 }

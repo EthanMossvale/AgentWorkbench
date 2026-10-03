@@ -1,3 +1,5 @@
+import {SidebarProjects} from './sidebar-projects';
+import {errorDiagnostics} from '../../../packages/diagnostics';
 import {modelUsageRevision} from '../../../packages/model-management/usage';
 import {workspaceExportTtl} from '../../../packages/workspace-control/export-policy';
 import {rememberRuntimeModel, runtimeTarget} from '../../../packages/model-api/runtime-target';
@@ -139,6 +141,7 @@ export interface HostActions { accountSetup?:Pick<AccountServiceSetup,'plan'|'ap
 export class WorkbenchController {
   private modelConnections:ModelConnections;
   private apiRunner:ApiRunner;
+  readonly sidebarProjects=new SidebarProjects({update:change=>this.update(change),assertIdle:session=>this.assertSidebarMutationBoundary(session)});
   private nativeProvider?:NativeProviderRunner;
   private providerBinding(binding:Session['binding']){return localModelBinding(binding)||binding.runtime==='claude'&&!!binding.hostId;}
   private claudeRemoteCapabilities=new Set<string>();
@@ -302,6 +305,8 @@ export class WorkbenchController {
     const services: Record<string, object | undefined> = {
       'workbench.controller': this,
       'sidebar.order': this.store.sidebarOrdering,
+      'sidebar.projects': this.sidebarProjects,
+      'diagnostics.errors': errorDiagnostics,
       'sessions.presentation': sessionPresentation,
       'models.context-state': nativeContextState,
       'sessions.follow-ups': this.followUps,
@@ -445,7 +450,7 @@ export class WorkbenchController {
     }finally{this.worktreeMaintenance=false;finish();}
   }
   private disposal?:Promise<void>;
-  dispose(){this.disposing=true;this.followUps.dispose();this.accountExport.dispose();this.actions.sessionStorage?.dispose();this.modelConnections.dispose();this.interactionFlow.dispose();this.planFlow.dispose();const translationShutdown=this.translationModule.dispose();this.gate.invalidatePending();return this.disposal??=(async()=>{await Promise.allSettled([...this.configurationReceipts]);await this.translationNative.dispose();await translationShutdown;await Promise.allSettled([...this.activeTranslations.values()]);await this.worktreeCompletion;await this.shared?.native?.memory?.background.dispose();await this.pluginRuntimes.dispose();await this.localAccounts.dispose();await this.apiRunner.dispose();await this.nativeProvider?.dispose();this.peerInbox.dispose();await this.nativeCodex?.dispose();await this.shared?.native?.dispose();await Promise.allSettled([this.accountCatalog.dispose(),this.actions.accountUsage?.dispose(),this.actions.quotaAccounting?.dispose(),this.actions.workspaceManagement?.dispose(),this.actions.remoteBrowser?.dispose(),...[...this.observations.values()].map(item=>item.dispose())]);})();}
+  dispose(){this.sidebarProjects.dispose();this.disposing=true;this.followUps.dispose();this.accountExport.dispose();this.actions.sessionStorage?.dispose();this.modelConnections.dispose();this.interactionFlow.dispose();this.planFlow.dispose();const translationShutdown=this.translationModule.dispose();this.gate.invalidatePending();return this.disposal??=(async()=>{await Promise.allSettled([...this.configurationReceipts]);await this.translationNative.dispose();await translationShutdown;await Promise.allSettled([...this.activeTranslations.values()]);await this.worktreeCompletion;await this.shared?.native?.memory?.background.dispose();await this.pluginRuntimes.dispose();await this.localAccounts.dispose();await this.apiRunner.dispose();await this.nativeProvider?.dispose();this.peerInbox.dispose();await this.nativeCodex?.dispose();await this.shared?.native?.dispose();await Promise.allSettled([this.accountCatalog.dispose(),this.actions.accountUsage?.dispose(),this.actions.quotaAccounting?.dispose(),this.actions.workspaceManagement?.dispose(),this.actions.remoteBrowser?.dispose(),...[...this.observations.values()].map(item=>item.dispose())]);})();}
   private codexLoginHost(id:unknown):SshHost {const host=this.host(id);if(host.role!=='admin'&&host.username.toLowerCase()==='root')throw new Error('管理员 SSH 不能标为普通工作空间身份。');return host;}
   private async codexJob(host:SshHost,id:unknown):Promise<CodexAuthJob> {const jobId=required(id,'登录任务ID');const saved=this.codexAuthJobs.get(host.id);if(!saved||saved.jobId!==jobId||hostIdentity(saved.host)!==hostIdentity(host))throw new Error('登录任务与当前连接不一致。');const epoch=++saved.requestEpoch;const value=await this.accountCatalog.status(host,jobId);if(hostIdentity(this.host(host.id))!==hostIdentity(host)||this.codexAuthJobs.get(host.id)!==saved)throw new Error('读取期间连接身份已变更，旧登录结果已丢弃。');if(saved.requestEpoch!==epoch)return structuredClone(saved.value);if(saved.value.cleanup==='confirmed'&&!['preparing','awaiting-code','verifying'].includes(saved.value.state))return structuredClone(saved.value);if(saved.cancelRequested&&(['preparing','awaiting-code','verifying'].includes(value.state)||value.cleanup!=='confirmed'))return structuredClone(saved.value);saved.value=value;return value;}
   private codexLoginActive(host:SshHost):boolean {if(this.accountOperations.has(host.id))return true;const job=this.codexAuthJobs.get(host.id)?.value;return !!job&&(job.cleanup!=='confirmed'||['preparing','awaiting-code','verifying'].includes(job.state));}
@@ -821,15 +826,9 @@ export class WorkbenchController {
         const pinned=p.pinned===undefined?undefined:flag(p.pinned,'项目置顶');
         return this.update(s=>{const target=s.projects.find(x=>x.id===id);if(!target)throw new Error('项目不存在。');Object.assign(target,{name,paths,path:paths[0]??'',group,...(pinned===undefined?{}:{pinned})});});
       }
-      case 'project/archive-sessions':{
-        const id=required(p.id,'项目ID');if(p.confirm!==true)throw new Error('请确认归档该项目中的会话。');
-        return this.update(s=>{if(id!==RECENT_PROJECT_ID&&!s.projects.some(project=>project.id===id))throw new Error('项目不存在。');const sessions=s.sessions.filter(session=>session.projectId===projectSessionId(id)&&!session.archived);for(const session of sessions)this.assertSidebarMutationBoundary(session);for(const session of sessions)session.archived=true;});
-      }
-      case 'project/remove':{
-        const id=required(p.id,'项目ID');if(p.confirm!==true)throw new Error('请确认移除本机项目记录。');
-        if(id===RECENT_PROJECT_ID)return this.update(s=>{const project=recentProject(s);s.recentProject={name:project.name,paths:project.paths!,pinned:!!project.pinned,hidden:true};});
-        return this.update(s=>{const project=s.projects.find(item=>item.id===id);if(!project)throw new Error('项目不存在。');for(const session of s.sessions)if(session.projectId===id){session.projectPath??=project.path;session.projectId=null;}s.projects=s.projects.filter(item=>item.id!==id);});
-      }
+      case 'project/archive-sessions':return this.sidebarProjects.archive(required(p.id,'项目ID'));
+      case 'project/remove':return this.sidebarProjects.remove(required(p.id,'项目ID'));
+      case 'project/undo':return this.sidebarProjects.undo(required(p.id,'撤销ID'));
       case 'session/create':{
         if(p.modelTargetId!==undefined)return this.createModelSession(p);
         const projectId=p.projectId===undefined||p.projectId===null||p.projectId===''?null:required(p.projectId,'项目ID');const project=projectId===null?undefined:this.store.snapshot().projects.find(x=>x.id===projectId);if(projectId!==null&&!project)throw new Error('项目不存在。');
@@ -1084,7 +1083,6 @@ export class WorkbenchController {
         const question=p.questionReply===undefined?undefined:prepareAsyncQuestion(session,p.questionReply);
         if(question&&(p.attachmentIds!==undefined||p.skills!==undefined||p.demo===true||p.bypass===true||p.text!==undefined))throw Error('ASYNC_QUESTION_INVALID');
         const attachments=p.attachmentIds===undefined?[]:await this.actions.attachments?.resolve(p.attachmentIds);if(!attachments)throw Error('附件存储不可用。');if(session.binding.runtime==='codex'&&attachments.filter(a=>a.mime.startsWith('image/')).reduce((sum,a)=>sum+a.size,0)>5*1024*1024)throw Error('当前原生连接每条消息最多发送 5 MB 图片，请减少图片或压缩后重新添加。');const input=question?.original??text(p.text,'输入',100000);const annotations=p.annotationRevision===undefined?undefined:this.annotations.read(session.id);if(annotations&&annotations.revision!==p.annotationRevision)throw Error('ANNOTATION_CONFLICT');if(!input.trim()&&!annotations?.items.length&&!attachments.length&&!(Array.isArray(p.skills)&&p.skills.length))throw new Error('输入不能为空。');const moduleDisabled=!this.translationModule.enabled(),demo=!moduleDisabled&&p.demo===true,bypass=moduleDisabled||p.bypass===true;
-        if(!moduleDisabled&&p.bypass===true&&p.confirmOriginal!==true&&/[\p{Script=Han}]/u.test(input))throw Error('翻译开启时必须先完成英文输入翻译；原稿未发送。');
         if(demo&&input!==DEMO_INPUT)throw new Error('离线翻译只提供明确的固定样例；其他中文请配置真实翻译服务或本次直接发送原文。');
         if(!demo&&session.status==='idle')void this.prepareRuntime(session.id).catch(()=>{});
         const skills=await this.resolveComposerSkills(session,p.skills);
@@ -1102,7 +1100,6 @@ export class WorkbenchController {
             currentAsyncQuestion(this.session(session.id),question.reference.messageId,question.reference);this.translationModule.assertConfiguration(policy);
             return question.serialize(records);
           }
-          if(!moduleDisabled&&annotationsNeedInputTranslation(annotations?.items)&&(bypass||demo)&&p.confirmOriginal!==true)throw Error('中文注释需要翻译并预览，请使用生成发送预览。');
           if(bypass)return source;
           if(demo)return DEMO_TRANSLATED;
           if(annotations?.items.length&&/[\p{Script=Han}]/u.test(source+annotations.items.map(item=>item.text).join(''))){
@@ -1740,8 +1737,4 @@ export const hostIdentity=(h:SshHost)=>JSON.stringify([h.id,h.hostname,h.port,h.
 const samePath=(a:string,b:string)=>process.platform==='win32'?path.normalize(a).toLowerCase()===path.normalize(b).toLowerCase():path.normalize(a)===path.normalize(b);
 function stringArray(value:unknown,name:string,max:number,maxLength:number){if(!Array.isArray(value)||value.length>max)throw new Error(`${name}列表不正确。`);return [...new Set(value.map(item=>required(item,name,maxLength)))];}
 async function projectPaths(value:unknown,allowEmpty=false){const paths=stringArray(value,'项目目录',32,4096).map(absolutePath);const unique=paths.filter((item,index)=>!paths.slice(0,index).some(other=>samePath(item,other)));if(!unique.length&&!allowEmpty)throw new Error('请至少关联一个文件夹。');for(const p of unique)if(!(await stat(p)).isDirectory())throw new Error('项目路径不是目录。');return unique;}
-export function safeError(error:unknown){
-  if(error instanceof Error){if(error.name==='TimeoutError'||error.name==='AbortError')return '翻译已取消或超时；未自动提交原文。';
-    const message=error.message;if(message.length<400&&!/Bearer |sk-[A-Za-z0-9]|BEGIN .*PRIVATE|authorization|x-api-key/i.test(message))return message;
-  }return '操作失败；没有自动重试原生任务。';
-}
+export function safeError(error:unknown){return errorDiagnostics.format(error);}
