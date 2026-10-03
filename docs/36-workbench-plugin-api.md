@@ -1,5 +1,11 @@
 # 36 · 工作台插件开发接口
 
+## Memory maintenance admission correction (2026-10-03)
+
+Interface review: foreground submission no longer calls `startMemoryMaintenance` implicitly. A normal model turn therefore cannot start a Codex or Claude memory receiver, and cannot add background model usage as a side effect. The existing public `native-memory/process({runtime?:'codex'|'claude'})` command, settings-page action, task journal, `native.memory-background` service, admission events and cleanup lifecycle remain unchanged. Explicit processing still resolves the saved recipient default and retains the existing single-runtime or two-recipient scheduling semantics.
+
+This is a behavior correction at the existing command boundary; no command signature, state field, selector, resource, permission or UI mount point changed. Existing plugins that call `native-memory/process` continue to work. Plugins must not infer that a foreground submission performs memory maintenance; they should call the named command when the user or an explicit maintenance workflow requests it. No migration is required for saved tasks or receipts. Validation is covered by the existing memory background/consolidation suites and the standard plugin, documentation and UI-preference checks.
+
 ## Model connection retention and provider compatibility (2026-10-03)
 
 Interface review covered model-api/list/save/discover/refresh/reasoning/start, model.connections.call/key, runtime.native-request.map, runtime.native-completion.prepare, runtime.native-provider.openGateway, model-targets/list, existing state notifications and settings replacement. The affected values are ModelConnection.baseUrl/protocol/credentialRef and ApiModel manual fields. No option catalog, resource, surface, permission, event shape or persisted format is added.

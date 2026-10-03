@@ -192,7 +192,6 @@ export class WorkbenchController {
     if(!steering&&session.binding.runtime==='api')await this.apiRunner.settleCompleted(session.id);
     beforeDispatch?.();
     const result=await (isPluginRuntime(session.binding.runtime)?(steering?this.pluginRuntimes.steer(session.id,preview):this.pluginRuntimes.submit(session.id,preview)):steering?(this.providerBinding(session.binding)?this.providerRunner(session).steer(session.id,preview,steering):this.nativeCodex!.steer(session.id,preview,steering)):session.binding.runtime==='demo'?this.runDemo(session.id,preview):this.providerBinding(session.binding)?this.providerRunner(session).submit(session.id,preview):this.nativeCodex!.submit(session.id,preview));
-    if(!steering&&this.shared?.native?.memory)void this.startMemoryMaintenance(preview.id,session).catch(()=>{});
     return result;
   }
   private questionPreviews=new Map<string,{sessionId:string;reference:AsyncQuestionReference}>();
