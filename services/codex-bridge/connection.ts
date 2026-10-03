@@ -18,7 +18,7 @@ export function accountBinding(ref:string){
  if(values.length!==5||values[2]!=='codex'||values.some(v=>!v||/[\x00-\x1f]/.test(v)))throw Error('Invalid remote account binding.');
  return {authorityId:values[0],authorityGeneration:values[1],accountId:values[3],accountGeneration:values[4]};
 }
-export interface CodexConnectionOptions{host:SshHost;session:Session;executable:string;directory:string;cwd:string;registerEnvironment?:boolean;}
+export interface CodexConnectionOptions{host:SshHost;session:Session;executable:string;version?:string;directory:string;cwd:string;registerEnvironment?:boolean;}
 export interface NativeOwnerReceipt{threadId:string;turnId?:string;uncertain:boolean;interrupted?:boolean;cleanupConfirmed?:boolean;environmentId:string;cwd:string;}
 const ACCOUNT_MIGRATION_REQUIRED_MESSAGE='此旧会话需要核对原生账号迁移回执，原账号和历史不会自动替换。';
 export class CodexBridgeConnection{
@@ -47,7 +47,7 @@ export class CodexBridgeConnection{
   gate.on('connection',client=>connection.accept(client));
   try{
    await mkdir(options.directory,{recursive:true});
-   connection.executor=new LocalExecutorSupervisor({executable:options.executable,version:'0.155.1',cwd:options.cwd,isolatedCodexHome:path.join(options.directory,'executor-'+randomBytes(12).toString('hex')),port:localPort,authorized:true});
+   connection.executor=new LocalExecutorSupervisor({executable:options.executable,version:options.version??'0.155.1',cwd:options.cwd,isolatedCodexHome:path.join(options.directory,'executor-'+randomBytes(12).toString('hex')),port:localPort,authorized:true});
    await connection.executor.start();
    for(let i=0;i<100;i++){const ready=await new Promise<boolean>(resolve=>{const socket=net.connect(localPort,'127.0.0.1');socket.once('connect',()=>{socket.destroy();resolve(true);});socket.once('error',()=>resolve(false));});if(ready)break;if(i===99)throw Error('Local Codex executor did not become ready. '+connection.executor.diagnostic);await pause(50);}
    await connection.transport.start();

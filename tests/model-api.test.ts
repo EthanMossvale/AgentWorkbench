@@ -239,11 +239,11 @@ test('API and SSH peers share owner-wide messaging; unverified SSH targets do no
   const f=await fixture();try{const c=await f.save(),apiSession=await f.create(c);const native:Session={...apiSession,id:randomUUID(),binding:{runtime:'codex',provider:'openai',accountRef:'fixture',hostId:'h',egress:'vps',executionId:'local-device'},modelTargetId:undefined};await f.store.update(s=>{s.hosts.push({id:'h',name:'SSH',hostname:'example.invalid',port:22,username:'member',identityFile:'reference-only',knownHostsFile:'reference-only',ownerId:'local-owner',workspaceGeneration:'g',role:'workspace'});s.sessions.push(native);});const tools=f.controller.nativePeerTools(apiSession.id);const list=await tools.call('workbench_list_sessions',{}) as any;assert.ok(list.sessions.some((s:any)=>s.id===native.id));await tools.call('workbench_send_message',{targetSessionId:native.id,text:'Review this result.',operationId:'m1'});assert.equal(f.store.snapshot().collaboration!.messages.length,1);assert.equal(f.store.snapshot().sessions[1]!.messages.length,0);}finally{await f.close();}
 });
 
-test('approved command transport preserves UTF-8 and confirms owned cancellation without leaking provider environment',async()=>{
+test('approved command transport inherits actual environment, preserves UTF-8 and confirms owned cancellation',async()=>{
   const previous=process.env.OPENAI_API_KEY;process.env.OPENAI_API_KEY='SYNTHETIC_ENV_SECRET';
   try{
     const command=process.platform==='win32'?"[Console]::OutputEncoding=[Text.UTF8Encoding]::new($false); [Console]::Write('工具输出'); [Console]::Write($env:OPENAI_API_KEY)":"printf '工具输出'; printf '%s' \"$OPENAI_API_KEY\"";
-    const result=await runApiCommand(command,os.tmpdir(),new AbortController().signal) as any;assert.equal(result.exitCode,0);assert.equal(result.stdout,'工具输出');
+    const result=await runApiCommand(command,os.tmpdir(),new AbortController().signal) as any;assert.equal(result.exitCode,0);assert.equal(result.stdout,'工具输出SYNTHETIC_ENV_SECRET');
     const abort=new AbortController(),pending=runApiCommand(process.platform==='win32'?'Start-Sleep -Seconds 30':'sleep 30',os.tmpdir(),abort.signal);setTimeout(()=>abort.abort(),300);
     await assert.rejects(pending,/COMMAND_STOPPED|COMMAND_CLEANUP_UNCERTAIN/);
   }finally{if(previous===undefined)delete process.env.OPENAI_API_KEY;else process.env.OPENAI_API_KEY=previous;}

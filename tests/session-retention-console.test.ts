@@ -45,8 +45,9 @@ test('countdown uses actual model time and represents disabled, unknown and recl
 test('configurable hours are validated before transport and saved with compare-and-swap revision',async()=>{
  let calls=0;const service=new RemoteCliService(async(_h,_c,o)=>{calls++;const r=decode(o);assert.equal(r.method,'cli/configure');assert.equal(r.revision,0);return response({...policy,...r.changes,revision:1});});
  assert.equal((await service.configure(host,'claude',0,{idleHours:72})).idleHours,72);
- for(const idleHours of [0,8761,1.5,NaN,Infinity])await assert.rejects(service.configure(host,'codex',0,{idleHours}),/整数小时/);
- assert.equal(calls,1);
+ assert.equal((await service.configure(host,'codex',0,{idleHours:8761})).idleHours,8761);
+ for(const idleHours of [0,1.5,NaN,Infinity])await assert.rejects(service.configure(host,'codex',0,{idleHours}),/整数小时/);
+ assert.equal(calls,2);
 });
 
 test('journal persists locally across restart, isolates hosts/providers and coalesces empty checks',async()=>{
@@ -58,11 +59,11 @@ test('journal persists locally across restart, isolates hosts/providers and coal
  }finally{await rm(directory,{recursive:true,force:true});}
 });
 
-test('journal bounds its local size and age and paginates without reading remote state',async()=>{
+test('journal retains full history and paginates without reading remote state',async()=>{
  const directory=await mkdtemp(path.join(tmpdir(),'awb-retention-log-bounds-'));let now=1000000;const journal=new RetentionJournal(directory,()=>now);
  try{for(let i=0;i<2010;i++)journal.record('host',{provider:'codex',kind:'reclaimed',message:'Fixture',sessionIds:['s'+i]});const first=await journal.list('host','codex',{limit:100});assert.equal(first.entries.length,100);assert.ok(first.nextBefore);const next=await journal.list('host','codex',{before:first.nextBefore!,limit:100});assert.ok(!next.entries.some(e=>first.entries.some(f=>f.id===e.id)));
-  const file=path.join(directory,(await readdir(directory)).find(name=>name.endsWith('.json'))!);assert.equal(JSON.parse(await readFile(file,'utf8')).entries.length,2000);
-  now+=31*86400000;assert.equal((await journal.list('host','codex')).entries.length,0);
+  const file=path.join(directory,(await readdir(directory)).find(name=>name.endsWith('.json'))!);assert.equal(JSON.parse(await readFile(file,'utf8')).entries.length,2010);
+  now+=31*86400000;assert.equal((await journal.list('host','codex')).entries.length,50);
  }finally{await rm(directory,{recursive:true,force:true});}
 });
 
@@ -72,9 +73,9 @@ test('remote connection failures leave explanatory logs available offline after 
  try{await new NativeSessionStorage(directory,runner).reclaim(host,'codex').catch(()=>{});const page=await new NativeSessionStorage(directory,runner).logs(host,'codex');assert.equal(calls,1);assert.equal(page.entries[0]!.code,'SSH_FAILED');assert.match(page.entries[0]!.message,/网络/);assert.ok(!JSON.stringify(page).includes('SENSITIVE'));}finally{await rm(directory,{recursive:true,force:true});}
 });
 
-test('large metadata records remain within the journal byte limit and are readable after restart',async()=>{
+test('large metadata journals remain complete and readable after restart',async()=>{
  const directory=await mkdtemp(path.join(tmpdir(),'awb-retention-log-bytes-'));const journal=new RetentionJournal(directory);
- try{for(let i=0;i<300;i++)journal.record('host',{provider:'claude',kind:'archiving',message:'Fixture',sessionIds:Array.from({length:100},(_,j)=>String(j).padStart(256,'x'))});await journal.list('host','claude');const data=await readFile(path.join(directory,(await readdir(directory)).find(name=>name.endsWith('.json'))!));assert.ok(data.length<=4*1024*1024);assert.equal((await new RetentionJournal(directory).list('host','claude')).issue,undefined);}finally{await rm(directory,{recursive:true,force:true});}
+ try{for(let i=0;i<300;i++)journal.record('host',{provider:'claude',kind:'archiving',message:'Fixture',sessionIds:Array.from({length:100},(_,j)=>String(j).padStart(256,'x'))});await journal.list('host','claude');const data=await readFile(path.join(directory,(await readdir(directory)).find(name=>name.endsWith('.json'))!));assert.ok(data.length>4*1024*1024);assert.equal(JSON.parse(data.toString()).entries.length,300);assert.equal((await new RetentionJournal(directory).list('host','claude')).issue,undefined);}finally{await rm(directory,{recursive:true,force:true});}
 });
 
 test('an unwritable journal reports the reason without blocking verified remote reclamation',async()=>{

@@ -41,7 +41,7 @@ class StorageLeases:
         provider = params.get('provider')
         require(provider in CATEGORIES)
         idle_seconds = params.get('idleSeconds', 86400)
-        require(type(idle_seconds) is int and 3600 <= idle_seconds <= 8760*3600 and idle_seconds % 3600 == 0)
+        require(type(idle_seconds) is int and idle_seconds >= 3600 and idle_seconds % 3600 == 0)
         if method == 'storage/candidates':
             with runtime.state.lock:
                 expired = [r['sessionId'] for r in runtime.state.state['sessions'].values()
@@ -95,7 +95,7 @@ class StorageLeases:
             lease = self.leases.get(account['id'])
             if method == 'storage/begin':
                 selected = params.get('sessions')
-                require(isinstance(selected, list) and selected and len(selected) <= 1000 and all(isinstance(v, str) for v in selected))
+                require(isinstance(selected, list) and selected and all(isinstance(v, str) for v in selected))
                 rows = [r for r in all_rows if r.get('sessionId') in selected]
                 require({r['sessionId'] for r in rows} == set(selected), 'STORAGE_SESSION_CHANGED')
                 require(not any(e.get('sessionId') in selected for e in runtime.active.values()), 'STORAGE_BUSY')
@@ -243,7 +243,6 @@ def manifest(root, owner, provider, receipts, sessions):
             sha, info = digest(name, parent=parent, owner=owner)
         result.append(dict(entry, sha256=sha, size=info.st_size, mode=stat.S_IMODE(info.st_mode), mtime=info.st_mtime))
         total += info.st_size
-        require(len(result) <= 10000 and total <= 8*1024**3, 'STORAGE_ARCHIVE_TOO_LARGE')
     return result
 
 
@@ -355,7 +354,7 @@ def dispatch(request):
                 value = dict(reclaimedBytes=sum(e['size'] for e in request['files'] if e['delete']))
             elif method == 'retention/write':
                 entry = request['entry']
-                require(type(entry.get('size')) is int and 0 <= entry['size'] <= 8*1024**3 and re.fullmatch(r'[a-f0-9]{64}', str(entry.get('sha256'))))
+                require(type(entry.get('size')) is int and 0 <= entry['size'] and re.fullmatch(r'[a-f0-9]{64}', str(entry.get('sha256'))))
                 with parent_handle(root, entry, owner, provider, True) as (parent, name):
                     if file_info(parent, name, owner) is not None:
                         require(digest(name, None if entry['delete'] else entry['size'], parent, owner)[0] == entry['sha256'], 'STORAGE_RESTORE_CONFLICT')

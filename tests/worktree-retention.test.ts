@@ -1,6 +1,24 @@
 import test from 'node:test';import assert from 'node:assert/strict';import {mkdtemp,mkdir,writeFile,readFile,rm,access,link,stat} from 'node:fs/promises';import path from 'node:path';import os from 'node:os';import {execFile} from 'node:child_process';import {promisify} from 'node:util';import {WorktreeService} from '../packages/worktrees';
 import {WorkbenchController} from '../apps/desktop/host/controller';import {StateStore,SecretStore} from '../apps/desktop/host/store';import type {Session} from '../packages/contracts';
 const run=promisify(execFile),git=async(cwd:string,...args:string[])=>(await run('git',args,{cwd,windowsHide:true})).stdout.trim();
+
+test('raw split index preserves conflicts, intent-to-add, flags and staged blobs through archive and GC',async()=>{const f=await fixture();try{
+ await writeFile(path.join(f.repo,'flags'),'flags');await writeFile(path.join(f.repo,'deleted'),'deleted');await git(f.repo,'add','.');await git(f.repo,'commit','-m','index fixtures');
+ await git(f.repo,'update-index','--assume-unchanged','flags');await rm(path.join(f.repo,'deleted'));
+ await writeFile(path.join(f.repo,'intent'),'intent');await git(f.repo,'add','-N','intent');
+ const oids:string[]=[];for(const text of ['ancestor','ours','theirs']){await writeFile(path.join(f.root,'blob'),text);oids.push(await git(f.repo,'hash-object','-w',path.join(f.root,'blob')));}
+ await git(f.repo,'update-index','--force-remove','tracked');
+ await new Promise<void>((resolve,reject)=>{const child=execFile('git',['update-index','--index-info'],{cwd:f.repo,windowsHide:true},error=>error?reject(error):resolve());child.stdin!.end(oids.map((oid,i)=>`100644 ${oid} ${i+1}\ttracked\n`).join(''));});
+ await git(f.repo,'update-index','--split-index');
+ const stages=await git(f.repo,'ls-files','--stage'),flags=await git(f.repo,'ls-files','-v'),status=await git(f.repo,'status','--porcelain=v1');
+ const first=await f.service.create(f.repo),second=await f.service.create(f.repo);
+ for(const root of [f.repo,first.path]){assert.equal(await git(root,'ls-files','--stage'),stages);assert.equal(await git(root,'ls-files','-v'),flags);assert.equal(await git(root,'status','--porcelain=v1'),status);}
+ await f.service.configure(undefined,{autoDelete:true,limit:1});assert.deepEqual((await f.service.cleanup([second.id])).archived,[first.id]);
+ await git(f.repo,'reset','--mixed','HEAD');await git(second.path,'reset','--mixed','HEAD');
+ await git(f.repo,'gc','--prune=now');await new WorktreeService(f.data).restore(first.id);
+ assert.equal(await git(first.path,'ls-files','--stage'),stages);assert.equal(await git(first.path,'ls-files','-v'),flags);assert.equal(await git(first.path,'status','--porcelain=v1'),status);
+ for(let i=0;i<oids.length;i++)assert.equal(await git(first.path,'cat-file','-p',oids[i]!),['ancestor','ours','theirs'][i]);
+}finally{await f.close();}});
 async function fixture(){const root=await mkdtemp(path.join(os.tmpdir(),'awb-retention-')),repo=path.join(root,'repo'),data=path.join(root,'data');await mkdir(repo);await git(repo,'init');await git(repo,'config','user.name','Fixture');await git(repo,'config','user.email','fixture@example.invalid');await git(repo,'config','core.autocrlf','false');await writeFile(path.join(repo,'tracked'),'base');await writeFile(path.join(repo,'.gitignore'),'ignored\n');await git(repo,'add','.');await git(repo,'commit','-m','base');return {root,repo,data,service:new WorktreeService(data),close:()=>rm(root,{recursive:true,force:true})};}
 
 test('maintenance blocks new work and graceful shutdown waits for archive completion',async()=>{const f=await fixture(),store=new StateStore(f.data);await store.load();let release!:()=>void,started!:()=>void;const running=new Promise<void>(resolve=>started=resolve),blocked=new Promise<void>(resolve=>release=resolve);f.service.cleanup=async()=>{started();await blocked;return {archived:[],failed:[]};};const controller=new WorkbenchController(store,new SecretStore(f.data,{encrypt:s=>Buffer.from(s),decrypt:b=>b.toString()}),{worktrees:f.service,pickDirectory:async()=>null,copy:()=>{},openPath:async()=>{},nativeCapabilities:()=>[]},()=>{});try{const maintenance=controller.maintainWorktrees();await running;assert.equal(controller.hasActiveSessionWork(),true);await assert.rejects(controller.call('session/fork',{sessionId:'missing'}),/WORKTREE_BUSY/);let closed=false;const closing=controller.dispose().then(()=>{closed=true;});await new Promise(resolve=>setTimeout(resolve,25));assert.equal(closed,false);release();await maintenance;await closing;assert.equal(closed,true);}finally{release();await controller.dispose();await f.close();}});

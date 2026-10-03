@@ -7,6 +7,7 @@ import type { PageProps } from './Pages';
 import TranslationSettings from './TranslationSettings';
 import NativePluginSettings from './NativePluginSettings';
 import PluginImportDialog from './PluginImportDialog';
+import {isArchivePasswordRequest,type ArchiveUnlock} from '../../../packages/native-resources/archive-types';
 import './NativeResources.css';
 import './ReadingPane.css';
 
@@ -27,7 +28,7 @@ export default function PluginSettings(props: PageProps) {
   useEffect(() => { const update = () => { void reload().catch(report); }; update(); return window.workbench?.onExtensions?.(update); }, []);
   const action = async (fn: () => Promise<unknown>) => { if (busy) return; setBusy(true); try { await fn(); await reload(); } catch (e) { report(e); await reload().catch(() => {}); } finally { setBusy(false); } };
   const expand = (id: string) => setExpanded(value => value.includes(id) ? value.filter(item => item !== id) : [...value, id]);
-  const importPlugin = async (file?: File) => { const result = file ? await window.workbench.importPluginFile(file) : await api('extensions/import'); if (!result) return false; await reload(); notify('插件已导入，默认关闭'); return true; };
+  const importPlugin = async (file?: File,unlock?:ArchiveUnlock) => { const result = file ? await window.workbench.importPluginFile(file) : await api('extensions/import',unlock);if(isArchivePasswordRequest(result))return result; if (!result) return false; await reload(); notify('插件已导入，默认关闭'); return true; };
   const toggle = (record: PluginRecord, enabled: boolean) => { if (enabled && (record.manifest.main || record.manifest.renderer) && !record.approved) { setApproval(record); return; } setRecords(values => values.map(value => value.manifest.id === record.manifest.id ? {...value,enabled} : value)); void action(() => api('extensions/toggle', { id: record.manifest.id, hash: record.hash, enabled })); };
   return <div className="native-resources" data-testid="plugins-settings">
     {importOpen && <PluginImportDialog onClose={() => setImportOpen(false)} onImport={importPlugin}/>}

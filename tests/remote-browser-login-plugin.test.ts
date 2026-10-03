@@ -33,7 +33,7 @@ test('approved plugin starts the production SSH login and receives bounded prepa
  for(const [id,service] of Object.entries(controller.developmentServices()))if(service)plugins.services.register(id,service,{version:1});
  plugins.connectHost(request=>controller.call(request.method,request.payload));
  const manifest={schemaVersion:1,apiVersion:1,id:'test.auth-preparation',name:'Synthetic authorization preparation',version:'1.0.0',description:'Production SSH state consumer',capabilities:['host'],main:'main.mjs'};
- const zip=path.join(directory,'fixture.zip');await writeFile(zip,encodeZip([{name:'workbench.plugin.json',data:Buffer.from(JSON.stringify(manifest))},{name:'main.mjs',data:Buffer.from(`export function activate(api){api.registerCommand('start',p=>api.call('remote-browser/start',p));api.registerCommand('status',p=>api.call('remote-browser/status',p));}`)}]));
+ const zip=path.join(directory,'fixture.zip');await writeFile(zip,encodeZip([{name:'workbench.plugin.json',data:Buffer.from(JSON.stringify(manifest))},{name:'main.mjs',data:Buffer.from(`export function activate(api){api.onDispose(api.services.get('actions.remote-browser').environments.register('plugin:'+api.id+'/environment',()=>({display:':45',webPort:7045,chrome:'/opt/custom/chrome'})));api.registerCommand('start',p=>api.call('remote-browser/start',p));api.registerCommand('status',p=>api.call('remote-browser/status',p));}`)}]));
  try{
   await plugins.importZip(zip);const plugin=(await plugins.list()).find(p=>p.manifest.id===manifest.id)!;
   await assert.rejects(plugins.setEnabled(manifest.id,plugin.hash,true),/Explicit approval/);await plugins.setEnabled(manifest.id,plugin.hash,true,true);
@@ -42,6 +42,8 @@ test('approved plugin starts the production SSH login and receives bounded prepa
    const job=await plugins.command(manifest.id,'start',{id:host.id,accountId,profileKey}) as BrowserLogin;
    assert.equal(job.viewerReady,false);const child=children.at(-1)!,payload=payloads.at(-1);
    assert.equal(payload.request.action,'login');assert.equal(payload.request.accountId,accountId);
+   assert.deepEqual(payload.environment,{display:':45',webPort:7045,chrome:'/opt/custom/chrome'});
+   assert.match(payload.sources['browser_environment.py'],/def load\(override=None\)/);
    assert.match(payload.sources['remote_browser.py'],/\/cai\/oauth\/authorize/);
    assert.match(payload.sources['browser_api.py'],/AUTH_URL_TIMEOUT = 60/);
    assert.match(payload.sources['browser_api.py'],/BROWSER_OPEN_TIMEOUT = 70/);
@@ -50,6 +52,7 @@ test('approved plugin starts the production SSH login and receives bounded prepa
    const status=await plugins.command(manifest.id,'status',{id:host.id,jobId:job.jobId}) as BrowserLogin;
    assert.equal(status.state,'failed');assert.equal(status.cleanup,'confirmed');assert.ok(status.error?.startsWith(label));assert.equal(browser.busy(host),false);
    await plugins.setEnabled(manifest.id,plugin.hash,false);await assert.rejects(plugins.command(manifest.id,'status',{}),/not found/);
+   assert.deepEqual(browser.environments.resolve(host),{});
    assert.deepEqual(await controller.call('remote-browser/status',{id:host.id,jobId:job.jobId}),status);
    await plugins.setEnabled(manifest.id,plugin.hash,true);
   }

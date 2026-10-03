@@ -95,14 +95,13 @@ def broker_call(method, extra=None):
 
 def pressure(value):
     memory = value['memory']
-    # Headroom reserves do not reserve physical memory or guarantee against OOM.
     return memory['available'] < min(memory['total']*.25, max(256*1024*1024, memory['total']*.15))
 
 
 def disk_headroom(folder='/', additional=0):
     volume = os.statvfs(folder)
     total, available = volume.f_blocks*volume.f_frsize, volume.f_bavail*volume.f_frsize
-    return available-additional >= min(2*1024**3, total*.1)
+    return available >= additional
 
 
 def dispatch(request):

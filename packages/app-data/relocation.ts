@@ -1,6 +1,6 @@
 import {createHash,randomUUID} from 'node:crypto';
 import {execFileSync} from 'node:child_process';
-import {cpSync,existsSync,lstatSync,mkdirSync,openSync,readFileSync,readSync,closeSync,readdirSync,renameSync,rmdirSync,rmSync,writeFileSync} from 'node:fs';
+import {cpSync,existsSync,lstatSync,mkdirSync,openSync,readFileSync,readSync,closeSync,readdirSync,readlinkSync,realpathSync,renameSync,rmdirSync,rmSync,writeFileSync} from 'node:fs';
 import path from 'node:path';
 import {restrictPrivatePath} from '../ssh-transport/private-files';
 
@@ -11,7 +11,7 @@ const present=(value:string)=>{try{lstatSync(value);return true;}catch(error){if
 const fileHash=(file:string)=>{const fd=openSync(file,'r'),hash=createHash('sha256'),buffer=Buffer.allocUnsafe(1024*1024);try{let count:number;while((count=readSync(fd,buffer,0,buffer.length,null))>0)hash.update(buffer.subarray(0,count));return hash.digest('hex');}finally{closeSync(fd);}};
 const verifyCopy=(source:string,target:string)=>{
   const origin=lstatSync(source),copy=lstatSync(target);
-  if(origin.isSymbolicLink()||copy.isSymbolicLink())throw Error('APP_DATA_SOURCE_LINK_UNSUPPORTED');
+  if(origin.isSymbolicLink()){if(!copy.isSymbolicLink()||readlinkSync(source)!==readlinkSync(target))throw Error('APP_DATA_COPY_INVALID');return;}
   if(origin.isDirectory()){
     if(!copy.isDirectory())throw Error('APP_DATA_COPY_INVALID');
     const before=readdirSync(source).sort(),after=readdirSync(target).sort();
@@ -32,11 +32,11 @@ export function legacyInstalledDataDirectory(executable:string,home:string){
   return path.join(path.dirname(path.dirname(executable)),'AgentWorkbenchData',owner);
 }
 export function validateDataDestination(source:string,target:string){
-  if(!path.isAbsolute(target)||target.includes('\0')||same(target,path.parse(target).root)||inside(source,target)||inside(target,source)||process.platform==='win32'&&!/^[A-Za-z]:\\/.test(target))throw Error('APP_DATA_PATH_INVALID');
-  if(present(target))throw Error('APP_DATA_DESTINATION_CONFLICT');
-  let parent=path.dirname(target);
-  while(parent!==path.dirname(parent)){if(present(parent)&&lstatSync(parent).isSymbolicLink())throw Error('APP_DATA_PATH_LINK');parent=path.dirname(parent);}
+  if(!path.isAbsolute(target)||target.includes('\0')||same(target,path.parse(target).root)||inside(source,target)||inside(target,source))throw Error('APP_DATA_PATH_INVALID');
+  if(present(target)&&(!lstatSync(target).isDirectory()||lstatSync(target).isSymbolicLink()||readdirSync(target).length))throw Error('APP_DATA_DESTINATION_CONFLICT');
   if(!present(path.dirname(target)))mkdirSync(path.dirname(target),{recursive:true});
+  const canonicalSource=present(source)?realpathSync(source):source,canonicalTarget=path.join(realpathSync(path.dirname(target)),path.basename(target));
+  if(inside(canonicalSource,canonicalTarget)||inside(canonicalTarget,canonicalSource))throw Error('APP_DATA_PATH_INVALID');
   const probe=path.join(path.dirname(target),'.awb-probe-'+randomUUID());writeFileSync(probe,'',{flag:'wx'});rmSync(probe);
 }
 export function readDataLocation(file:string):LocationFile|undefined{
@@ -109,13 +109,13 @@ export function finishPendingRelocation(source:string,target:string){
 /** Remove recovery evidence only after the startup locator has been saved. */
 export function completeRelocation(target:string){rmSync(target+'.migration.json',{force:true});}
 
-type Inventory=Record<string,{kind:'directory'}|{kind:'file';hash:string;size:number}>;
+type Inventory=Record<string,{kind:'directory'}|{kind:'link';target:string}|{kind:'file';hash:string;size:number}>;
 interface MigrationJournal {version:1;source:string;target:string;phase:'prepared'|'cleanup';sourceFiles:Inventory;targetFiles:Inventory;external?:{source:string;target:string;files:Inventory}[]}
 function inventory(root:string):Inventory {
   const result:Inventory={};
   const walk=(file:string)=>{const info=lstatSync(file),relative=path.relative(root,file);
-    if(info.isSymbolicLink())throw Error('APP_DATA_SOURCE_LINK_UNSUPPORTED');
-    if(info.isDirectory()){result[relative]={kind:'directory'};for(const name of readdirSync(file))walk(path.join(file,name));}
+    if(info.isSymbolicLink())result[relative]={kind:'link',target:readlinkSync(file)};
+    else if(info.isDirectory()){result[relative]={kind:'directory'};for(const name of readdirSync(file))walk(path.join(file,name));}
     else if(info.isFile())result[relative]={kind:'file',hash:fileHash(file),size:info.size};
     else throw Error('APP_DATA_SOURCE_INVALID');
   };walk(root);return result;
@@ -133,14 +133,15 @@ export function relocateAppData(source:string,target:string,commit:()=>void=()=>
   if(!lstatSync(source).isDirectory()||lstatSync(source).isSymbolicLink())throw Error('APP_DATA_SOURCE_INVALID');
   const staging=target+'.staging-'+randomUUID(),journalFile=target+'.migration.json',planned:{repositoryRoot:string;oldPath:string;newPath:string}[]=[],moved:typeof planned=[];
   if(present(journalFile))throw Error('APP_DATA_MIGRATION_RECOVERY_REQUIRED');
-  let published=false,committed=false;
+  const existingEmpty=present(target);
+  let published=false,committed=false,removedEmpty=false;
   const external:NonNullable<MigrationJournal['external']>=[];
   try{
     const sourceFiles=inventory(source);
     // Node copy does not preserve Windows ACLs. Inherit owner-only access from
     // the new root before any opaque credentials or device keys are copied.
     mkdirSync(staging,{mode:0o700});restrictPrivatePath(staging,'directory');
-    cpSync(source,staging,{recursive:true,errorOnExist:true,force:false,dereference:false});
+    cpSync(source,staging,{recursive:true,errorOnExist:true,force:false,dereference:false,verbatimSymlinks:true});
     verifyCopy(source,staging);
     const worktreeFile=path.join(staging,'worktree-state.json');
     if(existsSync(worktreeFile)){
@@ -174,6 +175,7 @@ export function relocateAppData(source:string,target:string,commit:()=>void=()=>
     if(existsSync(attachments))for(const entry of readdirSync(attachments)){const metadata=path.join(attachments,entry,'metadata.json');if(existsSync(metadata))for(const [before,after] of mappings)rewriteJson(metadata,before!,after!);}
     const journal:MigrationJournal={version:1,source,target,phase:'prepared',sourceFiles,targetFiles:inventory(staging),external};
     writeFileSync(journalFile,JSON.stringify(journal),{flag:'wx'});
+    if(existingEmpty){rmdirSync(target);removedEmpty=true;}
     renameSync(staging,target);published=true;
     for(const record of planned){
       moved.push(record);
@@ -189,7 +191,7 @@ export function relocateAppData(source:string,target:string,commit:()=>void=()=>
   }catch(error){
     let rollbackFailed=false;
     for(const record of moved.reverse())try{execFileSync('git',['-C',record.repositoryRoot,'worktree','repair',record.oldPath],{windowsHide:true,timeout:120000});}catch{rollbackFailed=true;}
-    if(!rollbackFailed&&!committed){rmSync(staging,{recursive:true,force:true});if(published)rmSync(target,{recursive:true,force:true});rmSync(journalFile,{force:true});}
+    if(!rollbackFailed&&!committed){rmSync(staging,{recursive:true,force:true});if(published)rmSync(target,{recursive:true,force:true});if(removedEmpty&&!present(target))mkdirSync(target);rmSync(journalFile,{force:true});}
     throw new Error(rollbackFailed?'APP_DATA_MIGRATION_RECOVERY_REQUIRED':'APP_DATA_MIGRATION_FAILED',{cause:error});
   }
   try{finishPendingRelocation(source,target);}

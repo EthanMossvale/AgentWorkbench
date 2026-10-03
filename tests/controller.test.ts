@@ -40,10 +40,10 @@ test('CLI maintenance blocks task admission and pending session work prevents id
   assert.equal(f.controller.hasActiveSessionWork(),true);await running;assert.equal(f.controller.hasActiveSessionWork(),false);
  }finally{await f.close();}
 });
-test('unconfigured translation blocks arbitrary Chinese instead of sending source',async()=>{const f=await fixture();try{
+test('unconfigured translation reports setup failure while explicit bypass prepares original text',async()=>{const f=await fixture();try{
  const s=await f.controller.call('session/create',{projectId:null,runtime:'demo'}) as Session;
  await assert.rejects(f.controller.call('draft/prepare',{sessionId:s.id,text:'不要删除整个目录'}));assert.equal(f.store.snapshot().sessions[0]!.messages.length,0);
- await assert.rejects(f.controller.call('draft/prepare',{sessionId:s.id,text:'不要删除整个目录',bypass:true}),/必须先完成英文/);assert.equal(f.store.snapshot().sessions[0]!.messages.length,0);
+ const prepared=await f.controller.call('draft/prepare',{sessionId:s.id,text:'不要删除整个目录',bypass:true}) as DraftPreview;assert.equal(prepared.translated,'不要删除整个目录');assert.equal(f.store.snapshot().sessions[0]!.messages.length,0);
 }finally{await f.close();}});
 test('supplemented preview invalidates the old revision and preserves exact source whitespace',async()=>{const f=await fixture();try{
  const s=await f.controller.call('session/create',{projectId:null,runtime:'demo'}) as Session;

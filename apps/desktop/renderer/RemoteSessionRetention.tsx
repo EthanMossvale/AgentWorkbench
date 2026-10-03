@@ -44,7 +44,7 @@ function ProviderRetention({host,provider,notify}:{host:SshHost;provider:RemoteC
  },[before,logRefresh]);
  async function configure(changes:Partial<Pick<RemoteCliPolicy,'reclaimIdle'|'idleHours'>>){
   if(!snapshot||saving.current)return;
-  const value=changes.idleHours;if(value!==undefined&&(!Number.isInteger(value)||value<1||value>8760)){setSaveError('闲置时限请输入 1 至 8760 的整数小时。');return;}
+  const value=changes.idleHours;if(value!==undefined&&(!Number.isInteger(value)||value<1)){setSaveError('闲置时限请输入 正整数小时。');return;}
   saving.current=true;generation.current++;setBusy(true);setSaveError('');
   try{const policy=await api<RemoteCliPolicy>('remote-cli/configure',{id:host.id,provider,revision:snapshot.policy.revision,changes});if(alive.current){setSnapshot(v=>v?{...v,policy}:v);if(value!==undefined){dirty.current=false;setHours(String(policy.idleHours));}notify('会话清理设置已保存。');setLogRefresh(v=>v+1);}}
   catch(e){if(alive.current)setSaveError(errorText(e));}
@@ -55,7 +55,7 @@ function ProviderRetention({host,provider,notify}:{host:SshHost;provider:RemoteC
  return <div id="retention-provider-panel" role="tabpanel" aria-labelledby={`retention-provider-${provider}`}>
   <div className="retention-settings">
    {snapshot?<><fieldset disabled={busy}><Toggle label="自动清理" checked={snapshot.policy.reclaimIdle} onChange={v=>void configure({reclaimIdle:v})}/></fieldset>
-    <form noValidate onSubmit={event=>{event.preventDefault();void configure({idleHours:Number(hours)});}}><label htmlFor={`retention-hours-${provider}`}>闲置</label><input id={`retention-hours-${provider}`} aria-label={`${names[provider]} 闲置小时数`} type="number" min="1" max="8760" step="1" required value={hours} disabled={busy} onChange={e=>{dirty.current=true;setHours(e.target.value);}}/><span>小时后清理</span><button className="text-button" type="submit" disabled={busy||hours===String(snapshot.policy.idleHours)}>{busy?'保存中…':'保存'}</button></form></>:<span className="inline-note">{loading?'正在读取清理策略…':'策略尚未读取'}</span>}
+    <form noValidate onSubmit={event=>{event.preventDefault();void configure({idleHours:Number(hours)});}}><label htmlFor={`retention-hours-${provider}`}>闲置</label><input id={`retention-hours-${provider}`} aria-label={`${names[provider]} 闲置小时数`} type="number" min="1" step="1" required value={hours} disabled={busy} onChange={e=>{dirty.current=true;setHours(e.target.value);}}/><span>小时后清理</span><button className="text-button" type="submit" disabled={busy||hours===String(snapshot.policy.idleHours)}>{busy?'保存中…':'保存'}</button></form></>:<span className="inline-note">{loading?'正在读取清理策略…':'策略尚未读取'}</span>}
    <button type="button" className="icon-button" aria-label="刷新会话清理" disabled={loading||busy} onClick={()=>setRefresh(v=>v+1)}><Icon name="refresh" size={15}/></button>
   </div>
   {saveError&&<p className="inline-error" role="alert">{saveError}</p>}

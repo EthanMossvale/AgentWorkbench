@@ -1,6 +1,6 @@
 import type {RemoteCliPolicy,RemoteCliProvider} from './cli';
 
-export const RETENTION_MIN_HOURS=1,RETENTION_MAX_HOURS=8760;
+export const RETENTION_MIN_HOURS=1,RETENTION_MAX_HOURS=Math.floor(8640000000000000/3600000);
 export interface RetentionSession {
  sessionId:string;accountId:string;accountGeneration:string;threadId:string|null;title?:string;
  lastModelActivity:number|null;idleSeconds:number|null;dueAt:number|null;eligible:boolean;

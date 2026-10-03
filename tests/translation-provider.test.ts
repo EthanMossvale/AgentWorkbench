@@ -52,17 +52,17 @@ test('reasoning configuration needs model-specific confirmation and valid protoc
   for(const patch of [
     {reasoning:{mode:'effort',effort:'high'}},
     {model:'',reasoning:{mode:'effort',effort:'high',confirmed:true}},
-    {reasoning:{mode:'effort',effort:'unverified-custom-value',confirmed:true}},
     {protocol:'anthropic-messages',reasoning:{mode:'effort',effort:'high',confirmed:true}},
     {reasoning:{mode:'adaptive',effort:'high',confirmed:true}},
     {reasoning:{mode:'budget',budgetTokens:2048,confirmed:true}},
     {protocol:'anthropic-messages',reasoning:{mode:'budget',budgetTokens:1000,confirmed:true}},
     {protocol:'anthropic-messages',maxOutputTokens:4096,reasoning:{mode:'budget',budgetTokens:4096,confirmed:true}},
-    {protocol:'anthropic-messages',reasoning:{mode:'adaptive',effort:'minimal',confirmed:true}},
     {protocol:'anthropic-messages',reasoning:{mode:'adaptive',budgetTokens:2048,confirmed:true}},
     {reasoning:{mode:'default'},effort:'high',verifiedEfforts:['high']},
     {effort:'high'},
   ])assert.throws(()=>validateReasoning({...base,...patch} as TranslationProfile));
+  assert.equal(validateReasoning({...base,reasoning:{mode:'effort',effort:'unverified-custom-value',confirmed:true}})?.effort,'unverified-custom-value');
+  assert.equal(validateReasoning({...base,protocol:'anthropic-messages',reasoning:{mode:'adaptive',effort:'minimal',confirmed:true}})?.effort,'minimal');
   assert.deepEqual(validateReasoning({...base,effort:'high',verifiedEfforts:['high']}),{mode:'effort',effort:'high',confirmed:true});
 });
 

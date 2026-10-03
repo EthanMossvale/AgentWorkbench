@@ -131,7 +131,7 @@ export interface HostActions { nativeClaude?:NativeClaudeService }
 export interface HostActions { pickAccountExport?(fileName: string): Promise<string | null> }
 export interface HostActions { sshOnboarding?: SshOnboardingService; openWeb?(url:string):Promise<void>; revealPath?(target:string):void; nativeCodex?:NativeCodexService;pickDirectory():Promise<string|null>;pickDirectories?():Promise<string[]>;pickSkill?():Promise<string|null>;getNavigation?():string|null;openSession?(sessionId:string):void;probeEnvironment?(host:SshHost):ReturnType<typeof probeEnvironment>;discoverWorkspaces?(host:SshHost):ReturnType<typeof discoverWorkspaces>;accountCatalog?:Pick<RemoteAccountCatalogService,'list'|'select'|'start'|'status'|'cancel'|'dispose'> & Partial<Pick<RemoteAccountCatalogService,'setEnabled'>>;workspaceManagement?:WorkspaceManagementActions;openExternal?(url:string):Promise<void>;translationFetcher?:typeof fetch;openPath(path:string):Promise<void>;copy(text:string):void; nativeCapabilities():Capability[] }
 export interface SharedServices { memory:SharedMemoryStore;skills:SharedSkillsStore;native?:NativeResources }
-export interface HostActions { remoteBrowser?:Pick<import('../../../packages/remote-account-catalog/browser').RemoteBrowserService,'profiles'|'setup'|'start'|'status'|'openViewer'|'code'|'cancel'|'busy'|'dispose'> & Partial<Pick<import('../../../packages/remote-account-catalog/browser').RemoteBrowserService,'control'>> }
+export interface HostActions { remoteBrowser?:Pick<import('../../../packages/remote-account-catalog/browser').RemoteBrowserService,'profiles'|'setup'|'start'|'status'|'openViewer'|'code'|'cancel'|'busy'|'dispose'> & Partial<Pick<import('../../../packages/remote-account-catalog/browser').RemoteBrowserService,'control'|'environment'|'environments'>> }
 export interface HostActions { remoteCli?:Pick<import('../../../packages/remote-account-catalog/cli').RemoteCliService,'list'|'plan'|'apply'> }
 export interface HostActions { accountMigration?:Pick<LegacyMigrationClient,'resolve'> }
 export interface HostActions { fileActions?: FileActionService }
@@ -343,6 +343,7 @@ export class WorkbenchController {
       'images.viewed': this.viewedImages,
       'submission.leases': this.leases, 'submission.ledger': this.ledger,
       'accounts.catalog': this.accountCatalog,
+      'remote.browser-environments': this.actions.remoteBrowser?.environments,
     };
     for (const [name, value] of Object.entries(this.actions)) if (value && typeof value === 'object') services['actions.' + name.replace(/[A-Z]/g, c => '-' + c.toLowerCase())] = value;
     return services;
@@ -365,17 +366,28 @@ export class WorkbenchController {
     endWait: async (sessionId:string,confirm:boolean):Promise<unknown> => {
       const session=this.session(sessionId);
       if(confirm!==true||session.status!=='uncertain')throw Error('SESSION_RECOVERY_CONFIRM_REQUIRED');
-      if(this.modelSwitching.has(sessionId)||this.permissionChanges.has(sessionId)||this.forking.has(sessionId)||this.sessionOperations.has(sessionId)||this.activeTurns.has(sessionId)||this.gate.hasPending(sessionId)||this.apiRunner.busy(sessionId)||this.nativeProvider?.hasTransport(sessionId)||this.nativeCodex?.busy(sessionId)||this.pluginRuntimes.busy(sessionId))throw Error('SESSION_RECOVERY_BUSY: 当前运行时仍有活动连接，请先停止任务并等待清理。');
-      return this.withSessionOperation(sessionId,()=>this.update(state=>{
+      if(this.modelSwitching.has(sessionId)||this.permissionChanges.has(sessionId)||this.forking.has(sessionId)||this.sessionOperations.has(sessionId)||this.activeTurns.has(sessionId)||this.gate.hasPending(sessionId)||this.apiRunner.busy(sessionId)||this.pluginRuntimes.busy(sessionId))throw Error('SESSION_RECOVERY_BUSY: 当前操作仍在提交，请稍后重试。');
+      return this.withSessionOperation(sessionId,async()=>{
+        await this.retireNativeObservation(sessionId);
+        await this.nativeProvider?.closeForRecovery(sessionId);
+        await this.nativeCodex?.closeForRecovery(sessionId);
+        return this.update(state=>{
         const current=state.sessions.find(item=>item.id===sessionId)!;
-        if(current.status!=='uncertain')throw Error('SESSION_RECOVERY_CHANGED');
+        (current.recoveryAttempts??=[]).push({at:new Date().toISOString(),executionSessionId:current.binding.executionSessionId??current.id,nativeSessionId:current.binding.nativeSessionId,turnId:current.nativeTurnId,error:current.nativeError});
+        if(current.binding.runtime!=='api'&&current.binding.runtime!=='demo'&&!isPluginRuntime(current.binding.runtime)){
+          current.binding.executionSessionId=randomUUID();
+          delete current.binding.nativeSessionId;delete current.nativeEnvironmentReceipt;
+          if(current.branch)delete current.branch.native;
+          current.handoffFromMessage=0;
+        }
         current.status='idle';current.nativeObservation='disconnected';current.nativeApprovals=[];
         expireInteractions(current,'uncertain');
-        current.nativeError='已由你核对并结束等待；此前回合及进程清理结果仍未知，没有重发旧请求。';
+        current.nativeError='已结束等待，可以发送新请求；此前回合结果仍未知，没有自动重发。';
         for(const item of current.activities??[])if(item.status==='running')item.status='uncertain';
         for(const child of current.nativeChildren??[])if(['spawn','progress'].includes(child.operation))child.status='uncertain';
         for(const message of current.messages)if(message.delivery==='pending')message.delivery='uncertain';
-      }));
+        });
+      });
     }
   };
   readonly generatedImages?: WorkspaceGeneratedImages;
@@ -1083,6 +1095,7 @@ export class WorkbenchController {
       case 'annotations/translate':return this.annotations.translate(p as unknown as import('../../../packages/context-annotations').AnnotationTranslationRequest);
       case 'session/prepare-runtime':return this.prepareRuntime(required(p.sessionId,'Session ID'));
       case 'draft/prepare':{
+        if(p.recover===true&&this.session(p.sessionId).status==='uncertain')await this.sessionRecovery.endWait(required(p.sessionId,'Session ID'),true);
         const session=this.session(p.sessionId);this.assertDraftRuntime(session);if(session.status==='blocked'){session.status='idle';await this.update(s=>{s.sessions.find(x=>x.id===session.id)!.status='idle';});}
         if(session.status!=='idle'&&!(session.status==='running'&&session.nativeTurnId))throw new Error('当前会话尚不能接收输入，请确认运行状态。');
         return this.withSessionOperation(session.id,async()=>{
@@ -1264,13 +1277,14 @@ export class WorkbenchController {
         if(!current||hostIdentity(current)!==identity)throw new Error('发现期间连接身份已变更，旧工作空间结果已丢弃。');
         return result;
       }
-      case 'remote-browser/setup-plan':case 'remote-browser/setup-apply':
+      case 'remote-browser/environment':case 'remote-browser/setup-plan':case 'remote-browser/setup-apply':
       case 'remote-browser/launch':case 'remote-browser/reconnect':case 'remote-browser/stop':
       case 'remote-browser/profiles':case 'remote-browser/create':case 'remote-browser/rename':case 'remote-browser/delete':case 'remote-browser/start':case 'remote-browser/status':case 'remote-browser/open':case 'remote-browser/code':case 'remote-browser/cancel':{
         const host=this.codexLoginHost(p.id),identity=hostIdentity(host),service=this.actions.remoteBrowser;
         if(host.role!=='admin'||host.username!=='root'||!service)throw Error('请从 root 管理员入口管理远端浏览器。');
         let result:unknown;
-        if(method==='remote-browser/setup-plan'||method==='remote-browser/setup-apply'){if(method==='remote-browser/setup-apply'&&p.confirm!==true)throw Error('请先核对并确认浏览器配置计划。');result=await service.setup(host,method==='remote-browser/setup-apply'?required(p.planId,'配置计划'):undefined);}
+        if(method==='remote-browser/environment')result=await service.environment?.(host);
+        else if(method==='remote-browser/setup-plan'||method==='remote-browser/setup-apply'){if(method==='remote-browser/setup-apply'&&p.confirm!==true)throw Error('请先核对并确认浏览器配置计划。');result=await service.setup(host,method==='remote-browser/setup-apply'?required(p.planId,'配置计划'):undefined);}
         else if(['remote-browser/profiles','remote-browser/create','remote-browser/rename','remote-browser/delete'].includes(method)){
           const action=method==='remote-browser/profiles'?'list':method.slice('remote-browser/'.length) as 'create'|'rename'|'delete';
           result=await service.profiles(host,action,{key:typeof p.key==='string'?p.key:undefined,label:typeof p.label==='string'?p.label:undefined,confirm:p.confirm===true});

@@ -2437,6 +2437,18 @@ Local asynchronous commands retain arbitrary numbers of receipts and queue at th
 
 Skill source is readable even with native lifecycle declarations. Sequence arguments, pwsh and custom effort values are supported; actual resource loads consume a typed adapter registry with approved plugin restoration. Unknown declarations stay visible as unexecuted native requirements. 39 context/controller cases pass. Built-in hooks/isolation/background/inline-model execution is still outstanding; this is partial progress, not completion or native model acceptance. No UI persistence change applies.
 
+## Remaining defensive UX batch (2026-10-04)
+
+The ordered 134-item disposition is maintained in `defensive-ux-progress-20261003.md`. This batch removes additional fixed resource limits, source/path heuristics, environment stripping and plugin-wide failure escalation; retains the approved permission, integrity and automatic replay boundaries; and separates manual native recovery from old cleanup. Both native runners retire old observers/attempts before a replacement, preserve unknown receipts, and suppress late state writes. The new request uses a fresh execution identity; restart never retries it automatically.
+
+Native skill source loading is available even for declarations not implemented by the local-resource bridge. This resolves the D036 rejection; it is not evidence that hooks/isolation/background/inline-model lifecycles execute across runtimes. Complex Git index support covers conflict stages, split indices, flags and intent-to-add with staged-object retention. Independent submodule/nested-repository metadata is still outside the archive format. Custom browser environments consume installed paths/settings; automatic installation of arbitrary layouts is outside this change.
+
+Validation results and evidence boundaries are recorded in the batch ledger. Remote bundle metadata changes identify source revision 8; they do not deploy it. No running desktop or other device is updated by this local source/build delivery.
+
+## D038 archive import and capacity (2026-10-03)
+
+D038 follow-on delivery: fixed 64/66 MiB and 4,096-file archive gates are removed. ZIP64, AES/ZipCrypto passwords and conventional/numbered split volumes reach both native skill imports and workbench-plugin imports. Internal linked resources become portable copies; path, CRC and complete-package approval remain. Twenty-two targeted tests and hidden real desktop acceptance pass, including 67 MiB drag/drop, 65,536 entries, both providers, password correction, approved extension disable/reenable and restart. Expanded content still uses memory. No deployment or actual user-profile install is implied. Details and lifecycle contracts are in document 36; transient password state is recorded in document 37.
+
 ## D037 skill discovery capacity (2026-10-03)
 
 Removed fixed directory depth/count, project-ancestor, skill-body and display-metadata limits in both native skill discovery and the Claude local resource bridge. Skill roots include hidden/named group directories; canonical cycle detection and the boundary between an installed skill and its own supporting files remain. Large sources flow through reads and link-plan checks unchanged. 39 focused cases pass, including 5,005 empty directories, 522 native/521 Claude entries, 70 ancestors, large Unicode sources and an approved production host plugin. One optional installed Codex probe was skipped because no executable was supplied. Source/protocol validation does not claim live model or installed desktop acceptance; no UI state contract changed.

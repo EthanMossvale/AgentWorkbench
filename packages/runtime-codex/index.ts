@@ -232,7 +232,6 @@ export function codexTurnPermissionParams(value:PermissionMode='default'){
   return {approvalPolicy:mode==='default'?'on-request' as const:'never' as const,sandboxPolicy:mode==='full-access'?{type:'dangerFullAccess' as const}:{type:'readOnly' as const,networkAccess:false}};
 }
 export function buildDeferredAppServerArgs(version: string, nativeAgentPolicy?: NativeAgentPolicy): string[] {
-  if (version !== CODEX_DEFERRED_BASELINE) throw new Error('Deferred executor is pinned to 0.155.1; regenerate and verify the target schema before upgrading');
   // Keep native CLI auth storage. The old plugin broker/ephemeral-auth override is intentionally not migrated.
   return ['-c', 'features.deferred_executor=true', '-c', 'features.default_mode_request_user_input=true', '-c', 'features.memories=false', '-c', 'memories.generate_memories=false', '-c', 'memories.use_memories=false', ...buildNativeAgentPolicyPlan('codex', version, nativeAgentPolicy).args, 'app-server', '--listen', 'stdio://'];
 }
@@ -266,7 +265,7 @@ export class CodexNativeAdapter {
   private completedDuringStart?:string;
   private turnUncertain=false;
   get permissionMode(){return this.requestedPermissionMode;}
-  constructor(readonly rpc: CodexRpcClient, binding: SessionBinding, environment: CodexEnvironment, evidence?: BridgeEvidence, readonly version = CODEX_DEFERRED_BASELINE, sharedContext: SharedContextOptions = {}, permissionMode:PermissionMode='default', readonly peerContext?: NativePeerContextSession, readonly peerTools?: ReturnType<typeof createPeerTools>, readonly developerInstructions?:string) {
+  constructor(readonly rpc: CodexRpcClient, binding: SessionBinding, environment: CodexEnvironment, evidence?: BridgeEvidence, readonly version:string = CODEX_DEFERRED_BASELINE, sharedContext: SharedContextOptions = {}, permissionMode:PermissionMode='default', readonly peerContext?: NativePeerContextSession, readonly peerTools?: ReturnType<typeof createPeerTools>, readonly developerInstructions?:string) {
     if (binding.runtime !== 'codex') throw new Error('Codex adapter requires Codex runtime');
     this.binding = freezeSessionBinding(binding);
     this.environment = executionEnvironment(environment);

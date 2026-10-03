@@ -1,4 +1,5 @@
 import test from 'node:test';
+import {AsyncLocalStorage} from 'node:async_hooks';
 import assert from 'node:assert/strict';
 import {mkdtemp,rm} from 'node:fs/promises';
 import os from 'node:os';
@@ -50,6 +51,7 @@ test('local completed messages persist structured citations before translation a
 test('SSH live frames and explicit reconciliation preserve structured metadata and exclude child threads',async()=>{
   const state=session(),translated:Message[]=[];
   const runner:any=Object.create(NativeCodexRunner.prototype);
+  runner.attempt=new AsyncLocalStorage();
   runner.updateSession=async(_id:string,change:(value:Session)=>void)=>change(state);
   runner.hooks={snapshot:()=>({modelConnections:[],hosts:[]}),translate:(_id:string,value:Message)=>translated.push(value)};
   const item={id:'item',type:'agentMessage',text:'Answer.',phase:'final_answer',memoryCitation:citation};

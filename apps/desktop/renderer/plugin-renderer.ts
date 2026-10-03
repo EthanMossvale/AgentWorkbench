@@ -191,7 +191,6 @@ export function startPluginRenderers(bridge: WorkbenchApi | undefined, shell: HT
     let timeout:number|undefined;
     try {
       await bridge.call('plugin-recovery/renderer-start',{id:entry.id,hash:entry.hash});assertActive();
-      timeout=window.setTimeout(()=>failed(Error('PLUGIN_RENDERER_ACTIVATION_TIMEOUT')),10000);
       const module = await import(/* @vite-ignore */ url) as {activate?: (api: RendererPluginApi) => unknown};
       assertActive();
       if (typeof module.activate !== 'function') throw Error('Plugin renderer must export activate(api).');

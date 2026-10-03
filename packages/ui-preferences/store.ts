@@ -16,9 +16,9 @@ export class UiPreferenceStore {
   private publish(){for(const listener of this.listeners)try{listener(this.snapshot());}catch{/* Observers do not own the write. */}}
   async load(){
     try{
-      const info=await lstat(this.file);if(!info.isFile()||info.isSymbolicLink()||info.size>4*1024*1024)throw Error('UI_PREFERENCE_FILE_INVALID');
+      const info=await lstat(this.file);if(!info.isFile()||info.isSymbolicLink())throw Error('UI_PREFERENCE_FILE_INVALID');
       const value=JSON.parse(await readFile(this.file,'utf8')) as UiPreferenceSnapshot;
-      if(value?.schemaVersion!==1||!Number.isSafeInteger(value.revision)||value.revision<0||!value.entries||Array.isArray(value.entries)||Object.keys(value.entries).length>5000)throw Error('UI_PREFERENCE_FILE_INVALID');
+      if(value?.schemaVersion!==1||!Number.isSafeInteger(value.revision)||value.revision<0||!value.entries||Array.isArray(value.entries))throw Error('UI_PREFERENCE_FILE_INVALID');
       for(const [key,entry] of Object.entries(value.entries)){
         const decoded=JSON.parse(key);if(!Array.isArray(decoded)||decoded.length!==2||preferenceKey(decoded[0],decoded[1])!==key||!entry||!Number.isSafeInteger(entry.revision)||entry.revision<1||entry.revision>value.revision)throw Error('UI_PREFERENCE_FILE_INVALID');
         if(entry.value!==undefined)assertUiValue(entry.value);
@@ -41,7 +41,7 @@ export class UiPreferenceStore {
       let value:UiValue|undefined;
       if(!change.reset){assertUiValue(change.value);value=change.id.startsWith('plugin:')?structuredClone(change.value):this.registry.validate(change.id,change.value);}
       const next=this.snapshot();next.revision++;next.entries[key]={revision:next.revision,...(value!==undefined?{value}:{})};
-      const contents=JSON.stringify(next);if(contents.length>4*1024*1024||Object.keys(next.entries).length>5000)throw Error('UI_PREFERENCE_LIMIT');
+      const contents=JSON.stringify(next);
       await mkdir(this.directory,{recursive:true});const temp=this.file+'.'+randomUUID()+'.tmp';
       try{await writeFile(temp,contents,{flag:'wx',mode:0o600});await rename(temp,this.file);}catch{throw Error('UI_PREFERENCE_WRITE_FAILED');}finally{await rm(temp,{force:true}).catch(()=>{});}
       this.state=next;this.publish();return this.snapshot();

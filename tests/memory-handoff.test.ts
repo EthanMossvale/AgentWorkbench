@@ -205,8 +205,8 @@ test('custom memory discovery and settings errors preserve existing native store
   await assert.rejects(host.call('native-memory/configure',{enabled:true,codexRoot:'x'}),/automatic/);await host.call('native-memory/configure',{enabled:true,initialSources:'claude'});assert.equal((await host.memory.status()).pendingCodex,1);
   await put(path.join(f.claudeHome,'settings.json'),'{bad');await assert.rejects(host.memory.sync(),/settings/);assert.equal(await readFile(path.join(custom,'MEMORY.md'),'utf8'),'Custom native memory');
 });
-test('symlink paths and malformed provenance cannot become native import targets',async t=>{
+test('linked native memory roots remain usable while malformed provenance is rejected',async t=>{
   const f=await fixture(t);const outside=path.join(f.root,'outside');await mkdir(outside);await mkdir(f.home,{recursive:true});await symlink(outside,f.claudeHome,'junction');
-  await assert.rejects(f.service.configure({enabled:true,initialSources:'both'}),/Linked/);
+  await f.service.configure({enabled:true,initialSources:'both'});
   const id='a'.repeat(64);assert.throws(()=>splitImports(handoffStart(id)+'missing end'),/Invalid/);assert.throws(()=>splitImports(handoffStart(id)+handoffStart(id)+handoffEnd(id)+handoffEnd(id)),/Nested/);
 });

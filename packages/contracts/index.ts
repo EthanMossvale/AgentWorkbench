@@ -86,6 +86,7 @@ export interface Session extends SessionTitleMetadata {
   pluginRuntime?: import('../runtime-extensions/types').RuntimeSessionData;
   modelTargetId?:string;
   handoffFromMessage?:number;
+  recoveryAttempts?:{at:string;executionSessionId:string;nativeSessionId?:string;turnId?:string;error?:string}[];
   modelLanes?:import('../model-api/types').ModelLane[];
   modelSwitches?:{at:string;afterMessage:number;from:string;to:string;name:string}[];
   agentParent?:{sessionId:string;operationId:string;authorizationQuote:string;taskHash:string};

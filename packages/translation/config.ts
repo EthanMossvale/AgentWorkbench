@@ -44,11 +44,11 @@ export function validateReasoning(profile: TranslationProfile): TranslationReaso
     if (value.mode === 'default') return undefined;
     if (value.confirmed !== true || !isModelId(profile.model)) throw new Error('请先为所选模型确认思考参数的支持情况。');
     if (value.mode === 'effort') {
-      if (profile.protocol === 'anthropic-messages' || typeof value.effort !== 'string' || !reasoningOptions(profile.protocol).includes(value.effort) || value.budgetTokens !== undefined) throw new Error('当前协议不支持这组思考档位参数。');
+      if (profile.protocol === 'anthropic-messages' || typeof value.effort !== 'string' || !value.effort.trim() || value.budgetTokens !== undefined) throw new Error('当前协议不支持这组思考档位参数。');
       return { mode: 'effort', effort: value.effort, confirmed: true };
     }
     if (value.mode === 'adaptive') {
-      if (profile.protocol !== 'anthropic-messages' || value.budgetTokens !== undefined || (value.effort !== undefined && (typeof value.effort !== 'string' || !anthropicEfforts.includes(value.effort as typeof anthropicEfforts[number])))) throw new Error('自适应思考仅接受 Anthropic 协议支持的参数。');
+      if (profile.protocol !== 'anthropic-messages' || value.budgetTokens !== undefined || (value.effort !== undefined && (typeof value.effort !== 'string' || !value.effort.trim()))) throw new Error('自适应思考仅接受 Anthropic 协议支持的参数。');
       return { mode: 'adaptive', ...(value.effort ? { effort: value.effort } : {}), confirmed: true };
     }
     if (value.mode === 'budget') {

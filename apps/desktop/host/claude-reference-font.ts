@@ -2,34 +2,47 @@ import { execFile } from 'node:child_process';
 import { promisify } from 'node:util';
 import { readFile, readdir, realpath, stat } from 'node:fs/promises';
 import path from 'node:path';
+import os from 'node:os';
 import {redactDiagnostic} from '../../../packages/diagnostics';
 
-const execute=promisify(execFile),MAX_FONT_BYTES=5*1024*1024;
+const execute=promisify(execFile);
+export interface ClaudeFontLocator { id: `plugin:${string}`; locate():Promise<string|string[]|undefined> }
 export interface ClaudeFontStatus { available:boolean; italicAvailable:boolean; source:'installed-claude'; family:'Anthropic Serif'; reason?:string; }
 const unavailable=():ClaudeFontStatus=>({available:false,italicAvailable:false,source:'installed-claude',family:'Anthropic Serif'});
 /** Read-only local resource reference. Never copies, installs, exports or downloads font files. */
 export class ClaudeReferenceFont {
   private cached?:Promise<{root:string;normal:string;italic?:string}|undefined>;
-  constructor(private locate:()=>Promise<string|undefined>=locateInstalledClaudeAssets){}
+  private locators=new Map<string,ClaudeFontLocator>();
+  constructor(private locate:()=>Promise<string|string[]|undefined>=locateInstalledClaudeAssets){}
+  registerLocator(locator:ClaudeFontLocator):()=>void {
+    if(!locator.id.startsWith('plugin:')||typeof locator.locate!=='function'||this.locators.has(locator.id))throw Error('APPEARANCE_REFERENCE_LOCATOR_INVALID');
+    this.locators.set(locator.id,locator);this.cached=undefined;return()=>{if(this.locators.get(locator.id)===locator){this.locators.delete(locator.id);this.cached=undefined;}};
+  }
   private async discover(){
     if(this.cached)return this.cached;
     const attempt=(async()=>{
-      const location=await this.locate();if(!location)return;
-      const root=await realpath(location),directory=path.join(root,'assets','v1');
-      const files=(await readdir(directory)).filter(file=>file.endsWith('.css')).sort();let readBytes=0;let invalid:Error|undefined;
-      for(const file of files.slice(0,1000)){
-        const filename=await realpath(path.join(directory,file));if(!inside(root,filename))continue;
-        const info=await stat(filename);if(info.size>4*1024*1024)continue;readBytes+=info.size;if(readBytes>20*1024*1024)break;
-        const css=await readFile(filename,'utf8'),faces:Partial<Record<'normal'|'italic',string>>={};
+      const locations:string[]=[];
+      for(const locator of [...this.locators.values()].reverse()){const value=await locator.locate();if(this.locators.get(locator.id)===locator&&value)locations.push(...(Array.isArray(value)?value:[value]));}
+      const defaults=await this.locate();if(defaults)locations.push(...(Array.isArray(defaults)?defaults:[defaults]));
+      let invalid:Error|undefined;
+      for(const location of locations){
+      let root:string;try{root=await realpath(location);}catch(error){if((error as NodeJS.ErrnoException).code==='ENOENT')continue;throw error;}
+      const files:string[]=[],seen=new Set<string>();
+      const walk=async(directory:string):Promise<void>=>{const resolved=await realpath(directory);if(seen.has(resolved))return;seen.add(resolved);for(const item of await readdir(resolved,{withFileTypes:true})){const file=path.join(resolved,item.name);if(item.isDirectory())await walk(file);else if(item.isFile()&&/\.css$/i.test(item.name))files.push(file);}};
+      await walk(root);const faces:Partial<Record<'normal'|'italic',string>>={};
+      for(const filename of files.sort()){
+        const css=await readFile(filename,'utf8');
         for(const match of css.matchAll(/@font-face\s*\{([^}]+)\}/g)){
-          const body=match[1]!;if(!/(?:^|;)\s*font-family\s*:\s*["']?anthropic-serif["']?\s*(?:;|$)/i.test(body))continue;
-          const url=body.match(/src\s*:\s*url\(\s*["']?(\/assets\/v1\/[a-z\d_-]+\.woff2)["']?\s*\)/i)?.[1];if(!url)continue;
-          const font=await realpath(path.join(root,url.slice(1)));if(!inside(root,font))continue;
-          const fontInfo=await stat(font);if(!fontInfo.isFile()||fontInfo.size<48){invalid=Error('APPEARANCE_REFERENCE_FORMAT_INVALID');continue;}if(fontInfo.size>MAX_FONT_BYTES){invalid=Error('APPEARANCE_REFERENCE_TOO_LARGE');continue;}
+          const body=match[1]!;if(!/(?:^|;)\s*font-family\s*:\s*["']?anthropic[- ]serif["']?\s*(?:;|$)/i.test(body))continue;
+          const url=body.match(/url\(\s*["']?([^\s"')]+)["']?\s*\)/i)?.[1];if(!url||/^[a-z]+:/i.test(url))continue;
+          const relative=decodeURIComponent(url.split(/[?#]/)[0]!);
+          const font=await realpath(relative.startsWith('/')?path.join(root,relative.slice(1)):path.resolve(path.dirname(filename),relative));if(!inside(root,font))continue;
+          const fontInfo=await stat(font);if(!fontInfo.isFile()||fontInfo.size<48){invalid=Error('APPEARANCE_REFERENCE_FORMAT_INVALID');continue;}
           if((await readFile(font)).subarray(0,4).toString()!=='wOF2'){invalid=Error('APPEARANCE_REFERENCE_FORMAT_INVALID');continue;}
           const style=/(?:^|;)\s*font-style\s*:\s*italic\s*(?:;|$)/i.test(body)?'italic':'normal';faces[style]=font;
         }
-        if(faces.normal)return {root,normal:faces.normal,italic:faces.italic};
+      }
+      if(faces.normal)return {root,normal:faces.normal,italic:faces.italic};
       }
       if(invalid)throw invalid;
     })();
@@ -47,19 +60,22 @@ export class ClaudeReferenceFont {
     if(style!=='normal'&&style!=='italic')throw Error('APPEARANCE_REFERENCE_STYLE_INVALID');
     const faces=await this.discover(),file=faces?.[style];if(!faces||!file)throw Error('APPEARANCE_REFERENCE_UNAVAILABLE');
     const actual=await realpath(file);if(!inside(faces.root,actual))throw Error('APPEARANCE_REFERENCE_PATH_CHANGED');
-    const info=await stat(actual);if(!info.isFile()||info.size<48)throw Error('APPEARANCE_REFERENCE_FORMAT_INVALID');if(info.size>MAX_FONT_BYTES)throw Error('APPEARANCE_REFERENCE_TOO_LARGE');
-    const bytes=await readFile(actual);if(bytes.length>MAX_FONT_BYTES)throw Error('APPEARANCE_REFERENCE_TOO_LARGE');if(bytes.subarray(0,4).toString()!=='wOF2')throw Error('APPEARANCE_REFERENCE_FORMAT_INVALID');
+    const info=await stat(actual);if(!info.isFile()||info.size<48)throw Error('APPEARANCE_REFERENCE_FORMAT_INVALID');
+    const bytes=await readFile(actual);if(bytes.subarray(0,4).toString()!=='wOF2')throw Error('APPEARANCE_REFERENCE_FORMAT_INVALID');
     return bytes;
     }catch(error){this.cached=undefined;throw error;}
   }
 }
 function inside(root:string,file:string){const relative=path.relative(root,file);return !!relative&&!relative.startsWith('..')&&!path.isAbsolute(relative);}
-async function locateInstalledClaudeAssets():Promise<string|undefined>{
-  if(process.platform!=='win32')return;
+async function locateInstalledClaudeAssets():Promise<string[]>{
+  const candidates=process.platform==='darwin'?['/Applications/Claude.app/Contents/Resources/ion-dist',path.join(os.homedir(),'Applications/Claude.app/Contents/Resources/ion-dist')]:process.platform==='linux'?['/opt/Claude/resources/ion-dist','/opt/claude/resources/ion-dist',path.join(os.homedir(),'.local/share/Claude/resources/ion-dist')]:[path.join(process.env.LOCALAPPDATA??path.join(os.homedir(),'AppData/Local'),'AnthropicClaude'),path.join(process.env.LOCALAPPDATA??path.join(os.homedir(),'AppData/Local'),'Programs','Claude')];
+  if(process.platform!=='win32')return candidates;
+  try{
   const command='[Console]::OutputEncoding = [System.Text.UTF8Encoding]::new($false); $app = Get-AppxPackage -Name Claude | Sort-Object Version -Descending | Select-Object -First 1; if ($app) { $app.InstallLocation }';
-  const {stdout}=await execute(path.join(process.env.SystemRoot??'C:\\Windows','System32','WindowsPowerShell','v1.0','powershell.exe'),['-NoLogo','-NoProfile','-NonInteractive','-Command',command],{windowsHide:true,timeout:8000,maxBuffer:64*1024,encoding:'utf8'});
-  const location=stdout.replace(/^\uFEFF/,'').trim();if(!path.isAbsolute(location)||/[\r\n]/.test(location))return;
-  return path.join(location,'app','resources','ion-dist');
+  const {stdout}=await execute(path.join(process.env.SystemRoot??'C:\\Windows','System32','WindowsPowerShell','v1.0','powershell.exe'),['-NoLogo','-NoProfile','-NonInteractive','-Command',command],{windowsHide:true,maxBuffer:Infinity,encoding:'utf8'});
+  const location=stdout.replace(/^\uFEFF/,'').trim();if(path.isAbsolute(location)&&!/[\r\n]/.test(location))candidates.unshift(path.join(location,'app','resources','ion-dist'));
+  }catch{/* Non-Appx installations are discovered independently. */}
+  return candidates;
 }
 export const claudeReferenceFont=new ClaudeReferenceFont();
 /** The protocol has two fixed resources and accepts no file paths or remote origins. */

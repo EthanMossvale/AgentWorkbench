@@ -66,7 +66,7 @@ export class LocalModelAccounts {
         if(result.status!=='authenticated'||!result.models.length){draft.status='unknown';return {...draft};}
         if(!result.email){draft.status='unknown';throw Error('LOCAL_ACCOUNT_EMAIL_UNAVAILABLE');}
         const promoted={...draft,name:result.email,status:'authenticated' as const,revision:randomUUID()};
-        await this.hooks.update(state=>{assertCurrent();if(!this.drafts.has(id)||this.stopped)throw Error('LOCAL_ACCOUNT_CHANGED');state.localModelAccounts??=[];if(state.localModelAccounts.length>=100)throw Error('LOCAL_ACCOUNT_LIMIT');state.localModelAccounts.push(promoted);});
+        await this.hooks.update(state=>{assertCurrent();if(!this.drafts.has(id)||this.stopped)throw Error('LOCAL_ACCOUNT_CHANGED');state.localModelAccounts??=[];state.localModelAccounts.push(promoted);});
         this.drafts.delete(id);return this.account(id);
       }
       if (account.email && result.email && account.email !== result.email) {
@@ -84,11 +84,10 @@ export class LocalModelAccounts {
     this.assertIdle(account.id);
     if(account.provider!=='codex'||account.status==='authenticated')throw Error('LOCAL_ACCOUNT_IMPORT_TARGET_INVALID');
     if(account.revision!==p.revision)throw Error('LOCAL_ACCOUNT_CHANGED');
-    if(typeof p.contents!=='string'||Buffer.byteLength(p.contents)>2*1024*1024)throw Error('LOCAL_ACCOUNT_IMPORT_SIZE');
+    if(typeof p.contents!=='string')throw Error('LOCAL_ACCOUNT_IMPORT_SIZE');
     return this.lock(account.id,async()=>{
       const parsed=await this.access.parse(p.format??'auto',p.contents);
-      if(!Array.isArray(parsed.records)||!parsed.records.length||parsed.records.length>100)throw Error('LOCAL_ACCOUNT_IMPORT_INVALID');
-      if((this.hooks.snapshot().localModelAccounts?.length??0)+this.drafts.size+parsed.records.length-1>100)throw Error('LOCAL_ACCOUNT_LIMIT');
+      if(!Array.isArray(parsed.records)||!parsed.records.length)throw Error('LOCAL_ACCOUNT_IMPORT_INVALID');
       // Validate the entire batch before any network or disk mutation.
       const records=parseCodexCredentials(JSON.stringify(parsed.records.map(row=>row.auth??{refresh_token:row.refreshToken})));
       const accounts=records.map((_,i)=>i===0?{...account}:({id:randomUUID(),revision:randomUUID(),provider:'codex',name:parsed.records[i]?.name??account.name+' · '+(i+1),enabled:true,status:'unknown',models:[]} as LocalModelAccount));
@@ -126,7 +125,6 @@ export class LocalModelAccounts {
     if (method === 'models/accounts/list') return this.hooks.snapshot().localModelAccounts ?? [];
     if (method === 'models/accounts/prepare') {
       if(!['codex','claude'].includes(p.provider))throw Error('LOCAL_ACCOUNT_INVALID');
-      if(this.drafts.size+(this.hooks.snapshot().localModelAccounts?.length??0)>=100)throw Error('LOCAL_ACCOUNT_LIMIT');
       const draft:LocalModelAccount={id:randomUUID(),revision:randomUUID(),provider:p.provider,name:p.provider==='codex'?'Codex 新账号':'Claude 新账号',enabled:true,status:'signed-out',models:[]};this.drafts.set(draft.id,draft);return {...draft};
     }
     if (method === 'models/accounts/draft-discard') {
@@ -140,18 +138,18 @@ export class LocalModelAccounts {
     if (method === 'models/usage') return modelUsageSummary(this.hooks.snapshot(), p.scope, p.period);
     if (method === 'models/pricing/save') {
       const scope = p.scope as UsageScope, price = validatePrice(p.price);
-      if (!scope || !['api', 'account', 'translation'].includes(scope.kind) || scope.kind==='translation'&&scope.id!=='translation' || typeof scope.id !== 'string' || typeof p.model !== 'string' || !p.model || p.model.length > 256 || /[\x00-\x1f]/.test(p.model)) throw Error('MODEL_PRICE_INVALID');
+      if (!scope || !['api', 'account', 'translation'].includes(scope.kind) || scope.kind==='translation'&&scope.id!=='translation' || typeof scope.id !== 'string' || typeof p.model !== 'string' || !p.model || /[\x00-\x1f]/.test(p.model)) throw Error('MODEL_PRICE_INVALID');
       await this.hooks.update(s => { if (scope.kind === 'api' ? !s.modelConnections?.some(c => c.id === scope.id) : scope.kind==='account'&&!s.localModelAccounts?.some(a => a.id === scope.id)&&!Object.values(s.accountCatalogs??{}).some(c=>c.source==='native-owner'&&c.accounts.some(a=>sharedAccountRef(c,a)===scope.id))) throw Error('MODEL_SOURCE_NOT_FOUND'); s.modelPrices ??= []; const old = s.modelPrices.find(r => r.scope.kind === scope.kind && r.scope.id === scope.id && r.model === p.model); if (old?.revision !== p.revision) throw Error('MODEL_PRICE_CHANGED'); const value = { scope: {kind:scope.kind,id:scope.id}, model:p.model,price,revision:randomUUID(),updatedAt:new Date().toISOString() }; if (old) Object.assign(old,value); else s.modelPrices.push(value); });
       return this.hooks.snapshot().modelPrices?.find(r => r.scope.kind === scope.kind && r.scope.id === scope.id && r.model === p.model);
     }
     if (method === 'models/accounts/create') {
-      if (!['codex', 'claude'].includes(p.provider) || typeof p.name !== 'string' || !p.name.trim() || p.name.length > 100 || /[\x00-\x1f]/.test(p.name)) throw Error('LOCAL_ACCOUNT_INVALID');
+      if (!['codex', 'claude'].includes(p.provider) || typeof p.name !== 'string' || !p.name.trim() || /[\x00-\x1f]/.test(p.name)) throw Error('LOCAL_ACCOUNT_INVALID');
       const account: LocalModelAccount = { id: randomUUID(), revision: randomUUID(), provider: p.provider, name: p.name.trim(), enabled: true, status: 'signed-out', models: [] };
-      await this.hooks.update(s => { s.localModelAccounts ??= []; if (s.localModelAccounts.length >= 100) throw Error('LOCAL_ACCOUNT_LIMIT'); s.localModelAccounts.push(account); }); return account;
+      await this.hooks.update(s => { s.localModelAccounts ??= []; s.localModelAccounts.push(account); }); return account;
     }
     const account = this.account(p.id);
     if (method === 'models/accounts/rename') {
-      if(this.drafts.has(account.id)||typeof p.name!=='string'||!p.name.trim()||p.name.trim().length>100||/[\x00-\x1f]/.test(p.name))throw Error('LOCAL_ACCOUNT_NAME_INVALID');
+      if(this.drafts.has(account.id)||typeof p.name!=='string'||!p.name.trim()||/[\x00-\x1f]/.test(p.name))throw Error('LOCAL_ACCOUNT_NAME_INVALID');
       await this.hooks.update(state=>{const current=state.localModelAccounts?.find(a=>a.id===account.id);if(!current||current.revision!==p.revision)throw Error('LOCAL_ACCOUNT_CHANGED');current.name=p.name.trim();current.revision=randomUUID();});return this.account(account.id);
     }
     if (method === 'models/accounts/login-methods') return this.access.methods(account);
@@ -169,8 +167,7 @@ export class LocalModelAccounts {
       this.assertIdle(account.id); if (p.revision !== account.revision) throw Error('LOCAL_ACCOUNT_CHANGED');
       const wasDraft=this.drafts.has(account.id);
       if (account.status === 'authenticated') throw Error('LOCAL_ACCOUNT_ALREADY_AUTHENTICATED');
-      for(const [id,handle]of this.jobs)if(terminal(handle.job)&&(Date.parse(handle.job.expiresAt)<Date.now()||this.jobs.size>=200))this.jobs.delete(id);
-      if(this.jobs.size>=200)throw Error('LOCAL_ACCOUNT_LOGIN_LIMIT');
+      for(const [id,handle]of this.jobs)if(terminal(handle.job))this.jobs.delete(id);
       return this.lock(account.id, async () => {
         const handle = await this.access.start(account,p.method as LoginMethod,job=>{const current=this.jobs.get(job.id);if(current)current.job=job;});
         if(this.stopped||wasDraft&&!this.drafts.has(account.id)){await handle.cancel();throw Error(this.stopped?'LOCAL_ACCOUNTS_DISPOSED':'LOCAL_ACCOUNT_CHANGED');}this.jobs.set(handle.job.id,handle);

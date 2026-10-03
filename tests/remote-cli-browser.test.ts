@@ -44,7 +44,7 @@ test('profile operations validate identities and project only public labels',asy
  const v=await s.profiles(host,'create',{label:'Fixture profile'});assert.deepEqual(v.profiles,[{key,label:'Fixture profile',available:true}]);assert.ok(!JSON.stringify(v).includes('MUST_NOT_LEAK'));await s.profiles(host,'delete',{key,confirm:true});assert.equal(calls.length,2);
 });
 test('remote browser SSH tunnel is restricted to the known loopback viewer and strict SSH identity',()=>{
- const a=browserTunnelArgs(host,16422);assert.ok(a.includes('127.0.0.1:16422:127.0.0.1:6091'));assert.ok(a.includes('StrictHostKeyChecking=yes'));assert.ok(a.includes('IdentityAgent=none'));assert.ok(a.includes('ExitOnForwardFailure=yes'));assert.ok(!a.includes('ClearAllForwardings=yes'));assert.ok(a.includes('ClearAllForwardings=no'));assert.throws(()=>browserTunnelArgs(host,0));assert.equal(a.at(-1),'exec sleep 900');
+ const a=browserTunnelArgs(host,16422);assert.ok(a.includes('127.0.0.1:16422:127.0.0.1:6091'));assert.ok(a.includes('StrictHostKeyChecking=yes'));assert.ok(a.includes('IdentitiesOnly=yes'));assert.ok(a.includes('ExitOnForwardFailure=yes'));assert.ok(!a.includes('ClearAllForwardings=yes'));assert.ok(a.includes('ClearAllForwardings=no'));assert.throws(()=>browserTunnelArgs(host,0));assert.equal(a.at(-1),'exec sleep 900');
 });
 test('browser payload keeps request data separate from executable source and includes setup dependencies',()=>{
  const r={action:'rename',key:'a'.repeat(32),label:'$(do-not-run)'};const p=JSON.parse(browserPayload(r));assert.deepEqual(p.request,r);assert.ok(p.sources['browser_setup.py']);assert.ok(p.sources['browser_api.py']);assert.ok(!p.sources['browser_api.py'].includes(r.label));

@@ -49,13 +49,13 @@ function one(input: unknown, mode: string): CodexCredential {
   return { ...meta, auth: { auth_mode: refresh ? 'chatgpt' : 'chatgptAuthTokens', OPENAI_API_KEY: null, tokens: { id_token: idToken ?? access, access_token: access, refresh_token: refresh ?? '', account_id: accountId }, last_refresh: new Date().toISOString() } };
 }
 export function parseCodexCredentials(contents: unknown, mode = 'auto'): CodexCredential[] {
-  if (typeof contents !== 'string' || !contents.trim() || Buffer.byteLength(contents) > 2 * 1024 * 1024) throw Error('LOCAL_ACCOUNT_IMPORT_SIZE');
+  if (typeof contents !== 'string' || !contents.trim()) throw Error('LOCAL_ACCOUNT_IMPORT_SIZE');
   const text = contents.replace(/^\uFEFF/, '').trim(); let parsed: unknown;
   if (/^[\[{\"]/.test(text)) { try { parsed = JSON.parse(text); } catch { throw Error('LOCAL_ACCOUNT_IMPORT_JSON_INVALID'); } }
   else parsed = text;
   const root = object(parsed);
   const rows = Array.isArray(parsed) ? parsed : Array.isArray(root.accounts) ? root.accounts : [parsed];
-  if (!rows.length || rows.length > 100) throw Error('LOCAL_ACCOUNT_IMPORT_LIMIT');
+  if (!rows.length) throw Error('LOCAL_ACCOUNT_IMPORT_LIMIT');
   const result = rows.map(row => one(row, mode));
   const seen = new Set<string>();
   for (const row of result) { const {last_refresh: _timestamp,...auth}=row.auth??{};const key = createHash('sha256').update(JSON.stringify(row.auth ? auth : row.refreshToken)).digest('hex'); if (seen.has(key)) throw Error('LOCAL_ACCOUNT_IMPORT_DUPLICATE'); seen.add(key); }

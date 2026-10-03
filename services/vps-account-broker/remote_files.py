@@ -1,4 +1,4 @@
-"""Explicit administrator file operations. Paths never follow symbolic links."""
+"""Administrator file operations with canonical reads and link-preserving mutations."""
 import base64
 import contextlib
 import ctypes
@@ -10,7 +10,7 @@ from pathlib import PurePosixPath
 import stat
 import uuid
 
-LIMIT = 32*1024*1024
+LIMIT = None
 
 
 def require(value, code='REMOTE_FILE_INVALID'):
@@ -23,13 +23,13 @@ def parts(value):
     pieces = value.split('/')[1:]
     require(not any(v in ('.', '..') for v in pieces))
     result = tuple(v for v in pieces if v)
-    require(not result or result[0] not in ('proc', 'sys', 'dev', 'run'), 'REMOTE_FILE_SPECIAL')
     return result
 
 
 @contextlib.contextmanager
 def parent(value):
-    path = parts(value)
+    parts(value)
+    path = parts(os.path.join(os.path.realpath(os.path.dirname(value)), os.path.basename(value)))
     descriptor = os.open('/', os.O_RDONLY | os.O_DIRECTORY)
     try:
         for component in path[:-1]:
@@ -68,14 +68,16 @@ def read_bytes(fd, name, limit):
     with os.fdopen(descriptor, 'rb') as stream:
         info = os.fstat(stream.fileno())
         require(stat.S_ISREG(info.st_mode), 'REMOTE_FILE_SPECIAL')
-        require(info.st_size <= limit, 'REMOTE_FILE_TOO_LARGE')
-        data = stream.read(limit+1)
-        require(len(data) <= limit, 'REMOTE_FILE_TOO_LARGE')
+        data = stream.read() if limit is None else stream.read(limit+1)
+        if limit is not None:
+            require(len(data) <= limit, 'REMOTE_FILE_TOO_LARGE')
         require(revision(info) == revision(os.fstat(stream.fileno())), 'REMOTE_FILE_CHANGED')
         return data, info
 
 
 def browse(path):
+    parts(path)
+    path = os.path.realpath(path)
     with parent(path) as (fd, name, target):
         info = metadata(fd, name)
         result = dict(path=target, parent=str(PurePosixPath(target).parent), revision=revision(info), size=info.st_size, modified=info.st_mtime, mode=stat.filemode(info.st_mode))
@@ -85,17 +87,15 @@ def browse(path):
                 entries = []
                 with os.scandir(folder) as iterator:
                     for entry in iterator:
-                        if len(entries) >= 1000:
-                            break
                         entries.append(dict(name=entry.name, path=target.rstrip('/')+'/'+entry.name,
-                                            directory=entry.is_dir(follow_symlinks=False), link=entry.is_symlink()))
+                                            directory=entry.is_dir(follow_symlinks=True), link=entry.is_symlink()))
                 entries.sort(key=lambda r: (not r['directory'], r['name']))
-                return dict(result, kind='directory', entries=entries, truncated=len(entries) == 1000)
+                return dict(result, kind='directory', entries=entries, truncated=False)
             finally:
                 os.close(folder)
-        if not stat.S_ISREG(info.st_mode) or info.st_size > 1024*1024:
+        if not stat.S_ISREG(info.st_mode):
             return dict(result, kind='unsupported', link=stat.S_ISLNK(info.st_mode))
-        data, actual = read_bytes(fd, name, 1024*1024)
+        data, actual = read_bytes(fd, name, None)
         try:
             require(b'\0' not in data)
             return dict(result, revision=revision(actual), kind='text', content=data.decode('utf-8'))
@@ -111,10 +111,11 @@ def no_replace(source_fd, source, target_fd, target):
 
 
 def write(path, data, expected=None):
-    require(len(parts(path)) > 0 and len(data) <= LIMIT)
+    require(len(parts(path)) > 0)
+    path = os.path.realpath(path)
     with parent(path) as (fd, name, target):
         previous = check(fd, name, expected) if expected is not None else None
-        require(previous is None or stat.S_ISREG(previous.st_mode) and previous.st_nlink == 1, 'REMOTE_FILE_SPECIAL')
+        require(previous is None or stat.S_ISREG(previous.st_mode), 'REMOTE_FILE_SPECIAL')
         temporary = '.awb-write-'+uuid.uuid4().hex
         descriptor = os.open(temporary, os.O_CREAT | os.O_EXCL | os.O_WRONLY | os.O_NOFOLLOW, 0o600, dir_fd=fd)
         try:
@@ -139,7 +140,6 @@ def write(path, data, expected=None):
 
 
 def delete_tree(fd, name, limit):
-    require(limit[0] < 20000, 'REMOTE_FILE_TREE_TOO_LARGE')
     limit[0] += 1
     info = metadata(fd, name)
     if stat.S_ISDIR(info.st_mode):
@@ -165,7 +165,7 @@ def delete_tree(fd, name, limit):
 def copy_tree(source_fd, name, target_fd, dest, budget):
     info = metadata(source_fd, name)
     budget[0] += 1
-    require(budget[0] <= 20000 and budget[1] <= 2*1024**3, 'REMOTE_FILE_TREE_TOO_LARGE')
+
     if stat.S_ISDIR(info.st_mode):
         os.mkdir(dest, mode=0o700, dir_fd=target_fd)
         source = os.open(name, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW, dir_fd=source_fd)
@@ -180,7 +180,7 @@ def copy_tree(source_fd, name, target_fd, dest, budget):
             os.close(source); os.close(target)
     elif stat.S_ISREG(info.st_mode):
         budget[1] += info.st_size
-        require(budget[1] <= 2*1024**3, 'REMOTE_FILE_TREE_TOO_LARGE')
+
         source = os.open(name, os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK, dir_fd=source_fd)
         target = os.open(dest, os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW, 0o600, dir_fd=target_fd)
         with os.fdopen(source, 'rb') as src, os.fdopen(target, 'wb') as dst:
@@ -196,6 +196,9 @@ def copy_tree(source_fd, name, target_fd, dest, budget):
                 dst.write(data)
             require(copied == info.st_size and revision(os.fstat(src.fileno())) == revision(info), 'REMOTE_FILE_CHANGED')
             dst.flush(); os.fchmod(dst.fileno(), stat.S_IMODE(info.st_mode)); os.fchown(dst.fileno(), info.st_uid, info.st_gid); os.fsync(dst.fileno())
+    elif stat.S_ISLNK(info.st_mode):
+        os.symlink(os.readlink(name, dir_fd=source_fd), dest, dir_fd=target_fd)
+        require(revision(metadata(source_fd, name)) == revision(info), 'REMOTE_FILE_CHANGED')
     else:
         raise RuntimeError('REMOTE_FILE_LINK')
 
@@ -210,6 +213,8 @@ def dispatch(request):
             data = request.get('content', '').encode('utf-8') if method.endswith('write') else base64.b64decode(request.get('data', ''), validate=True)
             value = write(path, data, request.get('revision'))
         elif method == 'remote-files/download':
+            parts(path)
+            path = os.path.realpath(path)
             with parent(path) as (fd, name, target):
                 check(fd, name, request.get('revision'))
                 data, info = read_bytes(fd, name, LIMIT)
@@ -228,8 +233,8 @@ def dispatch(request):
                     info = check(fd, name, request.get('revision'))
                     require(len(parts(request.get('destination'))) > 0)
                     if method.endswith('copy'):
-                        destination = '/'+'/'.join(parts(request['destination']))
-                        require(not (destination.rstrip('/')+'/').startswith(target.rstrip('/')+'/'), 'REMOTE_FILE_INVALID')
+                        destination = os.path.realpath(request['destination'])
+                        require(not (destination.rstrip('/')+'/').startswith(os.path.realpath(target).rstrip('/')+'/'), 'REMOTE_FILE_INVALID')
                         with parent(request['destination']) as (other, dest, _):
                             temporary = '.awb-copy-'+uuid.uuid4().hex
                             try:

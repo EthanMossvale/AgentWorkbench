@@ -5,6 +5,7 @@ import { pathToFileURL } from 'node:url';
 import { readdir, readFile, lstat } from 'node:fs/promises';
 import { atomicWrite, childPath, digest, missing, noLinks, optionalText, SerialQueue, textFile } from '../native-resources/files';
 import { collectDirectory, encodeZip, exportArchive, installArchive, readArchive, unwrapArchive } from '../native-resources/archive';
+import type {ArchiveReadOptions} from '../native-resources/archive-types';
 import { HostServiceRegistry, type PluginServices } from './services';
 import { NativeEventRegistry, type PluginNativeEvents } from '../native-events';
 import { PluginStorageStore } from './storage';
@@ -52,9 +53,9 @@ const compatibilityKey=(issues:CompatibilityIssue[]|undefined)=>JSON.stringify((
 export function parseManifest(value: unknown): PluginManifest {
   const m = value as PluginManifest;
   if(m&&m.apiVersion!==1)throw Error('PLUGIN_API_VERSION_UNSUPPORTED');
-  if (!m || m.schemaVersion !== 1 || m.apiVersion !== 1 || !/^[a-z][a-z0-9.-]{1,79}$/.test(m.id) || typeof m.name !== 'string' || !m.name.trim() || m.name.length > 120 || typeof m.version !== 'string' || !/^\d+\.\d+\.\d+(?:[-+][\w.-]+)?$/.test(m.version) || typeof m.description !== 'string' || m.description.length > 4000 || !Array.isArray(m.capabilities) || m.capabilities.some(c => !['context', 'theme', 'host'].includes(c))) throw Error('Invalid workbench plugin manifest or unsupported API version.');
+  if (!m || m.schemaVersion !== 1 || m.apiVersion !== 1 || !/^[a-z][a-z0-9.-]{1,79}$/.test(m.id) || typeof m.name !== 'string' || !m.name.trim() || typeof m.version !== 'string' || !/^\d+\.\d+\.\d+(?:[-+][\w.-]+)?$/.test(m.version) || typeof m.description !== 'string' || !Array.isArray(m.capabilities) || m.capabilities.some(c => !['context', 'theme', 'host'].includes(c))) throw Error('Invalid workbench plugin manifest or unsupported API version.');
   for (const entry of [m.main, m.renderer]) if (entry !== undefined) { if (typeof entry !== 'string' || !/\.m?js$/i.test(entry) || !m.capabilities.includes('host')) throw Error('Executable plugins must declare host access.'); childPath(path.resolve('plugin'), entry); }
-  if (m.contributes?.context !== undefined && (typeof m.contributes.context !== 'string' || m.contributes.context.length > 24000 || !m.capabilities.includes('context'))) throw Error('Invalid context contribution.');
+  if (m.contributes?.context !== undefined && (typeof m.contributes.context !== 'string' || !m.capabilities.includes('context'))) throw Error('Invalid context contribution.');
   if (m.contributes?.theme) {
     if (!m.capabilities.includes('theme')) throw Error('Theme contribution needs theme capability.');
     for (const [key, value] of Object.entries(m.contributes.theme.variables ?? {})) if (!THEME.test(key) || typeof value !== 'string' || !/^(#[\da-f]{3,8}|rgba?\([\d.,% /]+\)|hsla?\([\d.,% /]+\))$/i.test(value)) throw Error('Invalid theme color variable.');
@@ -95,7 +96,7 @@ export class PluginRegistry {
     }
   }
   private async loadPreferences(){
-    const file=path.join(this.directory,'plugins.json');await noLinks(file);const source=await optionalText(file,1024*1024);
+    const file=path.join(this.directory,'plugins.json');await noLinks(file);const source=await optionalText(file);
     const prefs:PluginPreferences=source===undefined?{version:1,entries:{}}:JSON.parse(source) as PluginPreferences;
     if(prefs?.version!==1||!prefs.entries||typeof prefs.entries!=='object'||Array.isArray(prefs.entries)||Object.entries(prefs.entries).some(([id,e])=>!/^[a-z][a-z0-9.-]{1,79}$/.test(id)||!e||typeof e.enabled!=='boolean'||typeof e.hash!=='string'||!/^[a-f0-9]{64}$/.test(e.hash)||e.approval!==undefined&&e.approval!==e.hash||e.adapters!==undefined&&(!e.adapters||typeof e.adapters!=='object'||Array.isArray(e.adapters)||Object.values(e.adapters).some(value=>typeof value!=='string'))))throw Error('PLUGIN_PREFERENCES_INVALID');
     this.prefs=prefs;this.prefsRevision=source===undefined?null:digest(source);this.prefsValid=true;
@@ -109,7 +110,7 @@ export class PluginRegistry {
   private async save() {
     if(!this.prefsValid)throw Error('PLUGIN_PREFERENCES_INVALID');
     const file=path.join(this.directory,'plugins.json'),next=JSON.stringify(this.prefs,null,2);
-    try {await atomicWrite(file,next,async()=>{const current=await optionalText(file,1024*1024);if((current===undefined?null:digest(current))!==this.prefsRevision)throw Error('PLUGIN_PREFERENCES_CONFLICT');});this.prefsRevision=digest(next);}
+    try {await atomicWrite(file,next,async()=>{const current=await optionalText(file);if((current===undefined?null:digest(current))!==this.prefsRevision)throw Error('PLUGIN_PREFERENCES_CONFLICT');});this.prefsRevision=digest(next);}
     catch(error){try{await this.loadPreferences();}catch{this.prefsValid=false;}throw error;}
   }
   private compatibility(manifest:PluginManifest,hash:string){
@@ -133,14 +134,15 @@ export class PluginRegistry {
     try { for (const item of await readdir(this.root, { withFileTypes: true })) {
       if (!item.isDirectory() || item.name.includes('.import-')) continue;
       const directory = path.join(this.root, item.name);
-      try { await noLinks(directory);const manifest = parseManifest(JSON.parse(await textFile(path.join(directory, 'workbench.plugin.json'), 64 * 1024))); if (manifest.id !== item.name) throw Error('Plugin folder and manifest identity differ.'); const files = await collectDirectory(directory), hash = digest(encodeZip(files.sort((a,b) => a.name.localeCompare(b.name)))); const saved = this.prefs.entries[manifest.id],compatibility=this.compatibility(manifest,hash);
-        result.push({ manifest, hash, directory,origin:'third-party',requestedEnabled:saved?.enabled===true,compatibility, enabled: this.prefsValid&&!this.recovery.snapshot().safeMode&&compatibility.status!=='blocked'&&saved?.enabled === true && saved.hash === hash && (!(manifest.main || manifest.renderer) || saved.approval === hash), approved: saved?.approval === hash, error: saved?.enabled && saved.hash !== hash ? '插件文件已变化，需重新审阅并启用。' : compatibility.status==='blocked'?compatibility.issues[0]?.code:this.errors.get(manifest.id) });
+      try { await noLinks(directory);const manifest = parseManifest(JSON.parse(await textFile(path.join(directory, 'workbench.plugin.json')))); if (manifest.id !== item.name) throw Error('Plugin folder and manifest identity differ.'); const files = await collectDirectory(directory), hash = digest(encodeZip(files.sort((a,b) => a.name.localeCompare(b.name)))); const saved = this.prefs.entries[manifest.id],compatibility=this.compatibility(manifest,hash);
+        const interrupted=this.recovery.snapshot().incidents.some(item=>item.id===manifest.id&&item.hash===hash&&item.code==='PLUGIN_STARTUP_INTERRUPTED'&&['host','renderer'].includes(item.phase));
+        result.push({ manifest, hash, directory,origin:'third-party',requestedEnabled:saved?.enabled===true,compatibility, enabled: this.prefsValid&&!interrupted&&!this.recovery.snapshot().safeMode&&compatibility.status!=='blocked'&&saved?.enabled === true && saved.hash === hash && (!(manifest.main || manifest.renderer) || saved.approval === hash), approved: saved?.approval === hash, error: saved?.enabled && saved.hash !== hash ? '插件文件已变化，需重新审阅并启用。' : compatibility.status==='blocked'?compatibility.issues[0]?.code:this.errors.get(manifest.id) });
       }
       catch (error) { const code=(error as Error).message==='PLUGIN_API_VERSION_UNSUPPORTED'?'PLUGIN_API_VERSION_UNSUPPORTED':'PLUGIN_PACKAGE_INVALID';if(this.errors.get(item.name)!==code){this.errors.set(item.name,code);await this.recovery.incident({id:item.name},code,'scan');} }
     } } catch (error) { if (!missing(error)&&this.errors.get('workbench.plugins')!=='PLUGIN_DIRECTORY_UNAVAILABLE'){this.errors.set('workbench.plugins','PLUGIN_DIRECTORY_UNAVAILABLE');await this.recovery.incident({id:'workbench.plugins'},'PLUGIN_DIRECTORY_UNAVAILABLE','scan');} }
     return result.sort((a,b) => a.manifest.name.localeCompare(b.manifest.name));
   }
-  async importZip(file: string) { return this.queue.run(async () => { const files = unwrapArchive(await readArchive(file), 'workbench.plugin.json'), manifest = parseManifest(JSON.parse(files.find(f => f.name === 'workbench.plugin.json')!.data.toString('utf8'))); for (const entry of [manifest.main, manifest.renderer]) if (entry && !files.some(f => f.name === entry)) throw Error('Plugin entry point is missing.'); if (manifest.contributes?.theme?.background && !files.some(f => f.name === manifest.contributes!.theme!.background)) throw Error('Plugin background asset is missing.'); await installArchive(path.join(this.root, manifest.id), files); this.notify(); return this.list(); }); }
+  async importZip(file: string, options:ArchiveReadOptions={}) { return this.queue.run(async () => { const files = unwrapArchive(await readArchive(file,options), 'workbench.plugin.json'), manifest = parseManifest(JSON.parse(files.find(f => f.name === 'workbench.plugin.json')!.data.toString('utf8'))); for (const entry of [manifest.main, manifest.renderer]) if (entry && !files.some(f => f.name === entry)) throw Error('Plugin entry point is missing.'); if (manifest.contributes?.theme?.background && !files.some(f => f.name === manifest.contributes!.theme!.background)) throw Error('Plugin background asset is missing.'); await installArchive(path.join(this.root, manifest.id), files); this.notify(); return this.list(); }); }
   async exportZip(id: string, hash: string, destination: string) { const record = (await this.list()).find(r => r.manifest.id === id && r.hash === hash); if (!record) throw Error('Plugin changed; refresh first.'); return exportArchive(record.directory, destination); }
   async setEnabled(id: string, hash: string, enabled: boolean, approveHost = false) {
     return this.queue.run(async () => {
@@ -153,7 +155,7 @@ export class PluginRegistry {
   }
   private async unload(id: string) { const active = this.runtime.get(id); this.runtime.delete(id); if (active) {
     await this.recovery.begin({id,hash:active.hash},'cleanup').catch(()=>{});
-    for (const dispose of active.disposers.reverse()) try { await bounded(Promise.resolve().then(dispose),this.options.cleanupTimeoutMs??1000,'PLUGIN_CLEANUP_TIMEOUT'); } catch { this.errors.set(id,'PLUGIN_CLEANUP_FAILED');await this.recovery.incident({id,hash:active.hash},'PLUGIN_CLEANUP_FAILED','cleanup'); }
+    for (const dispose of active.disposers.reverse()) try { await bounded(Promise.resolve().then(dispose),this.options.cleanupTimeoutMs??0,'PLUGIN_CLEANUP_TIMEOUT'); } catch { this.errors.set(id,'PLUGIN_CLEANUP_FAILED');await this.recovery.incident({id,hash:active.hash},'PLUGIN_CLEANUP_FAILED','cleanup'); }
     await this.recovery.finish(id,'cleanup');
   } }
   async refresh() {
@@ -184,7 +186,7 @@ export class PluginRegistry {
       this.runtime.set(id, active);
       try {
         await this.recovery.begin({...record.manifest,hash:record.hash},'host');
-        await bounded((async()=>{const module = await nativeImport(`${pathToFileURL(childPath(record.directory, record.manifest.main!)).href}?revision=${record.hash}`);assertActive();if (typeof module.activate !== 'function') throw Error('Plugin must export activate(api).');const cleanup=await module.activate(api);if(typeof cleanup==='function'){if(this.runtime.get(id)===active)active.disposers.push(cleanup as ()=>void);else await bounded(Promise.resolve().then(()=>cleanup()),this.options.cleanupTimeoutMs??1000,'PLUGIN_CLEANUP_TIMEOUT');}assertActive();})(),this.options.activationTimeoutMs??10000,'PLUGIN_ACTIVATION_TIMEOUT');
+        await bounded((async()=>{const module = await nativeImport(`${pathToFileURL(childPath(record.directory, record.manifest.main!)).href}?revision=${record.hash}`);assertActive();if (typeof module.activate !== 'function') throw Error('Plugin must export activate(api).');const cleanup=await module.activate(api);if(typeof cleanup==='function'){if(this.runtime.get(id)===active)active.disposers.push(cleanup as ()=>void);else await bounded(Promise.resolve().then(()=>cleanup()),this.options.cleanupTimeoutMs??0,'PLUGIN_CLEANUP_TIMEOUT');}assertActive();})(),this.options.activationTimeoutMs??0,'PLUGIN_ACTIVATION_TIMEOUT');
         this.errors.delete(id);
       }
       catch (error) { const code=(error as Error).message==='PLUGIN_ACTIVATION_TIMEOUT'?'PLUGIN_ACTIVATION_TIMEOUT':'PLUGIN_HOST_ACTIVATION_FAILED';await this.recovery.incident({...record.manifest,hash:record.hash},code,'host');await this.unload(id);this.errors.set(id,code);this.prefs.entries[id]!.enabled = false;await this.save(); }
@@ -208,15 +210,15 @@ export class PluginRegistry {
     await this.refresh(); const values: { id: string; content: string }[] = [];
     for (const record of await this.list()) if (record.enabled) {
       const contributions = [record.manifest.contributes?.context, ...await Promise.all((this.runtime.get(record.manifest.id)?.contexts ?? []).map(fn => fn(Object.freeze({ ...input }))))].filter(value => value !== undefined && value !== '');
-      for (const value of contributions) { if (typeof value !== 'string' || value.length > 24000) throw Error(`Invalid plugin context (${record.manifest.id}).`); values.push({ id: record.manifest.id, content: value }); }
+      for (const value of contributions) { if (typeof value !== 'string') throw Error(`Invalid plugin context (${record.manifest.id}).`); values.push({ id: record.manifest.id, content: value }); }
     }
-    if (values.reduce((total, entry) => total + entry.content.length, 0) > 64000) throw Error('Combined plugin context is too large.'); return values;
+    return values;
   }
   async appearance(): Promise<PluginAppearance> {
     const result: PluginAppearance = { variables: {} };
     for (const record of await this.list()) if (record.enabled && record.manifest.contributes?.theme) {
       const theme = record.manifest.contributes.theme; Object.assign(result.variables, theme.variables);
-      if (theme.background) { const file = childPath(record.directory, theme.background); await noLinks(file); const info = await lstat(file); if (!info.isFile() || info.size > 4 * 1024 * 1024 || !/\.(png|jpe?g|webp)$/i.test(file)) throw Error('Plugin background must be a local PNG, JPEG or WebP up to 4 MiB.'); const mime = /\.png$/i.test(file) ? 'image/png' : /\.webp$/i.test(file) ? 'image/webp' : 'image/jpeg'; result.background = `data:${mime};base64,${(await readFile(file)).toString('base64')}`; result.opacity = theme.opacity ?? 0.15; }
+      if (theme.background) { const file = childPath(record.directory, theme.background); await noLinks(file); const info = await lstat(file); if (!info.isFile() || !/\.(png|jpe?g|webp)$/i.test(file)) throw Error('Plugin background must be a local PNG, JPEG or WebP.'); const mime = /\.png$/i.test(file) ? 'image/png' : /\.webp$/i.test(file) ? 'image/webp' : 'image/jpeg'; result.background = `data:${mime};base64,${(await readFile(file)).toString('base64')}`; result.opacity = theme.opacity ?? 0.15; }
     }
     return result;
   }
@@ -239,7 +241,7 @@ export class PluginRegistry {
       const files = (await collectDirectory(record.directory)).sort((a, b) => a.name.localeCompare(b.name));
       if (digest(encodeZip(files)) !== record.hash) continue;
       const source = files.find(file => file.name === record.manifest.renderer)?.data;
-      if (!source || source.length > 2 * 1024 * 1024) throw Error('Plugin renderer must be a bundle up to 2 MiB.');
+      if (!source) throw Error('Plugin renderer must be a nonempty bundle.');
       entries.push({ id: record.manifest.id, hash: record.hash, source: source.toString('utf8') });
     }
     return entries;
@@ -253,7 +255,7 @@ export class PluginRegistry {
     if(digest(encodeZip(files))!==hash)throw Error('PLUGIN_ASSET_REVISION_CHANGED');
     const file=files.find(f=>f.name===assetPath),mime:Record<string,string>={'.png':'image/png','.jpg':'image/jpeg','.jpeg':'image/jpeg','.webp':'image/webp','.gif':'image/gif','.avif':'image/avif','.svg':'image/svg+xml','.woff':'font/woff','.woff2':'font/woff2','.ttf':'font/ttf','.otf':'font/otf'};
     const type=mime[path.extname(assetPath).toLowerCase()];
-    if(!file||!type||file.data.length>4*1024*1024)throw Error('PLUGIN_ASSET_INVALID');
+    if(!file||!type)throw Error('PLUGIN_ASSET_INVALID');
     return `data:${type};base64,${file.data.toString('base64')}`;
   }
   async disableAll() {

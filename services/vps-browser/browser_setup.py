@@ -15,6 +15,7 @@ from urllib.request import urlopen
 import setup
 import native_install
 import cli_guard
+from browser_environment import ENV, DEFAULTS
 
 ARCHIVES = [
     ('noVNC-1.6.0', 'https://codeload.github.com/novnc/noVNC/tar.gz/refs/tags/v1.6.0', '5066103959ef4e9b10f37e5a148627360dd8414e4cf8a7db92bdbd022e728aaa', 'MPL-2.0 and included component licenses'),
@@ -51,6 +52,16 @@ def transaction(output):
 
 def inspect(cached=False):
     require(os.geteuid() == 0, 'ADMIN_REQUIRED')
+    import pwd
+    paths = [ENV['chrome'], ENV['xvnc'], str(Path(ENV['web']) / 'vnc.html'), str(Path(ENV['websockify']) / 'websockify/__init__.py')]
+    try:
+        user = pwd.getpwnam(ENV['serviceUser'])
+        ready = user.pw_uid > 0 and user.pw_dir == ENV['home'] and all(Path(p).is_file() for p in paths)
+    except KeyError:
+        ready = False
+    if ready:
+        return dict(planId=setup.digest(ENV), chromeVersion=None, installChrome=False, archives=[], packageTransaction='Reuse installed browser environment.')
+    require(ENV == DEFAULTS, 'BROWSER_PLATFORM_UNSUPPORTED')
     require(platform.machine() == 'x86_64' and Path('/usr/bin/dnf').is_file(), 'BROWSER_PLATFORM_UNSUPPORTED')
     # Cache-only planning never refreshes repositories or upgrades the system.
     _, output = run(dnf_args(cached=cached))
@@ -112,6 +123,8 @@ def apply(expected, sources):
         fcntl.flock(descriptor, fcntl.LOCK_EX | fcntl.LOCK_NB)
         reviewed = inspect(cached=True)
         require(reviewed['planId'] == expected, 'PLAN_CHANGED')
+        if reviewed['packageTransaction'] == 'Reuse installed browser environment.':
+            return {'configured': True}
         if transaction(reviewed['packageTransaction']) != 'Nothing to do.':
             code, output = run(dnf_args(True), 600)
             require(code == 0, 'BROWSER_DEPENDENCIES_UNCONFIRMED')

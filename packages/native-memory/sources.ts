@@ -1,5 +1,5 @@
 import path from 'node:path';
-import { readdir } from 'node:fs/promises';
+import { readdir, realpath, stat } from 'node:fs/promises';
 import { childPath, digest, missing, noLinks, optionalText, readJson, samePath } from '../native-resources/files';
 
 export const BEGIN = '<!-- agent-workbench-memory:start -->';
@@ -22,34 +22,34 @@ export const memoryFingerprint = (content: string) => digest(content.replace(/^\
 export const dedupKey = (source: MemorySource) => source.hash + (/\]\([^)]*\)|(?:^|\s)@\S|(?:^|[\s`])\.{1,2}\//m.test(source.content) ? `:${path.dirname(source.file)}` : '');
 export async function codexInstructions(home: string) {
   const override = path.join(home, 'AGENTS.override.md');
-  await noLinks(override);
   return await optionalText(override) !== undefined ? override : path.join(home, 'AGENTS.md');
 }
 export async function readNativeSources(homes: NativeHomes): Promise<{ sources: MemorySource[]; warnings: string[] }> {
   const sources: MemorySource[] = [], warnings: string[] = [], seen = new Set<string>();
-  let total = 0, directories = 0;
+  const visited = new Set<string>();
   const add = async (provider: Provider, root: string, relative: string, scope: string) => {
-    const file = childPath(root, relative), key = `${provider}:${process.platform === 'win32' ? file.toLowerCase() : file}`;
+    const file = childPath(root, relative);
+    let canonical: string; try { canonical = await realpath(file); } catch(error) { if(missing(error))return; throw error; }
+    const key = `${provider}:${process.platform === 'win32' ? canonical.toLowerCase() : canonical}`;
     if (seen.has(key)) return; seen.add(key);
-    await noLinks(file); const original = await optionalText(file);
+    const original = await optionalText(file);
     if (original === undefined || original.startsWith(PROJECTION)) return;
     const content = splitBlock(original).remainder;
     if (!content.trim()) return;
-    total += Buffer.byteLength(content);
-    if (total > 32 * 1024 * 1024 || sources.length >= 1500) throw Error('Native memory exceeds the synchronization budget.');
     sources.push({ provider, root, scope, relative, file, content, hash: memoryFingerprint(content) });
   };
   const walk = async (provider: Provider, root: string, scope: string, prefix = '', depth = 0): Promise<void> => {
-    if (depth > 7 || ++directories > 2000) throw Error('Native memory discovery exceeds directory limits.');
     const directory = prefix ? childPath(root, prefix.slice(0, -1)) : root;
-    await noLinks(directory);
+    let canonical: string; try { canonical = await realpath(directory); } catch(error) { if(missing(error))return; throw error; }
+    const key = provider + ':' + (process.platform === 'win32' ? canonical.toLowerCase() : canonical);
+    if(visited.has(key))return; visited.add(key);
     let items; try { items = await readdir(directory, { withFileTypes: true }); } catch (error) { if (missing(error)) return; throw error; }
     for (const item of items.sort((a, b) => a.name.localeCompare(b.name))) {
       if (item.name.startsWith('.') || item.name === 'workbench-sync' || item.name.startsWith('workbench-sync-') || ['skills', 'raw_memories', 'raw_memories.md', 'sessions'].includes(item.name)) continue;
-      if (item.isSymbolicLink()) throw Error('Linked native memories are not synchronized.');
       const relative = prefix + item.name;
-      if (item.isDirectory()) await walk(provider, root, scope, `${relative}/`, depth + 1);
-      else if (item.isFile() && /\.md$/i.test(item.name)) await add(provider, root, relative, scope);
+      const info = item.isSymbolicLink() ? await stat(childPath(root, relative)) : item;
+      if (info.isDirectory()) await walk(provider, root, scope, `${relative}/`, depth + 1);
+      else if (info.isFile() && /\.md$/i.test(item.name)) await add(provider, root, relative, scope);
     }
   };
   await add('codex', homes.codex, path.basename(await codexInstructions(homes.codex)), 'User instructions (all projects)');
@@ -73,7 +73,6 @@ export async function readNativeSources(homes: NativeHomes): Promise<{ sources: 
   }
   try {
     const projects = await readdir(path.join(homes.claude, 'projects'), { withFileTypes: true });
-    if (projects.length > 1000) throw Error('Too many Claude projects for automatic memory discovery.');
     for (const project of projects.sort((a, b) => a.name.localeCompare(b.name))) if (project.isDirectory()) await walk('claude', homes.claude, `Claude project: ${project.name}`, `projects/${project.name}/memory/`);
   } catch (error) { if (!missing(error)) throw error; }
   for (const [index, entry] of memoryRoots.entries()) if (memoryRoots.findIndex(other => samePath(other.root, entry.root)) === index) await walk('claude', entry.root, entry.scope);

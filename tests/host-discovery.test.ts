@@ -78,7 +78,7 @@ test('unknown CLI/auth results stay unknown and malformed payloads never echo se
   const data = fixture(1); const result = parse(data);
   assert.equal(result.workspaces[0]!.runtimes.claude.account.status, 'unknown');
   assert.throws(() => parseWorkspaceDiscovery('{"token":"fixture-secret"', host, observedAt), error => error instanceof Error && !error.message.includes('fixture-secret'));
-  await assert.rejects(discoverWorkspaces(host, { runner: async () => ({ stdout: '', stderr: 'fixture-secret', exitCode: 2, signal: null }) }), error => error instanceof Error && !error.message.includes('fixture-secret'));
+  await assert.rejects(discoverWorkspaces(host, { runner: async () => ({ stdout: '', stderr: 'access_token=fixture-secret connection failed', exitCode: 2, signal: null }) }), error => error instanceof Error && !error.message.includes('fixture-secret') && error.message.includes('connection failed'));
   assert.throws(() => parseWorkspaceDiscovery('x'.repeat(512 * 1024 + 1), host, observedAt), /output limit/);
 });
 

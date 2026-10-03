@@ -271,11 +271,11 @@ test('Claude shell candidate keeps complete same-OS invocation and refuses cross
   assert.throws(() => planShellPrefixInvocation(envelope, { ...checked, fileView: 'unverified' }), /verified evidence/);
 });
 
-test('local exec-server receives only allowlisted OS environment and isolated home, never model/proxy credentials', () => {
+test('local exec-server inherits actual environment while keeping its owned executor home', () => {
   const spec = buildLocalExecutorSpec({ executable: resolve('fixture-codex.exe'), version: '0.155.1', cwd: resolve('.'), isolatedCodexHome: resolve('.fixture/executor-home'), port: 40123, authorized: true }, { PATH: 'safe-path', OPENAI_API_KEY: 'SYNTHETIC-SECRET', ANTHROPIC_API_KEY: 'SYNTHETIC-SECRET', HTTP_PROXY: 'http://synthetic', CODEX_HOME: 'old-home' });
   assert.deepEqual(spec.args, ['exec-server', '--listen', 'ws://127.0.0.1:40123']);
-  assert.equal(spec.env!.OPENAI_API_KEY, undefined); assert.equal(spec.env!.HTTP_PROXY, undefined);
-  assert.equal(spec.env!.ANTHROPIC_API_KEY, undefined); assert.equal(spec.env!.CODEX_HOME, resolve('.fixture/executor-home'));
+  assert.equal(spec.env!.OPENAI_API_KEY, 'SYNTHETIC-SECRET'); assert.equal(spec.env!.HTTP_PROXY, 'http://synthetic');
+  assert.equal(spec.env!.ANTHROPIC_API_KEY, 'SYNTHETIC-SECRET'); assert.equal(spec.env!.CODEX_HOME, resolve('.fixture/executor-home'));
   assert.throws(() => buildLocalExecutorSpec({ executable: resolve('fixture'), version: '0.155.1', cwd: resolve('.'), isolatedCodexHome: resolve('.fixture'), port: 40123, authorized: false }), /authorization/);
 });
 

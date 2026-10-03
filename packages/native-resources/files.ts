@@ -11,8 +11,9 @@ export function childPath(root: string, name: string): string {
   if (!path.relative(root, target) || path.relative(root, target).startsWith('..')) throw Error('Resource path escapes its root.');
   return target;
 }
-/** Native skill roots may be symlinks. Mutations and archive descendants may not be. */
+/** Reads may follow aliases. Mutations retain identity checks. */
 export async function noLinks(target: string, allowHardlinks = false): Promise<void> {
+  if (allowHardlinks) return;
   const absolute = path.resolve(target), parsed = path.parse(absolute); let current = parsed.root;
   for (const part of absolute.slice(parsed.root.length).split(path.sep).filter(Boolean)) {
     current = path.join(current, part);
@@ -20,7 +21,7 @@ export async function noLinks(target: string, allowHardlinks = false): Promise<v
     catch (error) { if (!missing(error)) throw error; }
   }
 }
-export async function textFile(file: string, max = 2 * 1024 * 1024): Promise<string> {
+export async function textFile(file: string, max = Infinity): Promise<string> {
   const handle = await open(file, 'r');
   try { const stat = await handle.stat(); if (!stat.isFile() || stat.size > max) throw Error('Resource is not a bounded regular file.'); const value = await handle.readFile(); if (value.length > max || value.includes(0)) throw Error('Resource is not bounded UTF-8 text.'); return new TextDecoder('utf-8', { fatal: true }).decode(value); }
   finally { await handle.close(); }

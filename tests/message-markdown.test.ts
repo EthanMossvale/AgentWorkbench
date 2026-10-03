@@ -50,10 +50,11 @@ test('code fences containing shorter fences and line endings stay intact in bili
   assert.equal(markdownBlocks(source).join(''), source); assert.ok(markdownBlocks(source).some(b => b.includes('```text') && b.includes('**literal**')));
   const code = markdownTokens('```text\r\nhello\r\n```')[0]!; assert.equal(markdownCode(code), 'hello');
 });
-test('links retain local file references while scripts, data URLs and remote file authorities are inert', () => {
+test('links retain local and shared file references while executable URLs are inert', () => {
   assert.deepEqual(markdownLink('docs/guide.md:12', 'Guide')?.reference, { path: 'docs/guide.md', line: 12 });
   assert.equal(markdownLink('https://example.invalid/docs', 'Docs')?.url, 'https://example.invalid/docs');
-  for (const value of ['javascript:alert(1)', 'data:text/html,<script>', 'file://remote/share/file.txt', '//remote/file.txt', 'https://user:pass@example.invalid']) assert.equal(markdownLink(value, 'Unsafe'), undefined);
+  for (const value of ['javascript:alert(1)', 'data:text/html,<script>', 'https://user:pass@example.invalid']) assert.equal(markdownLink(value, 'Unsafe'), undefined);
+  assert.equal(markdownLink('file://remote/share/file.txt','Shared')?.reference?.path,'//remote/share/file.txt');assert.equal(markdownLink('//remote/file.txt','Shared')?.reference?.path,'//remote/file.txt');
   assert.equal(markdownTokens('<script>alert(1)</script>')[0]?.type, 'html');
   assert.equal(markdownText('&lt;safe&gt; &#x1F600;'), '<safe> 😀');
 });

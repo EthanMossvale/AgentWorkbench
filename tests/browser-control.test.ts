@@ -80,7 +80,7 @@ test('browser operation locks the endpoint, and shutdown cancels an in-flight vi
 
 test('persistent browser tunnel has no timed remote command and retains strict host identity',()=>{
  const args=browserViewerTunnelArgs(host,16321);assert.equal(args.at(-1),host.hostname);
- for(const required of ['-N','StrictHostKeyChecking=yes','IdentityAgent=none','ExitOnForwardFailure=yes','127.0.0.1:16321:127.0.0.1:6091'])assert.ok(args.includes(required));
+ for(const required of ['-N','StrictHostKeyChecking=yes','IdentitiesOnly=yes','ExitOnForwardFailure=yes','127.0.0.1:16321:127.0.0.1:6091'])assert.ok(args.includes(required));
  assert.ok(!args.some(v=>v.includes('sleep')));assert.throws(()=>browserViewerTunnelArgs(host,80));
 });
 

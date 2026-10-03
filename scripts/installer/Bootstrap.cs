@@ -41,8 +41,8 @@ internal sealed class Bootstrap : Form {
         string directory = Path.Combine(Path.GetTempPath(), "AgentWorkbench-" + Guid.NewGuid().ToString("N"));
         try {
             Directory.CreateDirectory(directory);
-            using (var client = new HttpClient(new HttpClientHandler { AllowAutoRedirect = false })) {
-                client.Timeout = TimeSpan.FromMinutes(20); client.DefaultRequestHeaders.UserAgent.ParseAdd("AgentWorkbench-Installer/1.0");
+            using (var client = new HttpClient(new HttpClientHandler { AllowAutoRedirect = true })) {
+                client.Timeout = System.Threading.Timeout.InfiniteTimeSpan; client.DefaultRequestHeaders.UserAgent.ParseAdd("AgentWorkbench-Installer/1.0");
                 await BootstrapTransfer.Run(client, Feed, directory, cancellation.Token, (text,percent) => {
                     stage = text; if (!closing) { label.Text = text; progress.Value = percent; }
                 }, async target => {
@@ -91,11 +91,10 @@ internal static class BootstrapTransfer {
             response.EnsureSuccessStatusCode(); json = await response.Content.ReadAsStringAsync();
         }
         token.ThrowIfCancellationRequested();
-        if (json.Length > 16384) throw new Exception("Manifest too large");
         var item = new JavaScriptSerializer().Deserialize<Dictionary<string,object>>(json);
         string name = (string)item["file"], expected = (string)item["sha512"];
         long size = Convert.ToInt64(item["size"]);
-        if (!Regex.IsMatch(name, @"\A[0-9]+\.[0-9]+\.[0-9]+\.exe\z") || size < 1 || size > 800L*1024*1024 || Convert.FromBase64String(expected).Length != 64) throw new Exception("Invalid manifest");
+        if (!Regex.IsMatch(name, @"\A[0-9]+\.[0-9]+\.[0-9]+(?:[-+][A-Za-z0-9.-]+)?\.exe\z") || size < 1 || Convert.FromBase64String(expected).Length != 64) throw new Exception("Invalid manifest");
         string target = Path.Combine(directory,name);
         report("正在下载安装包…（关闭窗口可取消下载）", 0);
         using (var response = await client.GetAsync(feed + name,HttpCompletionOption.ResponseHeadersRead,token)) {

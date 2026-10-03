@@ -13,7 +13,7 @@ import type {SshHost} from '../packages/contracts';
 test('approved plugin observes real SSH failures, replaces account reads and restores core after disable and reenable',async()=>{
  const directory=await mkdtemp(path.join(tmpdir(),'awb-ssh-read-')),store=new StateStore(directory);await store.load();
  const host:SshHost={id:'fixture',name:'Fixture',hostname:'fixture.invalid',port:22,username:'member',role:'workspace',identityFile:path.join(directory,'key'),knownHostsFile:path.join(directory,'known-hosts'),ownerId:'fixture',workspaceGeneration:'1'};await store.update(s=>{s.hosts=[host];});
- const runner=async()=>({exitCode:255,stdout:'',stderr:'Permission denied PRIVATE_SENTINEL',signal:null});
+ const runner=async()=>({exitCode:255,stdout:'',stderr:'Permission denied access_token=PRIVATE_SENTINEL',signal:null});
  const accountCatalog=new RemoteAccountCatalogService({runner});
  const controller=new WorkbenchController(store,new SecretStore(directory,{encrypt:()=>{throw Error('No secrets');},decrypt:()=>{throw Error('No secrets');}}),{pickDirectory:async()=>null,openPath:async()=>{},copy:()=>{},nativeCapabilities:()=>[],accountCatalog,discoverWorkspaces:h=>discoverWorkspaces(h,{runner})},()=>{});
  const plugins=new PluginRegistry(path.join(directory,'plugins'));for(const [id,service]of Object.entries(controller.developmentServices()))if(service)plugins.services.register(id,service,{version:1});plugins.connectHost(r=>controller.call(r.method,r.payload));await plugins.initialize();

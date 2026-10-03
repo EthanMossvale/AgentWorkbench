@@ -251,7 +251,9 @@ class Lifecycle(unittest.TestCase):
         self.assertTrue((SOURCE / 'configuration.py').read_text().isascii())
         self.assertTrue((SOURCE / 'configuration-known.json').read_text().isascii())
         self.assertTrue((SOURCE / 'configuration-release.json').read_text().isascii())
-        self.assertEqual(json.loads((SOURCE / 'configuration-release.json').read_text()), release_for())
+        release = json.loads((SOURCE / 'configuration-release.json').read_text())
+        self.assertGreaterEqual(release['revision'], 1)
+        self.assertEqual(release, release_for(revision=release['revision']))
 
     def next_release(self, revision=2):
         sources = dict(SOURCES, **{'broker.py': SOURCES['broker.py'] + '\n# Synthetic release ' + str(revision) + '\n'})

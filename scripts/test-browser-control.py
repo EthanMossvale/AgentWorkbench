@@ -5,12 +5,22 @@ from pathlib import Path
 import sys
 import types
 import unittest
+import subprocess
 from unittest.mock import patch
 
 ROOT = Path(__file__).resolve().parents[1]
 sys.path[:0] = [str(ROOT / 'services/vps-account-broker'), str(ROOT / 'services/vps-browser')]
 import browser_api as api
+real_subprocess_run = subprocess.run
 
+
+class BrowserEnvironmentTests(unittest.TestCase):
+    def test_custom_environment_reaches_real_manager_subprocess(self):
+        source = "from browser_environment import ENV\nimport json,sys\nprint(json.dumps([ENV,sys.argv[1]]))"
+        custom = dict(api.ENV, display=':45', webPort=7045, chrome='/opt/custom/chrome')
+        with patch.object(api, 'ENV', custom), patch.object(api, 'SOURCES', {'remote_browser.py': source}):
+            result = real_subprocess_run(api.manager_args('profiles', {}), capture_output=True, text=True, check=True)
+        self.assertEqual(json.loads(result.stdout), [custom, 'profiles'])
 
 class BrowserControlTests(unittest.TestCase):
     def setUp(self):

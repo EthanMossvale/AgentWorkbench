@@ -12,5 +12,6 @@ await copyFile('node_modules/smol-toml/LICENSE', 'dist/renderer/licenses/smol-to
 await copyFile('node_modules/marked/LICENSE', 'dist/renderer/licenses/marked.txt');
 await copyFile('node_modules/katex/LICENSE', 'dist/renderer/licenses/katex.txt');
 await copyFile('node_modules/entities/LICENSE', 'dist/renderer/licenses/entities.txt');
+await copyFile('node_modules/@zip.js/zip.js/LICENSE', 'dist/renderer/licenses/zip-js.txt');
 
 await cp('services/vps-browser', 'dist/host/remote-browser', {recursive:true,filter:source=>!source.includes('__pycache__')});

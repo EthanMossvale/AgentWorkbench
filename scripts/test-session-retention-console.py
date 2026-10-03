@@ -91,7 +91,8 @@ class Console(unittest.TestCase):
         self.assertNotIn('storageArchive', self.rows['interrupted'])
 
     def test_metadata_arguments_are_bounded(self):
-        for invalid in [dict(limit=0), dict(limit=101), dict(limit=True), dict(after='x'*257), dict(idleSeconds=True), dict(idleSeconds=1), dict(idleSeconds=8761*3600)]:
+        self.service.dispatch('storage/sessions', dict(provider='codex', limit=100, idleSeconds=8761*3600))
+        for invalid in [dict(limit=0), dict(limit=101), dict(limit=True), dict(after='x'*257), dict(idleSeconds=True), dict(idleSeconds=1)]:
             with self.assertRaises(RuntimeError):
                 self.service.dispatch('storage/sessions', dict(provider='codex', **invalid))
 
@@ -140,11 +141,11 @@ class Policy(unittest.TestCase):
                 self.assertEqual(cli_policies.read('claude')['idleHours'], 24)
                 with self.assertRaisesRegex(RuntimeError, 'CLI_POLICY_CHANGED'):
                     cli_policies.configure('codex', 0, dict(idleHours=48))
-                for value in [0, 8761, True, 1.5, '12', float('inf')]:
+                for value in [0, True, 1.5, '12', float('inf')]:
                     with self.assertRaisesRegex(RuntimeError, 'CLI_POLICY_INVALID'):
                         cli_policies.configure('codex', 1, dict(idleHours=value))
                 self.assertEqual(cli_policies.read('codex'), first)
-                self.assertEqual(cli_policies.configure('codex', 1, dict(idleHours=8760))['idleHours'], 8760)
+                self.assertEqual(cli_policies.configure('codex', 1, dict(idleHours=8761))['idleHours'], 8761)
 
 
 if __name__ == '__main__':

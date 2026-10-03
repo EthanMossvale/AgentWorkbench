@@ -98,15 +98,15 @@ test('a later service registration clears resolved compatibility faults without 
   registry.services.register('late.service',{read:()=>42},{version:1});assert.equal(await registry.command(record.manifest.id,'ping',null),42);
   assert.ok(!registry.recovery.snapshot().incidents.some(i=>i.phase==='compatibility'));assert.ok(registry.recovery.snapshot().incidents.some(i=>i.code==='PLUGIN_CLEANUP_FAILED'));
 });
-test('an interrupted startup enters durable safe mode before any plugin is loaded',async t=>{
+test('an interrupted startup records its suspect without globally disabling plugins',async t=>{
   const {directory}=await fixture(t);const ledger=new PluginRecoveryStore(directory,'1.0.0');await ledger.initialize();await ledger.beginBoot();await ledger.begin({id:'test.old',hash:'a'.repeat(64),version:'1.0.0'},'host');
-  const next=new PluginRecoveryStore(directory,'2.0.0');await next.initialize();assert.equal(next.snapshot().safeMode,true);assert.equal(await readSafeMode(directory),true);assert.equal(next.snapshot().incidents.at(-1)?.certainty,'suspected');assert.equal(next.snapshot().previousHostVersion,'1.0.0');
+  const next=new PluginRecoveryStore(directory,'2.0.0');await next.initialize();assert.equal(next.snapshot().safeMode,false);assert.equal(await readSafeMode(directory),false);assert.equal(next.snapshot().incidents.at(-1)?.certainty,'suspected');assert.equal(next.snapshot().previousHostVersion,'1.0.0');
 });
 test('ready and clean exit do not create a false crash suspect',async t=>{
   const {directory}=await fixture(t);const ledger=new PluginRecoveryStore(directory,'1.0.0');await ledger.initialize();await ledger.beginBoot();await ledger.begin({id:'test.ok'},'renderer');await ledger.finish('test.ok','renderer');await ledger.ready();await ledger.closed();
   const next=new PluginRecoveryStore(directory,'2.0.0');await next.initialize();assert.equal(next.snapshot().safeMode,false);assert.deepEqual(next.snapshot().pending,[]);assert.ok(!next.snapshot().incidents.some(i=>i.code==='PLUGIN_STARTUP_INTERRUPTED'));
 });
-test('malformed safe mode markers fail closed',async t=>{const {directory}=await fixture(t);await writeFile(path.join(directory,'plugin-safe-mode.json'),'{}');assert.equal(await readSafeMode(directory),true);});
+test('malformed safe mode markers report an error without silently enabling safe mode',async t=>{const {directory}=await fixture(t);await writeFile(path.join(directory,'plugin-safe-mode.json'),'{}');await assert.rejects(readSafeMode(directory),/PLUGIN_SAFE_MODE_INVALID/);const ledger=new PluginRecoveryStore(directory,'2.0.0');await ledger.initialize();assert.equal(ledger.snapshot().safeMode,false);assert.equal(ledger.snapshot().storageError,'PLUGIN_SAFE_MODE_INVALID');});
 
 test('automatic recovery presentation is coalesced and does not refocus after dismissal',()=>{
   const gate=createRecoveryPresentationGate();
@@ -120,9 +120,9 @@ test('automatic recovery presentation is coalesced and does not refocus after di
   assert.equal(explicitlyOpened.consumeAutomatic(),false);
 });
 
-test('corrupt recovery journal is retained byte-for-byte while core enters safe mode',async t=>{
+test('corrupt recovery journal is retained byte-for-byte with a visible storage error',async t=>{
   const {directory}=await fixture(t);const file=path.join(directory,'plugin-recovery.json');await writeFile(file,'{damaged');
-  const ledger=new PluginRecoveryStore(directory,'2.0.0');await ledger.initialize();await ledger.beginBoot();await ledger.ready();await ledger.closed();assert.equal(ledger.snapshot().safeMode,true);assert.equal(await readFile(file,'utf8'),'{damaged');
+  const ledger=new PluginRecoveryStore(directory,'2.0.0');await ledger.initialize();await ledger.beginBoot();await ledger.ready();await ledger.closed();assert.equal(ledger.snapshot().safeMode,false);assert.equal(ledger.snapshot().storageError,'PLUGIN_RECOVERY_STATE_INVALID');assert.equal(await readFile(file,'utf8'),'{damaged');
 });
 
 test('the full bounded multi-plugin journal remains readable after restart',async t=>{

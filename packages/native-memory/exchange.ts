@@ -22,7 +22,7 @@ const obj = (v: unknown): Record<string,any> => v && typeof v === 'object' && !A
 const key = (file:string) => process.platform === 'win32' ? path.resolve(file).toLowerCase() : path.resolve(file);
 const normalized = (value:string) => value.replace(/^\uFEFF/,'').replaceAll('\r\n','\n').trim();
 const inside = (root:string,file:string) => { const r=path.relative(root,file);return !!r&&!r.startsWith('..')&&!path.isAbsolute(r); };
-const LIMIT=10000;
+const LIMIT=Number.MAX_SAFE_INTEGER;
 
 /** Serialized by NativeMemoryService; delegates native writes and verifies their evidence. */
 export class MemoryExchange {
@@ -34,7 +34,7 @@ export class MemoryExchange {
   constructor(readonly directory:string,private homes:()=>NativeHomes,private machineIdentity?:string,private writer:MemoryConsolidationWriter={store:storeConsolidatedReference}){this.file=path.join(directory,'ledger.json');}
   async initialize(){
     const h=this.homes(),machine=digest(JSON.stringify([this.machineIdentity??os.hostname(),key(h.home),key(h.codex),key(h.claude)]));
-    await noLinks(this.file);const raw=await optionalText(this.file,32*1024*1024);
+    await noLinks(this.file);const raw=await optionalText(this.file);
     this.state=raw===undefined?{version:1,deviceId:randomUUID(),machine,baseline:{},events:[],latest:{},deliveries:[],imported:{}}:JSON.parse(raw);
     const s=this.state;
     if(s.version!==1||s.machine!==machine||!uuid(s.deviceId)||!Array.isArray(s.events)||!Array.isArray(s.deliveries)||s.latest!==obj(s.latest)||s.baseline!==obj(s.baseline)||s.imported!==obj(s.imported)||(s.seeded!==undefined&&!['codex','claude','both'].includes(s.seeded)))throw Error('Memory exchange belongs to another device or has invalid state.');
@@ -42,14 +42,14 @@ export class MemoryExchange {
     const ids=new Set<string>();
     for(const e of s.events){
       if(!hex(e.id)||ids.has(e.id)||!hex(e.sourceId)||!hex(e.hash)||!runtime(e.origin)||!['upsert','withdraw'].includes(e.operation)||!Number.isSafeInteger(e.revision)||e.revision<1||typeof e.file!=='string'||!path.isAbsolute(e.file)||typeof e.scope!=='string'||typeof e.relative!=='string'||!Number.isFinite(Date.parse(e.createdAt))||e.id!==digest(`${e.sourceId}:${e.revision}:${e.hash}`))throw Error('Memory exchange contains an invalid archive.');
-      if((e.name!==undefined&&(typeof e.name!=='string'||e.name.length>160))||(e.acknowledgedAt!==undefined&&!Number.isFinite(Date.parse(e.acknowledgedAt)))||(e.evidence!==undefined&&(!e.acknowledgedAt||!Array.isArray(e.evidence)||!e.evidence.length||e.evidence.length>9||e.evidence.some(p=>!p||typeof p.file!=='string'||!path.isAbsolute(p.file)||!hex(p.hash)))))throw Error('Memory exchange contains invalid historical evidence.');
+      if((e.name!==undefined&&typeof e.name!=='string')||(e.acknowledgedAt!==undefined&&!Number.isFinite(Date.parse(e.acknowledgedAt)))||(e.evidence!==undefined&&(!e.acknowledgedAt||!Array.isArray(e.evidence)||!e.evidence.length||e.evidence.some(p=>!p||typeof p.file!=='string'||!path.isAbsolute(p.file)||!hex(p.hash)))))throw Error('Memory exchange contains invalid historical evidence.');
       ids.add(e.id);
     }
     for(const [id,latest] of Object.entries(s.latest))if(!s.events.some(e=>e.sourceId===id&&e.id===latest))throw Error('Memory exchange contains an invalid latest revision.');
     for(const [id,hash] of Object.entries(s.baseline))if(!hex(id)||!hex(hash))throw Error('Memory exchange contains an invalid baseline.');
     const deliveryIds=new Set<string>(),receiptRoots=new Map<string,boolean>();
     for(const d of s.deliveries){
-      if(!uuid(d.id)||deliveryIds.has(d.id)||!uuid(d.token)||!runtime(d.runtime)||typeof d.sessionId!=='string'||typeof d.submissionId!=='string'||d.mode!==undefined&&d.mode!=='consolidation'||!Array.isArray(d.entries)||d.entries.length>(d.mode==='consolidation'?1500:12)||d.entries.some(id=>!s.events.some(e=>e.id===id&&e.origin!==d.runtime)))throw Error('Memory exchange contains an invalid delivery.');
+      if(!uuid(d.id)||deliveryIds.has(d.id)||!uuid(d.token)||!runtime(d.runtime)||typeof d.sessionId!=='string'||typeof d.submissionId!=='string'||d.mode!==undefined&&d.mode!=='consolidation'||!Array.isArray(d.entries)||d.entries.some(id=>!s.events.some(e=>e.id===id&&e.origin!==d.runtime)))throw Error('Memory exchange contains an invalid delivery.');
       const receipt=await this.canonicalReceipt(d,receiptRoots);
       if(!receipt)throw Error('Memory exchange contains an invalid delivery.');
       d.receipt=receipt;
@@ -58,7 +58,7 @@ export class MemoryExchange {
     for(const [file,proof] of Object.entries(s.imported))if(!path.isAbsolute(file)||!runtime(proof.runtime)||!Array.isArray(proof.ids)||proof.hashes!==obj(proof.hashes)||proof.ids.some(id=>!ids.has(id)||!hex(proof.hashes[id])))throw Error('Memory exchange contains invalid native provenance.');
     await this.save();
   }
-  private save(){const text=JSON.stringify(this.state,null,2);if(Buffer.byteLength(text)>32*1024*1024)throw Error('Memory exchange exceeds its journal byte budget.');return atomicWrite(this.file,text);}
+  private save(){return atomicWrite(this.file,JSON.stringify(this.state,null,2));}
   private archiveFile(id:string){if(!hex(id))throw Error('Invalid archive ID.');return path.join(this.directory,'archives',id+'.md');}
   private receiptFile(id:string){return path.join(this.directory,'receipts',id+'.json');}
   /** Only a filesystem-proven alias of this exchange can relocate a persisted receipt. */
@@ -194,7 +194,7 @@ export class MemoryExchange {
     if(typeof value.archiveId!=='string'||!d.entries.includes(value.archiveId))throw Error('MEMORY_HANDOFF_ARCHIVE_NOT_ISSUED');
     const e=this.state.events.find(e=>e.id===value.archiveId)!;
     const offset=value.offset??0,limit=value.limit??12000;
-    if(!Number.isSafeInteger(offset)||Number(offset)<0||!Number.isSafeInteger(limit)||Number(limit)<1||Number(limit)>24000)throw Error('MEMORY_HANDOFF_ARGUMENT_INVALID');
+    if(!Number.isSafeInteger(offset)||Number(offset)<0||!Number.isSafeInteger(limit)||Number(limit)<1)throw Error('MEMORY_HANDOFF_ARGUMENT_INVALID');
     if(e.operation==='withdraw')return {archiveId:e.id,operation:e.operation,content:'',note:'Preserve unrelated native memory; record the scoped withdrawal.'};
     const file=this.archiveFile(e.id);await noLinks(file);const content=await optionalText(file);
     if(content===undefined||memoryFingerprint(content)!==e.hash)throw Error('MEMORY_HANDOFF_ARCHIVE_CHANGED');
@@ -204,7 +204,7 @@ export class MemoryExchange {
   async prepareConsolidation(sessionId:string,submissionId:string,ids:string[],recipients:Provider[]){
     if(!Array.isArray(recipients)||recipients.length!==1||!runtime(recipients[0]))throw Error('MEMORY_CONSOLIDATION_RECIPIENT_REQUIRED');
     if(this.active.size||!this.state.seeded)return;
-    if(!sessionId||!submissionId||ids.length>1500)throw Error('MEMORY_CONSOLIDATION_ARGUMENT_INVALID');
+    if(!sessionId||!submissionId)throw Error('MEMORY_CONSOLIDATION_ARGUMENT_INVALID');
     const {sources,warnings}=await readNativeSources(this.homes());
     if(warnings.length)throw Error('MEMORY_BACKGROUND_SETTINGS_UNKNOWN');
     await this.scan(sources);
@@ -233,7 +233,7 @@ export class MemoryExchange {
       const source=sources.find(s=>s.provider===deliveries[0]!.runtime&&samePath(s.file,String(value.nativePath)));
       if(!source)throw Error('MEMORY_HANDOFF_NATIVE_NOT_FOUND');
       const offset=value.offset??0,limit=value.limit??12000;
-      if(!Number.isSafeInteger(offset)||Number(offset)<0||!Number.isSafeInteger(limit)||Number(limit)<1||Number(limit)>24000)throw Error('MEMORY_HANDOFF_ARGUMENT_INVALID');
+      if(!Number.isSafeInteger(offset)||Number(offset)<0||!Number.isSafeInteger(limit)||Number(limit)<1)throw Error('MEMORY_HANDOFF_ARGUMENT_INVALID');
       return {nativePath:source.file,runtime:source.provider,scope:source.scope,content:source.content.slice(Number(offset),Number(offset)+Number(limit)),totalCharacters:source.content.length,nextOffset:Number(offset)+Number(limit)<source.content.length?Number(offset)+Number(limit):null};
     }
     if(value.archiveId!==undefined){
@@ -272,7 +272,7 @@ export class MemoryExchange {
     for(const d of deliveries){
       const added=rows.get(d.id);if(!added?.length)continue;
       await assertActive();await noLinks(d.receipt);
-      const raw=await optionalText(d.receipt,2*1024*1024),receipt=raw?obj(JSON.parse(raw)):{deliveryId:d.id,token:d.token,recipientRuntime:d.runtime,entries:[]};
+      const raw=await optionalText(d.receipt,Number.MAX_SAFE_INTEGER),receipt=raw?obj(JSON.parse(raw)):{deliveryId:d.id,token:d.token,recipientRuntime:d.runtime,entries:[]};
       if(receipt.deliveryId!==d.id||receipt.token!==d.token||receipt.recipientRuntime!==d.runtime||!Array.isArray(receipt.entries))throw Error('MEMORY_RECEIPT_INVALID');
       receipt.entries=[...receipt.entries.filter((r:any)=>!added.some(row=>row.archiveId===r.archiveId)),...added];
       await atomicWrite(d.receipt,JSON.stringify(receipt),assertActive);
@@ -311,7 +311,7 @@ export class MemoryExchange {
     const source=sources.find(s=>s.provider===target&&samePath(s.file,file));
     if(!source||inside(this.directory,file)||/(?:^|[\\/])(?:extensions|workbench-sync|raw_memories|skills|sessions)(?:[\\/.]|$)/i.test(file))throw Error('Receipt destination is not a loaded native memory file.');
     if(index&&!['MEMORY.md',...(target==='codex'?['memory_summary.md','AGENTS.md','AGENTS.override.md']:['CLAUDE.md'])].includes(path.basename(file)))throw Error('Receipt index is not a native memory index.');
-    await noLinks(file);const content=await optionalText(file);
+    const content=await optionalText(file);
     if(!content?.trim()||digest(content)!==hash||content!==source.content)throw Error('Receipt does not match native content saved on disk.');
     return {file,content};
   }
@@ -341,7 +341,7 @@ export class MemoryExchange {
   }
   private async validateRow(d:Delivery,event:Archive,row:Record<string,any>,sources:MemorySource[]){
     if(row.revision!==event.revision||row.scope!==event.scope)throw Error(receiptMessages.MEMORY_RECEIPT_ENTRY_INVALID);
-    if(!Array.isArray(row.files)||!row.files.length||row.files.length>8||!['stored','already_present'].includes(row.disposition))throw Error(receiptMessages.MEMORY_RECEIPT_STORAGE_INVALID);
+    if(!Array.isArray(row.files)||!row.files.length||!['stored','already_present'].includes(row.disposition))throw Error(receiptMessages.MEMORY_RECEIPT_STORAGE_INVALID);
     const files=[];
     for(const value of row.files){const p=obj(value);files.push(await this.nativeFile(d.runtime,p.path,p.sha256,false,sources));}
     if(row.disposition==='already_present'){
@@ -365,7 +365,7 @@ export class MemoryExchange {
     const evidence=[...files,index];
     // Validate every marker before updating either the receipt or its provenance journal.
     if(row.disposition==='stored')for(const file of evidence)splitImports(file.content);
-    for(const file of evidence){await noLinks(file.file);if(await optionalText(file.file)!==file.content)throw Error(receiptMessages.MEMORY_RECEIPT_NATIVE_CHANGED);}
+    for(const file of evidence){if(await optionalText(file.file)!==file.content)throw Error(receiptMessages.MEMORY_RECEIPT_NATIVE_CHANGED);}
     return evidence;
   }
   private async verifyReceipts(sources:MemorySource[],deliveryId?:string){
@@ -374,7 +374,7 @@ export class MemoryExchange {
       if(deliveryId!==undefined&&d.id!==deliveryId)continue;
       const errors=new Map<string,MemoryReceiptCode>();let message:string|undefined;
       if(d.entries.some(id=>{const e=this.state.events.find(e=>e.id===id)!;return !e.acknowledgedAt&&this.state.latest[e.sourceId]===id;}))try{
-        await noLinks(d.receipt);const raw=await optionalText(d.receipt,d.mode==='consolidation'?2*1024*1024:128*1024);
+        await noLinks(d.receipt);const raw=await optionalText(d.receipt);
         if(raw===undefined){for(const id of d.entries)errors.set(id,'MEMORY_RECEIPT_MISSING');}
         else{
           let receipt:Record<string,any>;try{receipt=obj(JSON.parse(raw));}catch{throw Error(receiptMessages.MEMORY_RECEIPT_INVALID);}

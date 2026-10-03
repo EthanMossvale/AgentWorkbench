@@ -23,6 +23,7 @@ import cli_guard
 import setup
 from broker import trusted_path
 from native_worker import NativeCodexLogin
+from browser_environment import ENV
 
 SOURCES = {}
 ACTIVE_STARTED = False
@@ -30,7 +31,7 @@ LOGIN_TIMEOUT = 900
 AUTH_URL_TIMEOUT = 60
 BROWSER_OPEN_TIMEOUT = 70
 HEARTBEAT_TIMEOUT = 45
-HOME = Path('/var/lib/jp-remote-browser/home')
+HOME = Path(ENV['home'])
 
 
 def require(value, code):
@@ -39,22 +40,25 @@ def require(value, code):
 
 
 def emit(value):
+    if ENV['webPort'] != 6091:
+        value = dict(value, webPort=ENV['webPort'])
     print(json.dumps(value, separators=(',', ':')), flush=True)
 
 
 def installed():
-    paths = ['/opt/jp-remote-browser/chrome/chrome', '/usr/bin/Xvnc', '/opt/codex-remote-login/noVNC-1.6.0/vnc.html', '/opt/codex-remote-login/websockify-0.13.0/websockify/__init__.py']
+    paths = [ENV['chrome'], ENV['xvnc'], str(Path(ENV['web']) / 'vnc.html'), str(Path(ENV['websockify']) / 'websockify/__init__.py')]
     missing = [p for p in paths if not Path(p).is_file()]
     try:
-        user = pwd.getpwnam('jp-browser')
-        require(user.pw_dir == str(HOME) and 0 < user.pw_uid < 1000, 'BROWSER_IDENTITY_INVALID')
+        user = pwd.getpwnam(ENV['serviceUser'])
+        require(user.pw_dir == str(HOME) and user.pw_uid > 0, 'BROWSER_IDENTITY_INVALID')
     except KeyError:
-        missing.append('jp-browser')
+        missing.append(ENV['serviceUser'])
     return {'installed': not missing, 'missing': missing}
 
 
 def manager_args(action, options):
-    code = "import base64;exec(compile(base64.b64decode('" + base64.b64encode(SOURCES['remote_browser.py'].encode()).decode() + "'),'remote_browser.py','exec'))"
+    prefix = "import sys,types,json; m=types.ModuleType('browser_environment');sys.modules['browser_environment']=m;m.ENV=json.loads(" + repr(json.dumps(ENV)) + ");"
+    code = prefix + "import base64;exec(compile(base64.b64decode('" + base64.b64encode(SOURCES['remote_browser.py'].encode()).decode() + "'),'remote_browser.py','exec'))"
     return [sys.executable, '-u', '-B', '-c', code, action, base64.b64encode(json.dumps(options).encode()).decode()]
 
 
@@ -68,7 +72,6 @@ def manage(request):
         return dict(status, profiles=[])
     require(action != 'delete' or request.get('confirm') is True, 'CONFIRM_REQUIRED')
     result = subprocess.run(manager_args('profiles' if action == 'list' else action, {'key': request.get('key'), 'label': request.get('label'), 'confirm_key': request.get('key') if action == 'delete' else None}), capture_output=True, timeout=45)
-    require(len(result.stdout) <= 65536, 'BROWSER_RESPONSE_INVALID')
     value = json.loads(result.stdout)
     require(result.returncode == 0 and value.get('ok') is True, value['error'] if value.get('error') in ('BROWSER_BUSY', 'BROWSER_PROFILE_SHARED_BUSY') else 'BROWSER_OPERATION_FAILED')
     return dict(status, profiles=[{k: r[k] for k in ('key', 'label', 'available')} for r in value['profiles']])
@@ -88,7 +91,6 @@ def control(request):
     result = subprocess.run(manager_args('start' if action == 'launch' else action,
                                         {'key': request['profileKey']} if action == 'launch' else {}),
                             capture_output=True, timeout=100)
-    require(len(result.stdout) <= 65536, 'BROWSER_RESPONSE_INVALID')
     value = json.loads(result.stdout)
     known = ('BROWSER_BUSY', 'BROWSER_ALREADY_RUNNING', 'BROWSER_NOT_RUNNING', 'BROWSER_DESKTOP_UNAVAILABLE')
     failure = value.get('error') if value.get('error') in known else (
@@ -295,6 +297,10 @@ def login(request):
 
 def dispatch(request):
     try:
+        if request.get('action') == 'environment':
+            require(os.geteuid() == 0, 'ADMIN_REQUIRED')
+            emit({'ok': True, 'value': ENV})
+            return
         if request.get('action') in ('setup-plan', 'setup-apply'):
             import browser_setup
             value = browser_setup.inspect() if request['action'] == 'setup-plan' else browser_setup.apply(request.get('planId'), SOURCES)

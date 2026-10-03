@@ -66,14 +66,14 @@ def enroll(binding):
 export function portablePrepareScript(enrollmentSource:string){return String.raw`
 import os,sys,json,pwd,stat,re,base64,datetime,time,fcntl,zlib
 def invitation_window(ttl):
-    if type(ttl) is not int or ttl not in (3600,21600,43200,86400,604800):raise ValueError()
+    if type(ttl) is not int or ttl <= 0:raise ValueError()
     issued=int(time.time())
     return issued,issued+ttl
 
 def main():
     if os.geteuid()!=0:raise ValueError()
     request=json.loads(sys.stdin.buffer.readline(32769));name=request['username'];invite=request['inviteId'];public=request['publicKey'];ttl=request['ttlSeconds']
-    if not re.fullmatch(r'[a-z_][a-z0-9_-]{0,31}',name) or name=='root' or not re.fullmatch(r'[a-f0-9-]{36}',invite) or not re.fullmatch(r'ssh-ed25519 [A-Za-z0-9+/=]{68}',public) or type(ttl) is not int or ttl not in (3600,21600,43200,86400,604800):raise ValueError()
+    if not re.fullmatch(r'[a-z_][a-z0-9_-]{0,31}',name) or name=='root' or not re.fullmatch(r'[a-f0-9-]{36}',invite) or not re.fullmatch(r'ssh-ed25519 [A-Za-z0-9+/=]{68}',public) or type(ttl) is not int or ttl <= 0:raise ValueError()
     user=pwd.getpwnam(name)
     if user.pw_uid<1000 or not user.pw_dir.startswith('/home/'):raise ValueError()
     # Public host pins cross the connection; no private host or user key is read.

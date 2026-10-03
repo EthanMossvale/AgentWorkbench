@@ -18,7 +18,7 @@ export interface AccountAccessService {
   dispose():Promise<void>;
 }
 interface Entry<T> { value: T; live: boolean; handles: Set<LoginHandle>; abort: AbortController }
-const label = (v: unknown, max: number) => typeof v === 'string' && v.length > 0 && v.length <= max && !/[\x00-\x1f]/.test(v);
+const label = (v: unknown, max: number) => typeof v === 'string' && v.length > 0 && !/[\x00-\x1f]/.test(v);
 /** The same production directory powers discovery, execution and plugin disposal. */
 export class AccountAccessRegistry implements AccountAccessService {
   private logins = new Map<string, Entry<AccountLoginRegistration>>();

@@ -7,6 +7,7 @@ import {EventEmitter} from 'node:events';
 import {StateStore,SecretStore} from '../apps/desktop/host/store';
 import {WorkbenchController} from '../apps/desktop/host/controller';
 import {NativeProviderRunner} from '../apps/desktop/host/native-provider';
+import {NativeCodexRunner} from '../apps/desktop/host/native-codex';
 import {ProcessSupervisor,decodeNativeFrame} from '../services/remote-supervisor';
 import {normalizeClaudeEvent} from '../packages/runtime-claude';
 import {draftRecovery} from '../packages/session-core/draft-recovery';
@@ -42,6 +43,59 @@ class RemoteWire extends ProcessSupervisor {
   override async stop(reason='fixture'){if(this.state!=='closed'){this.state='closed';this.emit('disconnect',{code:0,signal:null,reason});}return {code:0,signal:null,reason};}
 }
 async function settled(runner:NativeProviderRunner){for(let n=0;n<500&&runner.busy('chat');n++)await new Promise(r=>setTimeout(r,10));assert.equal(runner.busy('chat'),false);}
+
+test('Claude manual resend proceeds after failed cleanup and ignores old completion and disconnect',async t=>{
+  const f=await fixture(t),wires:RemoteWire[]=[];
+  class HeldWire extends RemoteWire {
+    override async write(value:any){this.writes.push(value);}
+    override async stop():Promise<never>{throw Error('SYNTHETIC_CLEANUP_UNCONFIRMED');}
+  }
+  const runner=new NativeProviderRunner({} as any,{home:f.dir,env:{},locate:async()=>({executable:'synthetic'}),isMaintaining:()=>false} as any,{
+    snapshot:()=>f.store.snapshot(),update:change=>f.store.update(change),peers:()=>({definitions:[]}) as any,context:async()=>'',translate:()=>{},
+    observe:(id,source)=>f.controller.observeNativeSession(id,source),assertRemoteClaude:()=>({id:'opus',model:'opus',name:'Opus',enabled:true}),
+    remoteClaude:{createTransport:()=>{const wire=wires.length?new RemoteWire():new HeldWire();wires.push(wire);return wire;}} as any,
+  });t.after(()=>runner.dispose());
+  await runner.submit('chat',preview('old'));
+  for(let n=0;n<200&&!wires[0]?.writes.some(w=>w.type==='user');n++)await new Promise(r=>setTimeout(r,5));
+  assert.ok(wires[0]?.writes.some(w=>w.type==='user'));
+  await f.store.update(s=>{s.sessions[0]!.status='uncertain';});
+  (f.controller as any).nativeProvider=runner;
+  await f.controller.call('session/end-wait',{sessionId:'chat',confirm:true});
+  assert.equal(f.get().status,'idle');assert.ok(f.get().binding.executionSessionId);
+  await runner.submit('chat',preview('replacement'));await settled(runner);
+  const before=f.get();assert.equal(before.nativeTurnStatus,'completed');
+  wires[0]!.frame({type:'assistant',session_id:'old-thread',message:{content:[{type:'text',text:'OLD LATE RESULT'}]}});
+  wires[0]!.frame({type:'result',session_id:'old-thread',subtype:'error',is_error:true});wires[0]!.emit('disconnect',{code:1,signal:null});
+  await new Promise(r=>setTimeout(r,25));
+  assert.equal(f.get().status,'idle');assert.equal(f.get().binding.nativeSessionId,before.binding.nativeSessionId);
+  assert.ok(!f.get().messages.some(m=>m.original.includes('OLD LATE RESULT')));
+  assert.equal(wires.flatMap(w=>w.writes).filter(w=>w.type==='user').length,2);
+});
+
+test('Codex retired stop cannot close or overwrite a manually replaced turn',async t=>{
+  const f=await fixture(t);let release!:()=>void,closed=0;
+  const pending=new Promise<void>(resolve=>{release=resolve;});
+  const runner=new NativeCodexRunner({close:async()=>{closed++;}} as any,{snapshot:()=>f.store.snapshot(),update:(change:any)=>f.store.update(change)} as any);
+  await f.store.update(s=>{s.sessions[0]!.nativeTurnId='old';s.sessions[0]!.status='uncertain';});
+  const old={handle:{threadId:'old-thread',connection:{interrupt:()=>pending}},queue:Promise.resolve(),active:true,stopping:false,items:new Map()};
+  (runner as any).tracked.set('chat',old);
+  const stopping=runner.stop('chat');await runner.closeForRecovery('chat');
+  const replacement={...old,handle:{threadId:'new-thread'},active:true,detached:false};(runner as any).tracked.set('chat',replacement);
+  await f.store.update(s=>{s.sessions[0]!.status='running';s.sessions[0]!.nativeTurnId='new';});
+  release();await stopping;
+  assert.equal(closed,1);assert.equal(f.get().status,'running');assert.equal(f.get().nativeTurnId,'new');assert.equal(runner.busy('chat'),true);
+});
+
+test('Codex recovery retires a pending warm connection before its late publication',async t=>{
+  const f=await fixture(t);let release!:()=>void,entered!:()=>void,closes=0;
+  const blocked=new Promise<void>(resolve=>release=resolve),started=new Promise<void>(resolve=>entered=resolve);
+  const runner=new NativeCodexRunner({supports:()=>true,close:async()=>{closes++;},connect:async()=>{entered();await blocked;return {threadId:'obsolete'};}} as any,{
+    snapshot:()=>f.store.snapshot(),update:(change:any)=>f.store.update(change),context:async()=>({}),peers:()=>({}),
+  } as any);
+  const preparing=runner.prepare('chat');const rejected=assert.rejects(preparing,/retired/);await started;
+  await runner.closeForRecovery('chat');await f.store.update(s=>{s.sessions[0]!.binding.nativeSessionId='replacement';});
+  release();await rejected;assert.equal(closes,1);assert.equal(f.get().binding.nativeSessionId,'replacement');assert.equal(runner.busy('chat'),false);
+});
 
 test('SSH Claude first and second real runner turns retain a valid observer',async t=>{
   const f=await fixture(t),wires:RemoteWire[]=[],failures:unknown[]=[];

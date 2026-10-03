@@ -7,6 +7,8 @@ from pathlib import Path
 import tempfile
 import types
 import unittest
+import sys
+sys.path.insert(0, str(Path(__file__).resolve().parents[1] / 'services/vps-browser'))
 
 if 'MANAGER_SOURCE' not in globals():
     MANAGER_SOURCE = Path(__file__).resolve().parents[1].joinpath('services/vps-browser/remote_browser.py').read_text(encoding='utf-8')
@@ -172,7 +174,8 @@ class ProfileManagementTests(unittest.TestCase):
         (self.m.PROFILE / 'link').symlink_to(outside, target_is_directory=True)
         with self.assertRaises(ValueError):
             self.m.profile_path('link')
-        for label in ('', 'x' * 41, 'a\nb'):
+        self.assertEqual(self.m.create_profile('x' * 41)['selected_profile']['label'], 'x' * 41)
+        for label in ('', 'a\nb'):
             with self.assertRaises(ValueError):
                 self.m.create_profile(label)
 

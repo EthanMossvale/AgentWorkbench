@@ -53,15 +53,14 @@ export const coreUiPreferences: readonly UiPreferenceDefinition[] = [
   number('editor.height',260,60,2000),
 ];
 export function preferenceKey(id: string, scope = '') {
-  if(!/^(?:[a-z][a-z0-9.-]{0,99}|plugin:[a-z][a-z0-9.-]{1,79}\/[a-z][a-z0-9.-]{0,79})$/.test(id) || typeof scope!=='string' || scope.length>4096)throw Error('UI_PREFERENCE_KEY_INVALID');
+  if(!/^(?:[a-z][a-z0-9.-]{0,99}|plugin:[a-z][a-z0-9.-]{1,79}\/[a-z][a-z0-9.-]{0,79})$/.test(id) || typeof scope!=='string')throw Error('UI_PREFERENCE_KEY_INVALID');
   return JSON.stringify([id,scope]);
 }
 export function assertUiValue(value: unknown, depth = 0): asserts value is UiValue {
-  if(depth>12)throw Error('UI_PREFERENCE_VALUE_INVALID');
-  if(value===null || typeof value==='boolean' || typeof value==='string' && value.length<=8192 || typeof value==='number' && Number.isFinite(value))return;
-  if(Array.isArray(value) && value.length<=1000){for(const item of value)assertUiValue(item,depth+1);return;}
-  if(value && typeof value==='object' && Object.getPrototypeOf(value)===Object.prototype && Object.keys(value).length<=1000){
-    for(const [key,item] of Object.entries(value)){if(key.length>4096 || ['__proto__','constructor','prototype'].includes(key))throw Error('UI_PREFERENCE_VALUE_INVALID');assertUiValue(item,depth+1);}return;
+  if(value===null || typeof value==='boolean' || typeof value==='string' || typeof value==='number' && Number.isFinite(value))return;
+  if(Array.isArray(value)){for(const item of value)assertUiValue(item,depth+1);return;}
+  if(value && typeof value==='object' && Object.getPrototypeOf(value)===Object.prototype){
+    for(const [key,item] of Object.entries(value)){if(['__proto__','constructor','prototype'].includes(key))throw Error('UI_PREFERENCE_VALUE_INVALID');assertUiValue(item,depth+1);}return;
   }
   throw Error('UI_PREFERENCE_VALUE_INVALID');
 }
@@ -70,7 +69,7 @@ export function validatePreference(definition: UiPreferenceDefinition, value: un
   if(value===null && definition.nullable)return value;
   const valid=definition.type==='boolean'?typeof value==='boolean':definition.type==='number'?typeof value==='number' && value>=(definition.min??-Infinity) && value<=(definition.max??Infinity):definition.type==='string'?typeof value==='string' && (!definition.choices || definition.choices.includes(value)):definition.type==='string-list'?Array.isArray(value) && value.every(v=>typeof v==='string'):definition.type==='boolean-map'?!!value && !Array.isArray(value) && typeof value==='object' && Object.values(value).every(v=>typeof v==='boolean'):!!value && !Array.isArray(value) && typeof value==='object';
   if(!valid)throw Error('UI_PREFERENCE_VALUE_INVALID');
-  if(definition.id==='visualization.state'&&(Object.keys(value as object).some(key=>!['modelContent','privateContent'].includes(key))||new TextEncoder().encode(JSON.stringify(value)).length>16384))throw Error('VISUALIZATION_STATE_INVALID');
+  if(definition.id==='visualization.state'&&Object.keys(value as object).some(key=>!['modelContent','privateContent'].includes(key)))throw Error('VISUALIZATION_STATE_INVALID');
   if(definition.id==='connections.panes'){
     const v=value as Record<string,UiValue>;
     if(typeof v.navigationRatio!=='number'||v.navigationRatio<.01||v.navigationRatio>.95||typeof v.navigation!=='number'||v.navigation<140||v.navigation>2000||typeof v.details!=='number'||v.details<300||v.details>3000)throw Error('UI_PREFERENCE_VALUE_INVALID');

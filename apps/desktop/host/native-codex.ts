@@ -6,6 +6,7 @@ import { codexSkillInputs } from '../../../packages/native-skills/invocation';
 import type { AttachmentStore } from './attachments';
 import { attachmentPrompt, nativeAttachmentImages } from '../../../packages/attachments/input';
 import {randomUUID} from 'node:crypto';
+import {AsyncLocalStorage} from 'node:async_hooks';
 import type {AppState,DraftPreview,Message,NativeForkSource,Session,SshHost} from '../../../packages/contracts';
 import {SessionLeaseRegistry,SubmissionLedger,type WriterLease,type SharedContextOptions} from '../../../packages/session-core';
 import type {NativeFrame} from '../../../services/remote-supervisor';
@@ -29,7 +30,7 @@ interface Hooks {
  observe(sessionId:string,handle:NativeCodexHandle):Promise<unknown>;
  translate(sessionId:string,message:Message):void;
 }
-interface Tracked {handle:NativeCodexHandle;queue:Promise<void>;active:boolean;stopping:boolean;items:Map<string,Record<string,any>>;lease?:WriterLease;renew?:ReturnType<typeof setInterval>;textBatch?:((session:Session)=>void)[];drainText?:()=>void;}
+interface Tracked {detached?:boolean;handle:NativeCodexHandle;queue:Promise<void>;active:boolean;stopping:boolean;items:Map<string,Record<string,any>>;lease?:WriterLease;renew?:ReturnType<typeof setInterval>;textBatch?:((session:Session)=>void)[];drainText?:()=>void;}
 const record=(value:unknown):Record<string,any>=>value&&typeof value==='object'?value as Record<string,any>:{};
 const admissionReason=(code:string)=>({REMOTE_STORAGE_PRESSURE:'VPS 储存空间不足，已保留系统余量并暂缓新任务；请释放空间后主动重试。',REMOTE_MEMORY_PRESSURE:'VPS 可用内存不足，已暂缓新任务；请等待空闲回收或手动释放其他软件的内存。',ACCOUNT_RATE_LIMITED:'原生账号额度已耗尽。窗口刷新后请核实账号状态，再主动发送。',ACCOUNT_AUTHENTICATION_REQUIRED:'原生账号需要重新核实登录。',ACCOUNT_FORBIDDEN:'此空间的账号授权已变化，请刷新账号目录。',RUNTIME_NOT_ENABLED:'此空间尚未获准使用该运行时。',WORKSPACE_DISABLED:'此工作空间已停用。'} as Record<string,string>)[code]??'账号授权或运行策略未通过，请核实账号状态。';
 
@@ -41,18 +42,22 @@ export class NativeCodexRunner {
   const pending=this.warming.get(id);if(pending)return pending;
   const session=this.session(id);this.assertAllowed(session);
   if(this.closing||session.archived||this.busy(id)||!['idle','blocked'].includes(session.status))return {ready:false};
-  const work=(async()=>{
+  const scope={detached:false};this.attempts.set(id,scope);
+  const work=this.attempt.run(scope,async()=>{
    for(const other of this.warmKeys.keys())if(other!==id&&!this.busy(other))await this.close(other);
    if(!session.projectPath){session.projectPath=this.service.defaultDirectory(id);await this.updateSession(id,s=>{s.projectPath=session.projectPath;});}
    const key=this.connectionKey(session);
    await this.connect(session,this.host(session));
+   if(scope.detached)return {ready:false};
    if(this.closing||key!==this.connectionKey(this.session(id))){await this.service.close(id);return {ready:false};}
    this.warmKeys.set(id,key);clearTimeout(this.warmExpiry.get(id));
    const timer=setTimeout(()=>{if(!this.busy(id))void this.close(id).catch(()=>{});},120000);timer.unref();this.warmExpiry.set(id,timer);
    return {ready:true};
-  })().catch(async error=>{await this.service.close(id).catch(()=>{});throw error;}).finally(()=>this.warming.delete(id));this.warming.set(id,work);return work;
+  }).catch(async error=>{if(!scope.detached)await this.service.close(id).catch(()=>{});throw error;}).finally(()=>{if(this.warming.get(id)===work)this.warming.delete(id);if(this.attempts.get(id)===scope)this.attempts.delete(id);});this.warming.set(id,work);return work;
  }
  private tracked=new Map<string,Tracked>();private submissions=new Set<string>();private preparing=new Set<string>();private cancelled=new Set<string>();
+ private attempt=new AsyncLocalStorage<{detached?:boolean}>();
+ private attempts=new Map<string,{detached:boolean}>();
  private restorations=new Map<string,AbortController>();
  private leases=new SessionLeaseRegistry();private ledger=new SubmissionLedger(this.leases);private closing=false;
  constructor(readonly service:NativeCodexService,private hooks:Hooks){}
@@ -61,8 +66,8 @@ export class NativeCodexRunner {
  supports(session:Session){try{return this.service.supports(this.host(session),session);}catch{return false;}}
  assertAllowed(session:Session){if(!this.supports(session))throw Error('H 原生桥尚未完成该连接的工具/文件视图验收，提交已阻止。');}
  busy(id:string){return this.preparing.has(id)||!!this.tracked.get(id)?.active;}
- private updateSession(id:string,change:(session:Session)=>void){return this.hooks.update(state=>{const session=state.sessions.find(item=>item.id===id);if(session)change(session);});}
- private enqueue(id:string,tracked:Tracked,operation:()=>Promise<unknown>){tracked.drainText?.();tracked.textBatch=undefined;tracked.queue=tracked.queue.then(operation).then(()=>{}).catch(async()=>{tracked.active=false;this.release(tracked);await this.updateSession(id,s=>{s.status='uncertain';s.nativeError='保存原生事件失败；不会自动重发。';}).catch(()=>{});void this.service.close(id);});}
+ private updateSession(id:string,change:(session:Session)=>void){const attempt=this.attempt.getStore();return this.hooks.update(state=>{const session=state.sessions.find(item=>item.id===id);if(session&&!attempt?.detached)change(session);});}
+ private enqueue(id:string,tracked:Tracked,operation:()=>Promise<unknown>){tracked.drainText?.();tracked.textBatch=undefined;tracked.queue=tracked.queue.then(()=>tracked.detached?undefined:this.attempt.run(tracked,operation)).then(()=>{}).catch(async()=>{tracked.active=false;this.release(tracked);if(tracked.detached)return;await this.updateSession(id,s=>{s.status='uncertain';s.nativeError='保存原生事件失败；不会自动重发。';}).catch(()=>{});void this.service.close(id);});}
  private appendText(id:string,tracked:Tracked,change:(session:Session)=>void){
   if(tracked.textBatch){tracked.textBatch.push(change);return;}
   const batch=[change],windowMs=nativeEventSemantics.batchWindowMs();
@@ -80,10 +85,12 @@ export class NativeCodexRunner {
   try{if(this.closing||this.preparing.has(session.id)&&this.cancelled.has(session.id))throw Error('连接准备已取消；没有提交模型请求。');await this.hooks.beforeConnect?.(session,host,restoration.signal);restoration.signal.throwIfAborted();}
   finally{if(this.restorations.get(session.id)===restoration)this.restorations.delete(session.id);}
   const context=await this.hooks.context(session.id);
+  if(this.attempt.getStore()?.detached)throw Error('Native connection attempt was retired.');
   const handle=await this.service.connect(host,session,{context:session.binding.nativeSessionId||session.branch?.native?{memoryHandoff:context.memoryHandoff}:context,...this.hooks.peers(session.id)});
+  if(this.attempt.getStore()?.detached)throw Error('Native connection attempt was retired.');
   const existing=this.tracked.get(session.id);if(existing?.handle===handle)return existing;
   if(handle.effectiveModel)await this.updateSession(session.id,s=>{s.nativeEffectiveModel=handle.effectiveModel;});
-  await this.updateSession(session.id,s=>{if(s.binding.nativeSessionId&&s.binding.nativeSessionId!==handle.threadId)throw Error('Native identity changed.');s.binding.nativeSessionId=handle.threadId;sessionPresentation.nativeTitle(s,handle.threadName);s.nativeEnvironmentReceipt={threadId:handle.threadId,environmentId:s.binding.executionId,cwd:s.projectPath!,runtimeVersion:'0.155.1',accountRef:s.binding.accountRef};s.nativeApprovals=[];});
+  await this.updateSession(session.id,s=>{if(s.binding.nativeSessionId&&s.binding.nativeSessionId!==handle.threadId)throw Error('Native identity changed.');s.binding.nativeSessionId=handle.threadId;sessionPresentation.nativeTitle(s,handle.threadName);s.nativeEnvironmentReceipt={threadId:handle.threadId,environmentId:s.binding.executionId,cwd:s.projectPath!,runtimeVersion:handle.adapter.version,accountRef:s.binding.accountRef};s.nativeApprovals=[];});
   if(handle.ownerReceipt?.interrupted&&handle.ownerReceipt.cleanupConfirmed)await this.updateSession(session.id,s=>{if(s.status==='uncertain'){s.status='idle';s.nativeError='此前的远端任务已中断并回收，可以发送新任务；未自动重发。';expireInteractions(s);}});
   if(handle.ownerReceipt?.uncertain)await this.updateSession(session.id,s=>{s.nativeTurnId=handle.ownerReceipt!.turnId;s.status='uncertain';});
   const tracked:Tracked={handle,queue:Promise.resolve(),active:false,stopping:false,items:new Map()};this.tracked.set(session.id,tracked);
@@ -150,10 +157,15 @@ export class NativeCodexRunner {
   }
  }
  async submit(id:string,preview:DraftPreview){
+  const scope={detached:false};
+  return this.attempt.run(scope,()=>this.submitAttempt(id,preview,scope));
+ }
+ private async submitAttempt(id:string,preview:DraftPreview,scope:{detached:boolean}){
   const session=this.session(id);this.assertAllowed(session);
   const files=preview.attachments?.length?await this.hooks.attachments?.payloads(preview.attachments.map(a=>a.id),{channel:'native'}):[];if(!files)throw Error('附件存储不可用。');
   if(this.closing||this.preparing.has(id)||this.tracked.get(id)?.active||!['idle','blocked'].includes(session.status)||this.submissions.has(preview.id))throw Error('该原生回合正在处理或已经提交，不能重复发送。');
   this.submissions.add(preview.id);this.preparing.add(id);this.cancelled.delete(id);
+  this.attempts.set(id,scope);
   let sent=false,t:Tracked|undefined;
   try{
    if(!session.projectPath){session.projectPath=this.service.defaultDirectory(id);await this.updateSession(id,s=>{s.projectPath=session.projectPath;});}
@@ -161,9 +173,10 @@ export class NativeCodexRunner {
    await this.warming.get(id)?.catch(()=>{});
    t=await this.connect(this.session(id),this.host(session));
    if(t.handle.ownerReceipt?.uncertain)throw Error('原生账号入口保留了尚未核对的回合，请先读取原生结果；本次没有发送。');
+   if(scope.detached)throw Error('Native submission attempt was retired.');
    if(this.closing||this.cancelled.has(id)){await this.service.close(id);throw Error('连接准备已取消；没有提交模型请求。');}
    await this.hooks.quota?.begin(session,t.handle);
-   if(this.closing||this.cancelled.has(id))throw Error('连接准备已取消；没有提交模型请求。');
+   if(scope.detached||this.closing||this.cancelled.has(id))throw Error('连接准备已取消；没有提交模型请求。');
    const lease=this.leases.acquire(id,'desktop-native');t.lease=lease;t.active=true;t.stopping=false;
    const tracked=t;t.renew=setInterval(()=>{try{if(tracked.lease)tracked.lease=this.leases.renew(tracked.lease);}catch{void this.service.close(id);}},10000);t.renew.unref();
    const handoff=session.handoffFromMessage===undefined?'':visibleHandoff(session,session.handoffFromMessage);
@@ -173,7 +186,7 @@ export class NativeCodexRunner {
    await this.updateSession(id,s=>{s.nativeTurnId=result.turn.id;delete s.handoffFromMessage;const user=s.messages.find(m=>m.id===preview.id);if(user)user.nativeTurnId=result.turn.id;});
   }catch(error){
    const rejected=error instanceof NativeAdmissionRejectedError;
-   if(t){t.active=false;this.release(t);await this.hooks.quota?.finish(id,t.handle).catch(()=>{});}
+   if(t){t.active=false;this.release(t);if(!scope.detached)await this.hooks.quota?.finish(id,t.handle).catch(()=>{});}
    await this.updateSession(id,s=>{
     if(rejected)s.messages=s.messages.filter(message=>message.id!==preview.id);
     s.status=sent&&!rejected||t?.handle.ownerReceipt?.uncertain?'uncertain':'idle';
@@ -181,7 +194,7 @@ export class NativeCodexRunner {
    });
    throw rejected?Error(admissionReason(error.message)+' 本次没有提交给模型。'):error;
   }
-  finally{this.preparing.delete(id);}
+  finally{if(this.attempts.get(id)===scope){this.attempts.delete(id);this.preparing.delete(id);}}
  }
  async permissions(id:string,mode:import('../../../packages/contracts').PermissionMode){
   const t=this.tracked.get(id);if(this.preparing.has(id))throw Error('连接正在准备，请稍后切换权限。');
@@ -209,10 +222,13 @@ export class NativeCodexRunner {
   if(this.preparing.has(id)&&!this.tracked.get(id)?.active){this.cancelled.add(id);this.restorations.get(id)?.abort(new Error('连接准备已取消；没有提交模型请求。'));return {stopped:false,reason:'已取消连接准备；会在连接清理后结束，不会发送模型请求。'};}
   const t=this.tracked.get(id),session=this.session(id);if(!t?.active)return {stopped:false,reason:'当前没有可确认的运行中回合。'};
   if(!session.nativeTurnId)throw Error('原生回合编号尚未返回，请稍后停止。');
+  const turnId=session.nativeTurnId;
   t.stopping=true;
-  try{await t.handle.connection.interrupt(t.handle.threadId,session.nativeTurnId);await t.queue;await this.updateSession(id,s=>{s.status='idle';s.nativeApprovals=[];s.nativeTurnStatus='interrupted';s.nativeError=undefined;});return {stopped:true,scope:'native-and-owned-local-executor'};}
+  return this.attempt.run(t,async()=>{
+  try{await t.handle.connection.interrupt(t.handle.threadId,turnId);await t.queue;await this.updateSession(id,s=>{s.status='idle';s.nativeApprovals=[];s.nativeTurnStatus='interrupted';s.nativeError=undefined;});return {stopped:true,scope:'native-and-owned-local-executor'};}
   catch(error){await this.updateSession(id,s=>{s.status='uncertain';s.nativeError='执行器已请求清理，但远端中断回执未确认。';});throw error;}
-  finally{t.active=false;this.release(t);await this.hooks.quota?.finish(id,t.handle).catch(()=>{});await this.service.close(id);}
+  finally{t.active=false;this.release(t);if(!t.detached)await this.hooks.quota?.finish(id,t.handle).catch(()=>{});if(!t.detached)await this.service.close(id);}
+  });
  }
  async reconcile(id:string){
   const session=this.session(id);this.assertAllowed(session);
@@ -228,6 +244,13 @@ export class NativeCodexRunner {
   return {confirmed:true,status:turn.status};
  }
  async close(id:string){const tracked=this.tracked.get(id);if(tracked?.active||this.preparing.has(id))throw Error('当前原生回合尚未结束。');clearTimeout(this.warmExpiry.get(id));this.warmExpiry.delete(id);this.warmKeys.delete(id);await this.warming.get(id)?.catch(()=>{});await this.service.close(id);if(tracked)await tracked.queue;this.tracked.delete(id);}
+ async closeForRecovery(id:string){
+  const scope=this.attempts.get(id);if(scope)scope.detached=true;this.attempts.delete(id);this.warming.delete(id);this.preparing.delete(id);this.cancelled.add(id);this.restorations.get(id)?.abort();
+  const tracked=this.tracked.get(id);
+  if(tracked){tracked.detached=true;tracked.active=false;tracked.stopping=true;tracked.drainText?.();this.release(tracked);this.tracked.delete(id);}
+  clearTimeout(this.warmExpiry.get(id));this.warmExpiry.delete(id);this.warmKeys.delete(id);
+  void this.service.close(id).catch(()=>{});
+ }
  async forkSource(id:string,messageId?:string):Promise<NativeForkSource|undefined>{
   let session=this.session(id);if(!session.messages.length)return session.branch?.native?structuredClone(session.branch.native):undefined;
   const target=messageId?session.messages.find(m=>m.id===messageId):session.messages.at(-1);

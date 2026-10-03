@@ -5,9 +5,11 @@ import json
 from pathlib import Path
 import types
 import unittest
+import sys
 from unittest.mock import patch
 
 SOURCE = Path(__file__).resolve().parents[1] / 'services/vps-browser/remote_browser.py'
+sys.path.insert(0, str(SOURCE.parent))
 URL = 'https://claude.ai/oauth/authorize?state=fixture-only'
 
 

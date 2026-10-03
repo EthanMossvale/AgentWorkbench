@@ -4,7 +4,7 @@ import path from 'node:path';
 import type {RetentionLogEntry,RetentionLogPage} from './retention-types';
 import type {RemoteCliProvider} from './cli';
 
-const MAX_ENTRIES=2000,DAYS=30,MAX_BYTES=4*1024*1024;
+const MAX_ENTRIES=Number.MAX_SAFE_INTEGER,DAYS=Number.MAX_SAFE_INTEGER,MAX_BYTES=Number.MAX_SAFE_INTEGER;
 type Input=Omit<RetentionLogEntry,'id'|'at'|'lastAt'|'repeat'>;
 interface State {entries:RetentionLogEntry[];pending:RetentionLogEntry[];loaded:boolean;writing?:Promise<void>;issue?:string;blocked?:boolean}
 /** Local, bounded metadata journal. Its failures never gate native deletion. */
@@ -16,8 +16,7 @@ export class RetentionJournal {
  private trim(entries:RetentionLogEntry[]){let bytes=32;const kept:RetentionLogEntry[]=[];for(const entry of entries.filter(e=>e.lastAt>=this.now()-DAYS*86400000).sort((a,b)=>b.lastAt-a.lastAt||b.id.localeCompare(a.id))){const size=Buffer.byteLength(JSON.stringify(entry))+1;if(kept.length>=MAX_ENTRIES||bytes+size>MAX_BYTES)break;kept.push(entry);bytes+=size;}return kept;}
  record(scope:string,input:Input):void {
   const state=this.state(scope),now=this.now();
-  state.pending.push({provider:input.provider,kind:input.kind,sessionIds:input.sessionIds.slice(0,100).map(id=>id.slice(0,256)),message:input.message.slice(0,800),id:randomUUID(),at:now,lastAt:now,repeat:1,...(input.accountId?{accountId:input.accountId.slice(0,256)}:{}),...(input.archiveId?{archiveId:input.archiveId.slice(0,32)}:{}),...(input.code?{code:input.code.slice(0,80)}:{}),...(input.bytes!==undefined?{bytes:input.bytes}:{})});
-  if(state.pending.length>MAX_ENTRIES){state.pending.shift();state.issue='日志写入积压；仅暂存最近 2,000 条记录，请检查本机磁盘。';}
+  state.pending.push({provider:input.provider,kind:input.kind,sessionIds:input.sessionIds.map(id=>id),message:input.message,id:randomUUID(),at:now,lastAt:now,repeat:1,...(input.accountId?{accountId:input.accountId.slice(0,256)}:{}),...(input.archiveId?{archiveId:input.archiveId.slice(0,32)}:{}),...(input.code?{code:input.code.slice(0,80)}:{}),...(input.bytes!==undefined?{bytes:input.bytes}:{})});
   this.pump(scope,state);
  }
  private pump(scope:string,state:State){
@@ -27,7 +26,7 @@ export class RetentionJournal {
     try{
      const file=this.file(scope),info=await stat(file).catch(e=>{if(e.code==='ENOENT')return null;throw e;});
      if(info){if(!info.isFile()||info.size>MAX_BYTES)throw Error('INVALID_LOG');const raw=JSON.parse(await readFile(file,'utf8'));
-      if(raw.version!==1||!Array.isArray(raw.entries)||raw.entries.length>MAX_ENTRIES||raw.entries.some((e:RetentionLogEntry)=>!e||typeof e.id!=='string'||e.id.length>80||typeof e.message!=='string'||e.message.length>800||!Number.isFinite(e.at)||!Number.isFinite(e.lastAt)||e.at<0||e.lastAt>8640000000000000||!['codex','claude'].includes(e.provider)||!['checked','archiving','reclaimed','deferred','error','cancelled','restoring','restored','policy'].includes(e.kind)||!Number.isSafeInteger(e.repeat)||e.repeat<1||!Array.isArray(e.sessionIds)||e.sessionIds.length>100||e.sessionIds.some(id=>typeof id!=='string'||id.length>256)))throw Error('INVALID_LOG');
+      if(raw.version!==1||!Array.isArray(raw.entries)||raw.entries.length>MAX_ENTRIES||raw.entries.some((e:RetentionLogEntry)=>!e||typeof e.id!=='string'||e.id.length>80||typeof e.message!=='string'||!Number.isFinite(e.at)||!Number.isFinite(e.lastAt)||e.at<0||e.lastAt>8640000000000000||!['codex','claude'].includes(e.provider)||!['checked','archiving','reclaimed','deferred','error','cancelled','restoring','restored','policy'].includes(e.kind)||!Number.isSafeInteger(e.repeat)||e.repeat<1||!Array.isArray(e.sessionIds)||e.sessionIds.some(id=>typeof id!=='string'||id.length>256)))throw Error('INVALID_LOG');
       state.entries=this.trim(raw.entries);
      }state.loaded=true;
     }catch{state.blocked=true;state.loaded=true;state.issue='本机历史日志无法读取；原文件保留，新记录仅暂存内存。请检查日志文件和目录权限。';}
@@ -59,7 +58,7 @@ export class RetentionJournal {
   return !timedOut;
  }
  async list(scope:string,provider:RemoteCliProvider,options:{before?:string;limit?:number}={}):Promise<RetentionLogPage>{
-  const limit=options.limit??50;if(!Number.isInteger(limit)||limit<1||limit>100||options.before!==undefined&&(typeof options.before!=='string'||options.before.length>80))throw Error('清理日志分页参数无效。');
+  const limit=options.limit??50;if(!Number.isInteger(limit)||limit<1||options.before!==undefined&&(typeof options.before!=='string'||options.before.length>80))throw Error('清理日志分页参数无效。');
   const settled=await this.settle(scope),state=this.state(scope);
   const entries=this.trim([...state.entries,...state.pending]).filter(e=>e.provider===provider);
   const offset=options.before?entries.findIndex(e=>e.id===options.before)+1:0;

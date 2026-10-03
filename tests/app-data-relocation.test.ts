@@ -79,7 +79,7 @@ test('uncommitted interrupted migration and corrupt locator are preserved and st
 }finally{f.close();}});
 
 test('conflicts and failed locator writes preserve the source',()=>{const f=fixture();try{
- writeFileSync(path.join(f.source,'file'),'original');mkdirSync(f.target);assert.throws(()=>validateDataDestination(f.source,f.target),/DESTINATION_CONFLICT/);
+ writeFileSync(path.join(f.source,'file'),'original');mkdirSync(f.target);validateDataDestination(f.source,f.target);writeFileSync(path.join(f.target,'unrelated'),'preserved');assert.throws(()=>validateDataDestination(f.source,f.target),/DESTINATION_CONFLICT/);
  rmSync(f.target,{recursive:true});assert.throws(()=>relocateAppData(f.source,f.target,()=>{throw Error('write failed');}),/MIGRATION_FAILED/);
  assert.equal(readFileSync(path.join(f.source,'file'),'utf8'),'original');assert.equal(existsSync(f.target),false);
 }finally{f.close();}});

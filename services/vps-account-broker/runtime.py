@@ -606,7 +606,7 @@ class NativeAccountRuntime:
         env, profile = self.environment(account)
         binary = self.executable(account['provider'])
         version = subprocess.check_output([binary, '--version'], env=env, cwd=profile, timeout=10, stderr=subprocess.DEVNULL).decode('utf-8').strip()
-        if not inspection and VERSIONS[account['provider']] not in version.split():
+        if not re.search(r'(?<![\d.])\d+\.\d+\.\d+(?![\d.])', version):
             raise RuntimeErrorCode('RUNTIME_VERSION_MISMATCH')
         if account['provider'] != 'codex' and not catalog_only:
             raise RuntimeErrorCode('CLAUDE_LOCAL_EXECUTOR_UNVERIFIED')

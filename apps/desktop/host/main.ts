@@ -70,7 +70,7 @@ async function boot(){
  const recovery=new PluginRecoveryStore(directory,app.getVersion());await recovery.initialize();
  if(process.argv.includes('--safe-mode'))await recovery.safeMode(true);
  await recovery.beginBoot();let guardian:RecoveryGuardian|undefined,performRecovery:(action:string)=>Promise<unknown>=async()=>{throw Error('PLUGIN_RECOVERY_STARTING');};
- try{guardian=await startRecoveryGuardian(recovery,action=>performRecovery(action));}catch{await recovery.safeMode(true);await recovery.incident({id:'workbench.recovery'},'PLUGIN_GUARDIAN_UNAVAILABLE','startup','unknown');}
+ try{guardian=await startRecoveryGuardian(recovery,action=>performRecovery(action));}catch{await recovery.incident({id:'workbench.recovery'},'PLUGIN_GUARDIAN_UNAVAILABLE','startup','unknown');}
  const state=new StateStore(directory);await state.load();
  nativeTheme.themeSource=state.snapshot().theme;
  // Legacy stores remain readable through their old API; new work uses native sources only.
@@ -136,7 +136,7 @@ async function boot(){
   remoteBrowser:new RemoteBrowserService(async url=>{if(!/^http:\/\/127\.0\.0\.1:\d+\/vnc\.html\?autoconnect=1&resize=scale$/.test(url))throw Error('Invalid remote viewer URL.');await shell.openExternal(url);}),
   quotaAccounting:new NativeQuotaAccounting(directory,()=>state.snapshot()),
   revealPath:target=>shell.showItemInFolder(target),
-  openWeb:async url=>{const value=new URL(url);if(!["http:","https:"].includes(value.protocol)||value.username||value.password)throw Error("Invalid website URL.");await shell.openExternal(value.href);},
+  openWeb:async url=>{const value=new URL(url);await shell.openExternal(value.href);},
   sshOnboarding:new SshOnboardingService({directory,...(userDataOverride?{home:path.join(directory,'synthetic-home')}:{ }),pickFile:async kind=>{const selected=await dialog.showOpenDialog(window,{title:kind==='key'?'选择 SSH 密钥或连接配置':kind==='config'?'导入 SSH 连接配置':'选择已有服务器身份记录',properties:['openFile']});return selected.canceled?null:selected.filePaths[0]??null;}}),
   workspaceManagement:new WorkspaceManagementService({directory,pickImport:async()=>{const selected=await dialog.showOpenDialog(window,{title:'导入工作空间',properties:['openFile'],filters:[{name:'工作空间',extensions:['awworkspace']}]});return selected.canceled?null:selected.filePaths[0]??null;},pickExport:async filename=>{const selected=await dialog.showSaveDialog(window,{title:'导出工作空间',defaultPath:filename,filters:[{name:'工作空间',extensions:['awworkspace']}]});return selected.canceled?null:selected.filePath??null;}}),
   pickDirectory:async()=>{const picked=await dialog.showOpenDialog(window,{properties:['openDirectory'],title:'选择本机项目目录'});return picked.canceled?null:picked.filePaths[0]??null;},
@@ -217,7 +217,7 @@ async function boot(){
   'desktop.data-directory':dataDirectoryService,
   'ui.preferences':uiPreferences,'desktop.window-state':windowState,
   'native.resources':shared.native,'native.memory':shared.native.memory,'native.memory-controls':shared.native.memoryControls,
-  'native.skills':shared.native.skills,'native.plugins':shared.native.nativePlugins,'native.cli':shared.native.cli,
+  'native.skills':shared.native.skills,'native.archives':shared.native.archives,'native.plugins':shared.native.nativePlugins,'native.cli':shared.native.cli,
   'extensions':shared.native.plugins,'legacy.memory':shared.memory,'legacy.skills':shared.skills,
   'extensions.recovery':recoveryApi,
   'appearance.reference-fonts':claudeReferenceFont,

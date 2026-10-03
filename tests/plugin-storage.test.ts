@@ -44,13 +44,13 @@ test('queued writes clone their input and recheck revocation before replacing di
   assert.equal((await api.read()).values.value,'submitted');active=false;await assert.rejects(api.read(),/REVOKED/);
 });
 
-test('storage rejects non-JSON, traversal, oversized and corrupt data without resetting it',async t=>{
+test('storage accepts large JSON and preserves invalid or corrupt data',async t=>{
   const dir=await directory(t),store=new PluginStorageStore(dir),api=store.scope('test.valid',()=>{},()=>{});
   for(const id of ['../escape','/outside','bad\\path'])assert.throws(()=>store.scope(id,()=>{},()=>{}),/INVALID_ID/);
   const cyclic:any={};cyclic.self=cyclic;
   for(const value of [{bad:undefined},{bad:NaN},{bad:new Date()},cyclic,{bad:new Array(2)}])assert.throws(()=>api.write(null,value),/INVALID/);
-  assert.throws(()=>api.write(null,{text:'x'.repeat(1024*1024)}),/TOO_LARGE/);
-  const saved=await api.write(null,{valid:true}),file=path.join(dir,'plugin-data/plugin-test.valid.json');
+  const large=await api.write(null,{text:'x'.repeat(5*1024*1024)});assert.equal((await api.read()).revision,large.revision);
+  const saved=await api.write(large.revision,{valid:true}),file=path.join(dir,'plugin-data/plugin-test.valid.json');
   await writeFile(file,'{"broken"');await assert.rejects(api.read());await assert.rejects(api.write(saved.revision,{}));assert.equal(await readFile(file,'utf8'),'{"broken"');
 });
 

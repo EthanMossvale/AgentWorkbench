@@ -3,6 +3,7 @@ import os from 'node:os';
 import { lstat, readdir, realpath } from 'node:fs/promises';
 import { atomicWrite, canonicalDirectory, digest, missing, readJson, SerialQueue, textFile } from '../native-resources/files';
 import { exportArchive, installArchive, readArchive, unwrapArchive } from '../native-resources/archive';
+import type {ArchiveReadOptions} from '../native-resources/archive-types';
 import { createFrameworkSnapshot, sharedHash } from '../memory-core';
 import { readSkillDisplay } from './display';
 import { claudePluginRoots } from './claude-plugins';
@@ -143,10 +144,10 @@ export class NativeSkillsService {
     if (skill.builtin) throw Error('Bundled Claude skills have no exportable SKILL.md.');
     const markdown = await textFile(skill.path, Infinity); if (digest(markdown) !== expectedHash) throw Error('Skill changed during reading.'); return { ...skill, markdown };
   }
-  async importZip(file: string, provider: 'codex' | 'claude') {
+  async importZip(file: string, provider: 'codex' | 'claude', options:ArchiveReadOptions={}) {
     if (provider !== 'codex' && provider !== 'claude') throw Error('Select Codex or Claude Code as the skill destination.');
     return this.queue.run(async () => {
-      const files = unwrapArchive(await readArchive(file), 'SKILL.md'), markdown = files.find(f => f.name === 'SKILL.md')!.data.toString('utf8'), metadata = skillMetadata(markdown, path.basename(file, '.zip'));
+      const files = unwrapArchive(await readArchive(file,options), 'SKILL.md'), markdown = files.find(f => f.name === 'SKILL.md')!.data.toString('utf8'), metadata = skillMetadata(markdown, path.basename(file, '.zip'));
       const name = metadata.name.normalize('NFKC').replace(/[^\p{L}\p{N}_.-]/gu, '-').replace(/^[.-]+|[. ]+$/g, '').slice(0, 100);
       if (!name) throw Error('Skill name cannot form an installation directory.');
       const root = provider === 'codex' ? path.join(this.home, '.agents', 'skills') : path.join(this.claudeHome, 'skills');

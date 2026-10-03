@@ -20,7 +20,7 @@ export class PeerInbox {
   constructor(private store: CollaborationPersistence) { this.events.setMaxListeners(64); }
   private identity(id: string) {
     if (this.disposed) throw new CollaborationError('CLOSED', 'The collaboration service is closed.');
-    const value = this.store.identity(bounded(id, 'Session ID', 256));
+    const value = this.store.identity(bounded(id, 'Session ID', Number.MAX_SAFE_INTEGER));
     if (!value || value.session.archived) throw new CollaborationError('SESSION_UNAVAILABLE', 'The session is not available for collaboration.');
     return value;
   }
@@ -34,7 +34,7 @@ export class PeerInbox {
     return readSessionPage(target.session, options);
   }
   async send(sourceId: string, targetId: string, text: string, operationId: string): Promise<PeerMessage> {
-    this.identity(sourceId); this.identity(targetId); bounded(text, 'Message text', 16000); bounded(operationId, 'Operation ID', 256);
+    this.identity(sourceId); this.identity(targetId); bounded(text, 'Message text', Number.MAX_SAFE_INTEGER); bounded(operationId, 'Operation ID', 256);
     if (sourceId === targetId) throw new CollaborationError('SELF_SEND', 'Peer messages require a different target session.');
     let result!: PeerMessage;
     await this.store.update(state => {
@@ -45,8 +45,7 @@ export class PeerInbox {
         if (previous.toSessionId !== targetId || previous.text !== text) throw new CollaborationError('IDEMPOTENCY_CONFLICT', 'The operation ID already refers to a different message.');
         result = structuredClone(previous); return;
       }
-      if (state.messages.length >= 10000 || state.messages.filter(message => message.toSessionId === targetId && message.status !== 'delivered').length >= 256) throw new CollaborationError('INBOX_FULL', 'The collaboration inbox is full; no message was discarded or delivered.');
-      result = { id: randomUUID(), operationId, fromSessionId: sourceId, toSessionId: targetId, fromRuntime: source.session.binding.runtime, toRuntime: target.session.binding.runtime, sourceIdentityHash: binding(source), targetIdentityHash: binding(target), text, createdAt: new Date().toISOString(), status: 'queued' };
+            result = { id: randomUUID(), operationId, fromSessionId: sourceId, toSessionId: targetId, fromRuntime: source.session.binding.runtime, toRuntime: target.session.binding.runtime, sourceIdentityHash: binding(source), targetIdentityHash: binding(target), text, createdAt: new Date().toISOString(), status: 'queued' };
       result.fromTitle = source.session.title.slice(0, 512); result.toTitle = target.session.title.slice(0, 512);
       result.fromModel = (source.session.nativeEffectiveModel?.model ?? source.session.modelSelection?.model)?.slice(0, 256);
       result.revision = ++state.revision; state.messages.push(result);
@@ -55,7 +54,7 @@ export class PeerInbox {
   }
   read(sessionId: string, limit = 100) {
     this.identity(sessionId);
-    if (!Number.isSafeInteger(limit) || limit < 1 || limit > 100) throw new CollaborationError('INVALID_ARGUMENT', 'The message limit must be between 1 and 100.');
+    if (!Number.isSafeInteger(limit) || limit < 1) throw new CollaborationError('INVALID_ARGUMENT', 'The message limit must be a positive integer.');
     const state = this.store.snapshot();
     const messages = state.messages.filter(message => message.fromSessionId === sessionId || message.toSessionId === sessionId);
     return { revision: messages.reduce((latest, message) => Math.max(latest, message.revision ?? state.revision), 0), messages: messages.slice(-limit) };
@@ -124,11 +123,11 @@ export class PeerInbox {
 
 /** A restart never silently replays an input whose native acknowledgement was lost. */
 export function recoverCollaborationState(state: CollaborationState): void {
-  if (!state || state.version !== 1 || !Number.isSafeInteger(state.revision) || state.revision < 0 || !Array.isArray(state.messages) || state.messages.length > 10000) throw new CollaborationError('INVALID_STATE', 'The collaboration journal is not a supported bounded state.');
+  if (!state || state.version !== 1 || !Number.isSafeInteger(state.revision) || state.revision < 0 || !Array.isArray(state.messages)) throw new CollaborationError('INVALID_STATE', 'The collaboration journal is not a supported bounded state.');
   const ids = new Set<string>(), operations = new Set<string>();
   for (const message of state.messages) {
     if (!message || typeof message !== 'object') throw new CollaborationError('INVALID_STATE', 'The collaboration journal contains an invalid message.');
-    bounded(message.id, 'Message ID', 256); bounded(message.operationId, 'Operation ID', 256); bounded(message.fromSessionId, 'Sender ID', 256); bounded(message.toSessionId, 'Recipient ID', 256); bounded(message.text, 'Message text', 16000);
+    bounded(message.id, 'Message ID', Number.MAX_SAFE_INTEGER); bounded(message.operationId, 'Operation ID', Number.MAX_SAFE_INTEGER); bounded(message.fromSessionId, 'Sender ID', Number.MAX_SAFE_INTEGER); bounded(message.toSessionId, 'Recipient ID', Number.MAX_SAFE_INTEGER); bounded(message.text, 'Message text', Number.MAX_SAFE_INTEGER);
     const operation = JSON.stringify([message.fromSessionId, message.operationId]);
     if (ids.has(message.id) || operations.has(operation) || message.fromSessionId === message.toSessionId || !['queued', 'claimed', 'delivered', 'uncertain'].includes(message.status) || !['demo', 'claude', 'codex'].includes(message.fromRuntime) || !['demo', 'claude', 'codex'].includes(message.toRuntime) || typeof message.createdAt !== 'string' || !Number.isFinite(Date.parse(message.createdAt))) throw new CollaborationError('INVALID_STATE', 'The collaboration journal contains invalid or duplicate messages.');
     for (const hash of [message.sourceIdentityHash, message.targetIdentityHash]) if (hash !== undefined && !/^[a-f0-9]{64}$/.test(hash)) throw new CollaborationError('INVALID_STATE', 'The collaboration identity hash is invalid.');

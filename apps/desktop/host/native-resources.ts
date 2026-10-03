@@ -9,9 +9,12 @@ import { PluginRegistry, type PluginRegistryOptions } from '../../../packages/pl
 import { NativePluginsService } from '../../../packages/native-plugins';
 import { combineSharedContextSnapshots, createFrameworkSnapshot, sharedHash } from '../../../packages/memory-core';
 import { absolutePath, flag, object, required, text } from './validation';
+import {archiveReaders,ArchivePasswordError} from '../../../packages/native-resources/archive-reader';
+import type {ArchiveReadOptions,ArchivePasswordRequest} from '../../../packages/native-resources/archive-types';
 
 export interface ResourceDialogs { openZip(kind: 'skill' | 'plugin'): Promise<string | null>; saveZip(name: string): Promise<string | null> }
 export class NativeResources {
+  readonly archives=archiveReaders;
   readonly memory: NativeMemoryService; readonly skills: NativeSkillsService; readonly plugins: PluginRegistry; readonly cli: LocalCliService; readonly memoryControls: NativeMemoryControls; readonly nativePlugins: NativePluginsService;
   constructor(directory: string, private dialogs: ResourceDialogs, projects: () => string[], changed: () => void, home?: string, runtime?: { codexExecutable?: string; claudeExecutable?: string; cliOptions?: CliOptions; pluginOptions?:PluginRegistryOptions }) {
     const options = home ? { home, codexHome: path.join(home, '.codex'), claudeHome: path.join(home, '.claude') } : {};
@@ -23,6 +26,8 @@ export class NativeResources {
   handles(method: string) { return /^(native-memory|native-skills|native-plugins|local-cli|extensions)\//.test(method); }
   async call(method: string, value: unknown) {
     const p = object(value ?? {});
+    const archiveOptions=():ArchiveReadOptions=>({...(p.password===undefined?{}:{password:text(p.password,'Archive password',Infinity)}),...(p.volumes===undefined?{}:{volumes:(p.volumes as unknown[]).map(file=>absolutePath(file))})});
+    const importArchive=async<T>(file:string,read:()=>Promise<T>):Promise<T|ArchivePasswordRequest>=>{try{return await read();}catch(error){if(error instanceof ArchivePasswordError)return{kind:'archive-password',filePath:file,incorrect:error.incorrect};throw error;}};
     const provider = (): LocalRuntime => { if (p.runtime !== 'codex' && p.runtime !== 'claude') throw Error('LOCAL_RUNTIME_REQUIRED'); return p.runtime; };
     const installMethod = () => { if (p.installMethod === undefined) return undefined; if (p.installMethod !== 'native' && p.installMethod !== 'npm') throw Error('CLI_INSTALL_METHOD_INVALID'); return p.installMethod; };
     switch (method) {
@@ -66,8 +71,8 @@ export class NativeResources {
         if (p.provider !== 'codex' && p.provider !== 'claude') throw Error('Select Codex or Claude Code as the skill destination.');
         const file = p.filePath === undefined ? await this.dialogs.openZip('skill') : absolutePath(p.filePath);
         if (!file) return null;
-        if (path.extname(file).toLowerCase() !== '.zip') throw Error('Select a ZIP archive.');
-        return this.skills.importZip(file, p.provider);
+        if (!/\.(zip(?:\.\d+)?|z\d+)$/i.test(file)) throw Error('Select a ZIP archive.');
+        return importArchive(file,()=>this.skills.importZip(file, p.provider as 'codex'|'claude',archiveOptions()));
       }
       case 'native-skills/export': { const id = required(p.id, 'Skill ID'), hash = required(p.hash, 'Skill revision', 64), skill = await this.skills.readMarkdown(id, hash); const file = await this.dialogs.saveZip(`${skill.name.replace(/[^\p{L}\p{N}_.-]/gu, '-')}.zip`); return file ? this.skills.exportZip(id, hash, file) : null; }
       case 'extensions/list': return this.plugins.list();
@@ -78,7 +83,7 @@ export class NativeResources {
       case 'extensions/renderers': return this.plugins.renderers();
       case 'extensions/renderer-failed': return this.plugins.rendererFailed(required(p.id, 'Plugin ID'), required(p.hash, 'Plugin revision', 64));
       case 'extensions/disable-all': return this.plugins.disableAll();
-      case 'extensions/import': { const file = p.filePath === undefined ? await this.dialogs.openZip('plugin') : absolutePath(p.filePath); if (!file) return null; if (path.extname(file).toLowerCase() !== '.zip') throw Error('Select a ZIP archive.'); return this.plugins.importZip(file); }
+      case 'extensions/import': { const file = p.filePath === undefined ? await this.dialogs.openZip('plugin') : absolutePath(p.filePath); if (!file) return null; if (!/\.(zip(?:\.\d+)?|z\d+)$/i.test(file)) throw Error('Select a ZIP archive.');return importArchive(file,()=>this.plugins.importZip(file,archiveOptions())); }
       case 'extensions/toggle': return this.plugins.setEnabled(required(p.id, 'Plugin ID'), required(p.hash, 'Plugin revision', 64), flag(p.enabled, 'enabled'), p.approveHost === undefined ? false : flag(p.approveHost, 'Host approval'));
       case 'extensions/export': { const id = required(p.id, 'Plugin ID'), hash = required(p.hash, 'Plugin revision', 64), file = await this.dialogs.saveZip(`${id}.zip`); return file ? this.plugins.exportZip(id, hash, file) : null; }
       case 'extensions/command': return this.plugins.command(required(p.id, 'Plugin ID'), required(p.name, 'Command name'), p.payload);

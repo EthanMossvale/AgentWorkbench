@@ -83,7 +83,7 @@ test('core tool schemas and generated peer labels are English; source text stays
     const sent = await f.hub.send('a', 'b', '用户要求中文产物', 'one'); const envelope = peerEnvelope([sent]);
     assert.equal(f.store.snapshot().messages[0]!.text, sent.text); assert.doesNotMatch(envelope.replace(sent.text, '').replace(sent.fromTitle??'',''), /\p{Script=Han}/u);
     await assert.rejects(createPeerTools(f.hub, 'a').call('native_exec', {}), /not registered/);
-    await assert.rejects(f.hub.send('a', 'b', 'a'.repeat(16001), 'too-large'));
+    assert.equal((await f.hub.send('a', 'b', 'a'.repeat(16001), 'large')).text.length,16001);
   } finally { f.hub.dispose(); }
 });
 

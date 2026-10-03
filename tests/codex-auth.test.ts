@@ -36,7 +36,7 @@ test('Codex authorization accepts only explicit workspace identities and caps it
 test('start returns preparing and passes only strict SSH/native profile controls', async () => {
   const h = harness(); const job = h.service.start(host); const call = h.calls[0]!;
   assert.equal(job.state, 'preparing'); assert.equal(job.userCode, undefined);
-  for (const setting of ['StrictHostKeyChecking=yes', 'ForwardAgent=no', 'IdentityAgent=none', 'SendEnv=-*', 'PasswordAuthentication=no']) assert.ok(call.args.includes(setting));
+  for (const setting of ['StrictHostKeyChecking=yes', 'ForwardAgent=no', 'IdentitiesOnly=yes', 'PasswordAuthentication=no']) assert.ok(call.args.includes(setting));
   assert.equal(call.options.shell, false); assert.equal(call.options.windowsHide, true);
   assert.equal(call.options.env?.OPENAI_API_KEY, undefined); assert.equal(call.options.env?.ANTHROPIC_API_KEY, undefined);
   assert.ok(call.args.at(-1)?.includes(` login 'fixture-user' 900000`));

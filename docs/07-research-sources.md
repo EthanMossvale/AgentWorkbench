@@ -1,5 +1,9 @@
 # 07 · 研究、来源与证据边界
 
+## ZIP compatibility dependency (2026-10-03)
+
+The published @zip.js/zip.js 2.23.0 package metadata, README, index.d.ts and full LICENSE were reviewed. Primary sources: https://registry.npmjs.org/@zip.js/zip.js/2.23.0 and https://github.com/gildas-lormeau/zip.js. The package uses BSD-3-Clause; the pinned dependency is installed normally, and scripts/build-host.mjs includes its unmodified license in renderer/licenses/zip-js.txt. No project license is inferred. Package declarations document ZIP64, AES/ZipCrypto, split readers and integrity options. Production uses no-worker native compression streams and explicit CRC/local-filename verification. Independent fixtures verify the implemented formats, internal-link materialization and native import consumers; this does not establish every proprietary ZIP extension or arbitrary physical capacity. The web reader returned no usable body, so the published package was inspected locally. No third-party source was copied into application files.
+
 ## Compatible provider request review (2026-10-03)
 
 The public [DeepSeek Chat Completions reference](https://api-docs.deepseek.com/api/create-chat-completion) was fetched read-only. It documents system/user/assistant/tool message variants and states that thinking mode rejects required or named tool selection; automatic selection is supported. Its effort documentation lists none/low/high/max and compatibility aliases minimal/medium/xhigh. These are provider-specific public facts, not a universal compatibility promise or proof of a screenshot's exact rejected parameter. No third-party implementation code was copied.

@@ -5,13 +5,14 @@ import type {SshHost} from '../contracts';
 import {SSH_EXECUTABLE,buildSshArgs,buildSshEnvironment} from '../ssh-transport';
 
 export interface BrowserViewerConnection {url:string;close():Promise<void>}
-export type BrowserViewerConnector=(host:SshHost,signal:AbortSignal)=>Promise<BrowserViewerConnection>;
+export interface BrowserViewerOptions {webPort?:number}
+export type BrowserViewerConnector=(host:SshHost,signal:AbortSignal,options?:BrowserViewerOptions)=>Promise<BrowserViewerConnection>;
 
 /** An explicitly owned, loopback-only tunnel with no remote shell or expiry. */
-export function browserViewerTunnelArgs(host:SshHost,port:number){
+export function browserViewerTunnelArgs(host:SshHost,port:number,webPort=6091){
  if(!Number.isInteger(port)||port<1024||port>65535)throw Error('Invalid loopback port.');
  const args=buildSshArgs(host,'true').slice(0,-1).map(a=>a==='ClearAllForwardings=yes'?'ClearAllForwardings=no':a);
- args.splice(args.indexOf('--'),0,'-N','-o','ExitOnForwardFailure=yes','-L',`127.0.0.1:${port}:127.0.0.1:6091`);
+ args.splice(args.indexOf('--'),0,'-N','-o','ExitOnForwardFailure=yes','-L',`127.0.0.1:${port}:127.0.0.1:${webPort}`);
  return args;
 }
 
@@ -46,20 +47,20 @@ export async function probeBrowserViewer(port:number,signal:AbortSignal):Promise
 
 interface ViewerDependencies {
  port():Promise<number>;
- launch(host:SshHost,port:number):ChildProcessWithoutNullStreams;
+ launch(host:SshHost,port:number,webPort:number):ChildProcessWithoutNullStreams;
  probe(port:number,signal:AbortSignal):Promise<boolean>;
  pause(ms:number,signal:AbortSignal):Promise<unknown>;
 }
 const defaults:ViewerDependencies={
  port:reservePort,
- launch:(host,port)=>spawn(SSH_EXECUTABLE,browserViewerTunnelArgs(host,port),{stdio:'pipe',windowsHide:true,shell:false,env:buildSshEnvironment()}),
+ launch:(host,port,webPort)=>spawn(SSH_EXECUTABLE,browserViewerTunnelArgs(host,port,webPort),{stdio:'pipe',windowsHide:true,shell:false,env:buildSshEnvironment()}),
  probe:probeBrowserViewer,
  pause:(ms,signal)=>pause(ms,undefined,{signal}),
 };
 
-export async function connectBrowserViewer(host:SshHost,signal:AbortSignal,dependencies:Partial<ViewerDependencies>={}):Promise<BrowserViewerConnection>{
+export async function connectBrowserViewer(host:SshHost,signal:AbortSignal,dependencies:Partial<ViewerDependencies>&BrowserViewerOptions={}):Promise<BrowserViewerConnection>{
  const io={...defaults,...dependencies},port=await io.port();signal.throwIfAborted();
- const child=io.launch(host,port);let ended=false,closing:Promise<void>|undefined;
+ const child=io.launch(host,port,dependencies.webPort??6091);let ended=false,closing:Promise<void>|undefined;
  const exited=new Promise<void>(resolve=>{const end=()=>{ended=true;resolve();};child.once('error',end);child.once('close',end);});
  child.stdin.on('error',()=>{});child.stdin.end();child.stdout.resume();child.stderr.resume();
  const close=()=>closing??=(async()=>{

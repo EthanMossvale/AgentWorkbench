@@ -25,7 +25,7 @@ export function identity(input: PluginIdentity): PluginIdentity {
 export async function readSafeMode(directory: string): Promise<boolean> {
   const file=path.join(directory,'plugin-safe-mode.json');
   try {await noLinks(file);const v=JSON.parse(await textFile(file,1024));if(v?.schemaVersion!==1||typeof v.enabled!=='boolean')throw Error('PLUGIN_SAFE_MODE_INVALID');return v.enabled;}
-  catch(error){if(missing(error))return false;return true;}
+  catch(error){if(missing(error))return false;throw error;}
 }
 export async function writeSafeMode(directory: string, enabled: boolean) {
   await atomicWrite(path.join(directory,'plugin-safe-mode.json'),JSON.stringify({schemaVersion:1,enabled}));
@@ -49,33 +49,30 @@ export class PluginRecoveryStore {
   subscribe(listener:(snapshot:RecoverySnapshot)=>void){this.listeners.add(listener);listener(this.snapshot());return()=>{this.listeners.delete(listener);};}
   private async save(){
     if(this.state.storageError==='PLUGIN_RECOVERY_STATE_INVALID'){this.notify();return;}
-    try{await atomicWrite(this.file,JSON.stringify(this.state));}catch{this.state.storageError='PLUGIN_RECOVERY_STORAGE_UNAVAILABLE';this.state.safeMode=true;}
+    try{await atomicWrite(this.file,JSON.stringify(this.state));}catch{this.state.storageError='PLUGIN_RECOVERY_STORAGE_UNAVAILABLE';}
     this.notify();
   }
   async initialize(){
     if(this.initialized)return;this.initialized=true;
-    this.state.safeMode=await readSafeMode(this.directory);
+    try{this.state.safeMode=await readSafeMode(this.directory);}catch{this.state.storageError='PLUGIN_SAFE_MODE_INVALID';}
     try{
-      await noLinks(this.file);const saved=JSON.parse(await textFile(this.file,1024*1024)) as RecoverySnapshot;
-      if(saved.schemaVersion!==1||!Array.isArray(saved.incidents)||saved.incidents.length>50||!Array.isArray(saved.pending)||saved.pending.length>128||!['starting','ready','closed'].includes(saved.boot))throw Error('Invalid recovery state');
+      await noLinks(this.file);const saved=JSON.parse(await textFile(this.file)) as RecoverySnapshot;
+      if(saved.schemaVersion!==1||!Array.isArray(saved.incidents)||!Array.isArray(saved.pending)||!['starting','ready','closed'].includes(saved.boot))throw Error('Invalid recovery state');
       this.state.previousHostVersion=typeof saved.hostVersion==='string'?saved.hostVersion.slice(0,40):undefined;
       this.state.incidents=saved.incidents.filter(i=>i&&safeId(i.id)&&phases.includes(i.phase)&&/^[A-Z][A-Z0-9_]{1,79}$/.test(i.code)).map(i=>({...identity(i),key:String(i.key).slice(0,64),code:i.code,phase:i.phase,certainty:['confirmed','suspected','unknown'].includes(i.certainty)?i.certainty:'unknown',at:String(i.at).slice(0,40),hostVersion:String(i.hostVersion).slice(0,40),repairable:false,issues:diagnosticIssues(i.issues)}));
       if(saved.boot!=='closed'&&saved.pending.length){
-        this.state.safeMode=true;
-        for(const pending of saved.pending.slice(0,20))this.add(pending,'PLUGIN_STARTUP_INTERRUPTED',phases.includes(pending.phase)?pending.phase:'startup','suspected');
-        await writeSafeMode(this.directory,true).catch(()=>{this.state.storageError='PLUGIN_RECOVERY_STORAGE_UNAVAILABLE';});
+        for(const pending of saved.pending)this.add(pending,'PLUGIN_STARTUP_INTERRUPTED',phases.includes(pending.phase)?pending.phase:'startup','suspected');
       }
-    }catch(error){if(!missing(error)){this.state.safeMode=true;this.state.storageError='PLUGIN_RECOVERY_STATE_INVALID';this.add({id:'workbench.recovery'},'PLUGIN_RECOVERY_STATE_INVALID','startup','unknown');}}
+    }catch(error){if(!missing(error)){this.state.storageError='PLUGIN_RECOVERY_STATE_INVALID';this.add({id:'workbench.recovery'},'PLUGIN_RECOVERY_STATE_INVALID','startup','unknown');}}
   }
   private add(plugin:PluginIdentity,code:string,phase:RecoveryPhase,certainty:PluginIncident['certainty'],repairable=false,issues?:CompatibilityIssue[]){
     const item=identity(plugin);
     this.state.incidents=this.state.incidents.filter(i=>!(i.id===item.id&&i.hash===item.hash&&i.code===code));
     this.state.incidents.push({...item,key:randomUUID(),code,phase,certainty,at:new Date().toISOString(),hostVersion:this.hostVersion,previousHostVersion:this.state.previousHostVersion,repairable,issues:diagnosticIssues(issues)});
-    this.state.incidents=this.state.incidents.slice(-50);
   }
   beginBoot(){return this.queue.run(async()=>{this.state.boot='starting';this.state.pending=[];await this.save();});}
   safeMode(enabled:boolean){return this.queue.run(async()=>{await writeSafeMode(this.directory,enabled);this.state.safeMode=enabled;await this.save();});}
-  begin(plugin:PluginIdentity,phase:RecoveryPhase){return this.queue.run(async()=>{this.state.pending=this.state.pending.filter(p=>p.id!==plugin.id||p.phase!==phase);this.state.pending.push({...identity(plugin),phase});await this.save();if(this.state.storageError)throw Error(this.state.storageError);});}
+  begin(plugin:PluginIdentity,phase:RecoveryPhase){return this.queue.run(async()=>{this.state.pending=this.state.pending.filter(p=>p.id!==plugin.id||p.phase!==phase);this.state.pending.push({...identity(plugin),phase});await this.save();});}
   finish(id:string,phase:RecoveryPhase){return this.queue.run(async()=>{this.state.pending=this.state.pending.filter(p=>p.id!==id||p.phase!==phase);await this.save();});}
   incident(plugin:PluginIdentity,code:string,phase:RecoveryPhase,certainty:PluginIncident['certainty']='confirmed',repairable=false,issues?:CompatibilityIssue[]){return this.queue.run(async()=>{this.add(plugin,code,phase,certainty,repairable,issues);await this.save();});}
   clear(id:string){return this.queue.run(async()=>{this.state.incidents=this.state.incidents.filter(i=>i.id!==id);await this.save();});}
@@ -84,7 +81,9 @@ export class PluginRecoveryStore {
   closed(){return this.queue.run(async()=>{this.state.boot='closed';this.state.pending=[];await this.save();});}
 }
 export async function bounded<T>(operation:Promise<T>, milliseconds:number, code:string):Promise<T>{
+  if (!(milliseconds > 0) || !Number.isFinite(milliseconds)) return operation;
   let timer:ReturnType<typeof setTimeout>|undefined;
-  try{return await Promise.race([operation,new Promise<never>((_,reject)=>{timer=setTimeout(()=>reject(Error(code)),milliseconds);})]);}
+  const started=performance.now();
+  try{return await Promise.race([operation,new Promise<never>((_,reject)=>{const wait=()=>{const remaining=milliseconds-(performance.now()-started);if(remaining<=0)reject(Error(code));else timer=setTimeout(wait,Math.min(remaining,2147483647));};wait();})]);}
   finally{if(timer)clearTimeout(timer);}
 }

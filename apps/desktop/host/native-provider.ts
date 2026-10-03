@@ -10,6 +10,7 @@ import { officialAccountLaunch, codexUsage, claudeUsage } from '../../../package
 import type { LocalModelAccounts } from './local-model-accounts';
 import { codexSkillInputs } from '../../../packages/native-skills/invocation';
 import { EventEmitter } from 'node:events';
+import { AsyncLocalStorage } from 'node:async_hooks';
 import { claudeResultOutcome } from '../../../packages/runtime-claude/result';
 import { nativeTurnFailure } from '../../../packages/native-events/turn-failure';
 import {nativeResponseRecovered} from '../../../packages/collaboration-core/runtime-notices';
@@ -58,6 +59,7 @@ interface Hooks {
   beforeRemoteClaude?(session:Session,signal:AbortSignal):Promise<void>;
 }
 interface Active {
+  detached?: boolean;
   quotaHandle?:{threadId:string}; quotaTokens?:number;
   warm?: boolean; readiness?: Promise<void>; ready?(): void; rejectReady?(error: unknown): void;
   launchKey?: string; expiry?: ReturnType<typeof setTimeout>;
@@ -81,12 +83,13 @@ export class NativeProviderRunner {
   prepareCatalog(executable:string,model:ApiModel,env:NodeJS.ProcessEnv){return prepareCodexModelCatalog(executable,model,env);}
   forkSource(id:string,messageId?:string) { return recordedNativeFork(this.session(id),messageId); }
   private active = new Map<string, Active>();
+  private attempt = new AsyncLocalStorage<Active>();
   private titleReads = new Map<string, Promise<NativeTitleRefreshResult>>();
   private titleControllers = new Set<AbortController>();
   private titlesClosed = false;
   constructor(private connections: ModelConnections, private cli: LocalCliService, private hooks: Hooks, private fetcher?: typeof fetch, private accounts?: LocalModelAccounts, private processFactory: (spec: ProcessSpec) => ProcessSupervisor = spec => createNativeProcess(spec)) {}
   private session(id: string) { const session = this.hooks.snapshot().sessions.find(session => session.id === id); if (!session) throw Error('会话不存在。'); return session; }
-  private update(id: string, change: (session: Session) => void) { return this.hooks.update(state => { const session = state.sessions.find(session => session.id === id); if (session) change(session); }); }
+  private update(id: string, change: (session: Session) => void) { const attempt=this.attempt.getStore();return this.hooks.update(state => { const session = state.sessions.find(session => session.id === id); if (session&&!attempt?.detached) change(session); }); }
   /** Read only the title metadata belonging to this session's native runtime environment. */
   refreshTitle(id:string):Promise<NativeTitleRefreshResult>{
     const previous=this.titleReads.get(id);if(previous)return previous;
@@ -171,6 +174,12 @@ export class NativeProviderRunner {
     else if(active?.completed&&!active.children.pending)await active.done;
   }
   async close(id: string) { if(this.active.get(id)?.warm)await this.stop(id);else if (this.active.has(id)) throw Error('请等待当前原生回合结束。'); }
+  async closeForRecovery(id:string){
+    const active=this.active.get(id);if(!active)return;
+    active.detached=true;active.stopping=true;clearTimeout(active.expiry);
+    this.active.delete(id);active.drainText?.();active.abort.abort();
+    void active.process?.stop('manual-recovery').catch(()=>{});
+  }
   async dispose() { this.titlesClosed=true;for(const controller of this.titleControllers)controller.abort();await Promise.allSettled([...this.active.keys()].map(id => this.stop(id))); }
   assertCompactAllowed(session: Session) {
     this.assertAllowed(session);
@@ -192,12 +201,12 @@ export class NativeProviderRunner {
         try{await existing.readiness;}catch{await existing.done;return this.submit(id,preview,command);}
         if(command){await this.stop(id);return this.submit(id,preview,command);}
         if(existing.stopping){await existing.done;return this.submit(id,preview,command);}
-        await existing.startTurn!(preview);return {started:true,runtime:session.binding.runtime};
+        await this.attempt.run(existing,()=>existing.startTurn!(preview));return {started:true,runtime:session.binding.runtime};
       }
       if(existing.finishingTurn)await existing.queue;
       if(existing.stopping){await existing.done;return this.submit(id,preview);}
       if(!existing.completed||existing.finishingTurn||!existing.startTurn)throw Error('当前原生任务正在处理或回执未知。');
-      await existing.startTurn(preview);return {started:true,runtime:session.binding.runtime};
+      await this.attempt.run(existing,()=>existing.startTurn!(preview));return {started:true,runtime:session.binding.runtime};
     }
     return this.launch(id,preview,command);
   }
@@ -211,7 +220,7 @@ export class NativeProviderRunner {
     if(!preview){active.expiry=setTimeout(()=>{if(active.warm)void this.stop(id).catch(()=>{});},120000);active.expiry.unref();}
     try { if(preview)await this.update(id, session => { session.status = 'running'; session.nativeError = undefined; session.nativeApprovals = []; expireInteractions(session); session.nativePlan=undefined; session.nativeTurnId = undefined; }); }
     catch(error) { this.active.delete(id); active.finish(); throw error; }
-    void (async()=>{const found=await this.cli.locate(session.binding.runtime as 'codex'|'claude');if(!found)throw Error('请先安装所选原生运行时。');active.abort.signal.throwIfAborted();await this.run(id,preview,found.executable,active,command);})().catch(async error => {
+    void this.attempt.run(active,()=> (async()=>{const found=await this.cli.locate(session.binding.runtime as 'codex'|'claude');if(!found)throw Error('请先安装所选原生运行时。');active.abort.signal.throwIfAborted();await this.run(id,preview,found.executable,active,command);})().catch(async error => {
       active.stopping=true;
       active.rejectReady?.(error);
       if(active.warm)return;
@@ -225,10 +234,10 @@ export class NativeProviderRunner {
       active.claudeControl?.dispose();
       if(active.quotaHandle)await this.hooks.quota?.finish(id,active.quotaHandle).catch(()=>{});
       await active.queue.catch(() => {});
-      if(active.sent&&!active.userStopped&&session.binding.runtime==='claude')await this.refreshTitle(id).catch(()=>{});
+      if(!active.detached&&active.sent&&!active.userStopped&&session.binding.runtime==='claude')await this.refreshTitle(id).catch(()=>{});
       await active.gateway?.close().catch(() => {});
       await active.modelCatalog?.dispose().catch(() => {});
-      this.active.delete(id);
+      if(this.active.get(id)===active)this.active.delete(id);
       if(!active.warm||!cleaned)await this.update(id, session => {
         if (!cleaned) { session.status = 'uncertain'; session.nativeError = '原生进程清理尚未确认，请保留当前记录。'; }
         else if (active.userStopped) {
@@ -240,10 +249,10 @@ export class NativeProviderRunner {
         for(const message of session.messages)if(message.delivery==='pending')message.delivery='uncertain';
       }).catch(() => {});
       active.finish();
-    });
+    }));
     return { started: true, runtime: session.binding.runtime };
   }
-  private enqueue(active: Active, work: () => Promise<unknown>) { active.drainText?.();active.textBatch = undefined; active.queue = active.queue.then(work).then(() => {}); active.queue.catch(() => active.abort.abort()); }
+  private enqueue(active: Active, work: () => Promise<unknown>) { active.drainText?.();active.textBatch = undefined; active.queue = active.queue.then(()=>active.detached?undefined:this.attempt.run(active,work)).then(() => {}); active.queue.catch(() => active.abort.abort()); }
   private appendText(id: string, active: Active, itemId: string, text: string, phase?: 'commentary' | 'final') {
     if (!text) return;
     let batch = active.textBatch;
@@ -256,7 +265,7 @@ export class NativeProviderRunner {
         const drain=()=>{clearTimeout(timer);if(active.drainText===drain)active.drainText=undefined;resolve();};
         const timer=setTimeout(drain,Math.min(windowMs,100));active.drainText=drain;
       });
-      active.queue = active.queue.then(async () => {
+      active.queue = active.queue.then(()=>this.attempt.run(active,async () => {
         await ready;
         if (active.textBatch === current) active.textBatch = undefined;
         await this.update(id, session => {
@@ -267,7 +276,7 @@ export class NativeProviderRunner {
             if (value.phase) message.phase = value.phase;
           }
         });
-      });
+      }));
       active.queue.catch(() => active.abort.abort());
     }
     const value = batch.get(itemId) ?? { chunks: [], phase };

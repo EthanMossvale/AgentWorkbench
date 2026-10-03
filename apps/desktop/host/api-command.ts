@@ -21,7 +21,7 @@ export async function runApiCommand(command:string,cwd:string,signal:AbortSignal
   const outStream=outFile.createWriteStream(),errStream=errFile.createWriteStream();
   try{return await new Promise<ApiCommandResult>((resolve,reject)=>{
     const executable=process.platform==='win32'?path.join(process.env.SystemRoot??'C:\\Windows','System32/WindowsPowerShell/v1.0/powershell.exe'):'/bin/sh';
-    const args=process.platform==='win32'?['-NoLogo','-NoProfile','-NonInteractive','-File',script]:[script];
+    const args=process.platform==='win32'?['-NoLogo','-NonInteractive','-File',script]:[script];
     const child=spawn(executable,args,{cwd,env:buildSshEnvironment(),windowsHide:true,detached:process.platform!=='win32',stdio:['ignore','pipe','pipe']});
     const outDecoder=new StringDecoder('utf8'),errDecoder=new StringDecoder('utf8');
     let stdout='',stderr='',stdoutBytes=0,stderrBytes=0,settled=false,stopping=false,closed=false,killConfirmed=false,cleanupTimer:ReturnType<typeof setTimeout>|undefined,timer:ReturnType<typeof setTimeout>|undefined,deliveryError:unknown;

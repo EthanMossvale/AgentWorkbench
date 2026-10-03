@@ -21,8 +21,9 @@ test('complete standalone markers tokenize without altering message copies or bi
   assert.deepEqual(parseVisualization(raw),reference);assert.equal(markdownTokens(source).filter(t=>t.type==='visualization').length,1);assert.equal(markdownBlocks(source).join(''),source);
   for(const literal of ['```html\n'+raw+'\n```','`'+raw+'`','Example '+raw,raw.slice(0,-1),marker({path:'https://example.com/a.html'}),marker({path:'x.html',evil:1})])assert.equal(markdownTokens(literal).filter(t=>t.type==='visualization').length,0,literal);
 });
-test('unsafe, incomplete, oversized and ambiguous reference inputs fail closed',()=>{
-  for(const value of [null,[],{path:'\\\\server\\x.html'},{path:'//server/x.html'},{path:'file:///x.html'},{path:'x.js'},{path:'x\n.html'},{path:'x.html',mode:'fullscreen'},{path:'x.html',renderer:'private'},{path:'x.html',title:'a'.repeat(161)}])assert.equal(parseVisualization(marker(value)),undefined);
+test('invalid and ambiguous reference inputs are rejected while long titles remain usable',()=>{
+  for(const value of [null,[],{path:'\\\\server\\x.html'},{path:'//server/x.html'},{path:'file:///x.html'},{path:'x.js'},{path:'x\n.html'},{path:'x.html',mode:'fullscreen'},{path:'x.html',renderer:'private'}])assert.equal(parseVisualization(marker(value)),undefined);
+  assert.equal(parseVisualization(marker({path:'x.html',title:'a'.repeat(161)}))?.title?.length,161);
   assert.equal(parseVisualization('x'.repeat(9000)),undefined);
 });
 test('translation protects the complete directive and retains JSON escaping and Unicode',()=>{
@@ -31,7 +32,8 @@ test('translation protects the complete directive and retains JSON escaping and 
 });
 test('state is bounded JSON and envelope escapes closing scripts',()=>{
   assert.deepEqual(visualizationState({privateContent:{page:2}}),{modelContent:null,privateContent:{page:2}});
-  for(const state of [[],null,{bad:1},{privateContent:NaN},{privateContent:{constructor:2}},{privateContent:['x'.repeat(8000),'x'.repeat(8000),'x'.repeat(1000)]}])assert.throws(()=>visualizationState(state));
+  for(const state of [[],null,{bad:1},{privateContent:NaN},{privateContent:{constructor:2}}])assert.throws(()=>visualizationState(state));
+  assert.equal((visualizationState({privateContent:['x'.repeat(20000)]}).privateContent as string[])[0]!.length,20000);
   const html=visualizationDocument({html:'<p>fixture</p>',channel:'synthetic-channel-123',state:{privateContent:'</script><script>bad()</script>'},dark:false});assert.match(html,/\\u003c\/script>/);assert.match(html,/event.source!==parent/);assert.match(html,/setWidgetState/);
 });
 test('production renderer directory supports selected contributions, layered replacement and non-LIFO cleanup',async()=>{
@@ -53,9 +55,9 @@ test('inline pages release explicitly and cannot read neighboring assets or bypa
   const directory=await mkdtemp(path.join(os.tmpdir(),'awb-viz-'));t.after(()=>rm(directory,{recursive:true,force:true}));
   await writeFile(path.join(directory,'page.html'),'<h1>fixture</h1>');await writeFile(path.join(directory,'secret.js'),'private');const service=new HtmlPreviewService();
   const source=await service.readVisualization(directory,'page.html');assert.equal(source.digest.length,64);assert.equal(source.html,'<h1>fixture</h1>');
-  const page=service.createVisualization({html:source.html,channel:'synthetic-channel-123',state:{},dark:false});const response=await service.response(new Request(page.url));assert.equal(response.status,200);assert.match(response.headers.get('Content-Security-Policy')!,/connect-src 'none'/);assert.match(response.headers.get('Content-Security-Policy')!,/script-src 'unsafe-inline';/);
+  const page=service.createVisualization({html:source.html,channel:'synthetic-channel-123',state:{},dark:false});const response=await service.response(new Request(page.url));assert.equal(response.status,200);assert.match(response.headers.get('Content-Security-Policy')!,/default-src https: http:/);assert.match(response.headers.get('Content-Security-Policy')!,/'unsafe-inline' 'unsafe-eval'/);
   assert.equal((await service.response(new Request(page.url.replace('index.html','secret.js')))).status,403);service.releaseVisualization(page.url);assert.equal(service.owns(page.url),false);assert.equal((await service.response(new Request(page.url))).status,404);
-  await assert.rejects(service.readVisualization(directory,'secret.js'));await writeFile(path.join(directory,'large.html'),'x'.repeat(1024*1024+1));await assert.rejects(service.readVisualization(directory,'large.html'));
+  await assert.rejects(service.readVisualization(directory,'secret.js'));await writeFile(path.join(directory,'large.html'),'x'.repeat(1024*1024+1));assert.equal((await service.readVisualization(directory,'large.html')).html.length,1024*1024+1);
 });
 test('widget choices restore from user profile and stale writes do not overwrite newer choices',async t=>{
   const directory=await mkdtemp(path.join(os.tmpdir(),'awb-viz-state-'));t.after(()=>rm(directory,{recursive:true,force:true}));const store=new UiPreferenceStore(directory);await store.load();const scope=JSON.stringify(['fixture','comparison.html']);

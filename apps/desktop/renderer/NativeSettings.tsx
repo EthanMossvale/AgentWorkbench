@@ -6,6 +6,7 @@ import { Icon, Modal, Toggle, errorText } from './ui';
 import type { NativeSkill, SkillScan } from '../../../packages/native-skills';
 import './NativeResources.css';
 import SkillImportDialog from './SkillImportDialog';
+import {isArchivePasswordRequest,type ArchivePasswordRequest,type ArchiveUnlock} from '../../../packages/native-resources/archive-types';
 import { SkillConnections, SkillConnectionsToolbar, SkillLinkDialog, runtimeName } from './SkillConnections';
 import type { SkillLinkAction, SkillLinkPlan, SkillLinkResult, SkillRuntime } from '../../../packages/native-skills/links';
 
@@ -50,11 +51,12 @@ export function SharedSkills({ report, notify }: SharedProps) {
       if (batch || !plan.counts.create && !plan.counts.remove) setLinkDialog({ plan, skills: selectedSkills }); else await applyLinks(plan);
     });
   };
-  const importSkill = async (provider: 'codex' | 'claude', file?: File) => {
+  const importSkill = async (provider: 'codex' | 'claude', file?: File, unlock?:ArchiveUnlock) => {
     if (changing.current) return false;
     changing.current = true; setBusy(true); request.current++;
     try {
-      const result = file ? await window.workbench.importSkillFile(file, provider) as SkillScan : await api<SkillScan | null>('native-skills/import', { provider });
+      const result = file ? await window.workbench.importSkillFile(file, provider) as SkillScan|ArchivePasswordRequest : await api<SkillScan | ArchivePasswordRequest | null>('native-skills/import', { provider,...unlock });
+      if(isArchivePasswordRequest(result))return result;
       if (!result) return false;
       if (active.current) { setScan(result); setTab('personal'); setQuery(''); notify(`Skill 已安装到 ${provider === 'codex' ? 'Codex' : 'Claude Code'} · 个人`); }
       return true;

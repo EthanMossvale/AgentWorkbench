@@ -35,6 +35,9 @@ if(!$saved.AreAccessRulesProtected -or $saved.GetOwner([Security.Principal.Secur
 $rules=$saved.GetAccessRules($true,$true,[Security.Principal.SecurityIdentifier])
 if($rules.Count -ne 1 -or $rules[0].IdentityReference.Value -ne $sid.Value -or $rules[0].AccessControlType -ne 'Allow'){throw 'SSH_PRIVATE_ACL_UNCONFIRMED'}
 `;
- try{execFileSync(path.join(process.env.SystemRoot||'C:/Windows','System32/WindowsPowerShell/v1.0/powershell.exe'),['-NoProfile','-NonInteractive','-Command',script],{windowsHide:true,timeout:15000,stdio:'pipe',env:{...buildSshEnvironment(),AWB_PRIVATE_PATH:target,AWB_PRIVATE_KIND:kind}});}
+ const env:NodeJS.ProcessEnv={...buildSshEnvironment(),AWB_PRIVATE_PATH:target,AWB_PRIVATE_KIND:kind};
+ // Windows PowerShell must resolve its own modules, rather than a parent pwsh installation.
+ for(const key of Object.keys(env))if(key.toLowerCase()==='psmodulepath')delete env[key];
+ try{execFileSync(path.join(process.env.SystemRoot||'C:/Windows','System32/WindowsPowerShell/v1.0/powershell.exe'),['-NoProfile','-NonInteractive','-Command',script],{windowsHide:true,timeout:15000,stdio:'pipe',env});}
  catch{throw Error('SSH_PRIVATE_PERMISSIONS_FAILED');}
 }

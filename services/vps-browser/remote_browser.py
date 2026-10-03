@@ -16,20 +16,22 @@ import sys
 import time
 import urllib.request
 import uuid
+from browser_environment import ENV
 
-SERVICE_USER = 'jp-browser'
-HOME = Path('/var/lib/jp-remote-browser/home')
+SERVICE_USER = ENV['serviceUser']
+HOME = Path(ENV['home'])
 STATE = HOME / '.local/state/jp-remote-browser'
-CHROME = Path('/opt/jp-remote-browser/chrome/chrome')
+CHROME = Path(ENV['chrome'])
 PROFILE = HOME / '.config/google-chrome'
-WEB = Path('/opt/codex-remote-login/noVNC-1.6.0')
-WEBSOCKIFY = Path('/opt/codex-remote-login/websockify-0.13.0')
-DISPLAY = ':31'
+WEB = Path(ENV['web'])
+WEBSOCKIFY = Path(ENV['websockify'])
+DISPLAY = ENV['display']
+VNC_PORT, WEB_PORT = ENV['vncPort'], ENV['webPort']
 
 
 def enter_browser_identity():
     user = pwd.getpwnam(SERVICE_USER)
-    if user.pw_dir != str(HOME) or not 0 < user.pw_uid < 1000:
+    if user.pw_dir != str(HOME) or user.pw_uid <= 0:
         raise RuntimeError('The standalone browser identity is not configured correctly.')
     if os.geteuid() == 0:
         os.initgroups(SERVICE_USER, user.pw_gid)
@@ -72,8 +74,8 @@ def clean_label(label):
     if not isinstance(label, str):
         raise ValueError('Enter a profile label.')
     label = label.strip()
-    if not label or len(label) > 40 or any(ord(c) < 32 or ord(c) == 127 for c in label):
-        raise ValueError('Profile label must contain 1-40 characters without control characters.')
+    if not label or any(ord(c) < 32 or ord(c) == 127 for c in label):
+        raise ValueError('Profile label must be nonempty without control characters.')
     return label
 
 
@@ -105,7 +107,7 @@ def load_profiles():
         if p.name in seen_dirs or p.name in data.get('ignored_directories', []):
             continue
         prefs = json.loads((p / 'Preferences').read_text(encoding='utf-8'))
-        label = str(prefs.get('profile', {}).get('name') or p.name).strip()[:40] or p.name
+        label = str(prefs.get('profile', {}).get('name') or p.name).strip() or p.name
         profiles.append({'key': uuid.uuid4().hex, 'label': clean_label(label), 'directory': p.name})
         seen_dirs.add(p.name)
         changed = True
@@ -243,8 +245,8 @@ def matches(kind, p):
     if kind == 'chrome':
         return a[0] == str(CHROME) and '--user-data-dir=' + str(PROFILE) in a and not any(x.startswith('--type=') for x in a)
     if kind == 'desktop':
-        return Path(a[0]).name == 'Xvnc' and DISPLAY in a and '-rfbport' in a and a[a.index('-rfbport') + 1:a.index('-rfbport') + 2] == ['5931']
-    return 'websockify' in a and str(WEB) in a and '127.0.0.1:6091' in a and '127.0.0.1:5931' in a
+        return a[0] == ENV['xvnc'] and DISPLAY in a and '-rfbport' in a and a[a.index('-rfbport') + 1:a.index('-rfbport') + 2] == [str(VNC_PORT)]
+    return 'websockify' in a and str(WEB) in a and f'127.0.0.1:{WEB_PORT}' in a and f'127.0.0.1:{VNC_PORT}' in a
 
 
 def owned(kind):
@@ -262,7 +264,7 @@ def port_open(port):
 def web_ready():
     try:
         opener = urllib.request.build_opener(urllib.request.ProxyHandler({}))
-        with opener.open('http://127.0.0.1:6091/vnc.html', timeout=2) as r:
+        with opener.open(f'http://127.0.0.1:{WEB_PORT}/vnc.html', timeout=2) as r:
             return r.status == 200
     except OSError:
         return False
@@ -270,7 +272,7 @@ def web_ready():
 
 def vnc_ready():
     try:
-        with socket.create_connection(('127.0.0.1', 5931), 3) as connection:
+        with socket.create_connection(('127.0.0.1', VNC_PORT), 3) as connection:
             connection.settimeout(3)
             banner = b''
             while len(banner) < 12:
@@ -297,12 +299,12 @@ def reconnect():
         if not WEB.joinpath('vnc.html').is_file() or importlib.util.find_spec('websockify') is None:
             raise RuntimeError('Existing noVNC files are unavailable; browser left untouched.')
         terminate(owned('bridge'))
-        if port_open(6091):
-            raise RuntimeError('Port 6091 is still occupied. Browser left untouched.')
+        if port_open(WEB_PORT):
+            raise RuntimeError(f'Port {WEB_PORT} is still occupied. Browser left untouched.')
         env = dict(os.environ)
         env['PYTHONPATH'] = str(WEBSOCKIFY) + (os.pathsep + env['PYTHONPATH'] if env.get('PYTHONPATH') else '')
         with STATE.joinpath('bridge.log').open('ab', buffering=0) as log:
-            child = subprocess.Popen([sys.executable, '-m', 'websockify', '--web', str(WEB), '127.0.0.1:6091', '127.0.0.1:5931'], stdin=subprocess.DEVNULL, stdout=log, stderr=log, env=env, start_new_session=True)
+            child = subprocess.Popen([sys.executable, '-m', 'websockify', '--web', str(WEB), f'127.0.0.1:{WEB_PORT}', f'127.0.0.1:{VNC_PORT}'], stdin=subprocess.DEVNULL, stdout=log, stderr=log, env=env, start_new_session=True)
         deadline = time.monotonic() + 15
         while time.monotonic() < deadline:
             if owned('bridge') and web_ready():
@@ -322,7 +324,7 @@ def reconnect():
 
 def status():
     return dict(chrome=list(owned('chrome')), desktop=list(owned('desktop')),
-                bridge=list(owned('bridge')), vnc_listening=port_open(5931),
+                bridge=list(owned('bridge')), vnc_listening=port_open(VNC_PORT),
                 web_ready=web_ready(), display=DISPLAY, profile=str(PROFILE),
                 profiles=public_profiles(), management='root', runtime_user=SERVICE_USER)
 
@@ -401,8 +403,8 @@ def start(profile_key, initial_url=None):
     created = {}
     try:
         specs = [
-            ('desktop', ['Xvnc', DISPLAY, '-geometry', '1440x900', '-depth', '24', '-localhost', 'yes', '-SecurityTypes', 'None', '-rfbport', '5931'], 5931),
-            ('bridge', [sys.executable, '-m', 'websockify', '--web', str(WEB), '127.0.0.1:6091', '127.0.0.1:5931'], 6091),
+            ('desktop', [ENV['xvnc'], DISPLAY, '-geometry', '1440x900', '-depth', '24', '-localhost', 'yes', '-SecurityTypes', 'None', '-rfbport', str(VNC_PORT)], VNC_PORT),
+            ('bridge', [sys.executable, '-m', 'websockify', '--web', str(WEB), f'127.0.0.1:{WEB_PORT}', f'127.0.0.1:{VNC_PORT}'], WEB_PORT),
             ('chrome', chrome_arguments(profile_directory, initial_url), None),
         ]
         for kind, args, port in specs:

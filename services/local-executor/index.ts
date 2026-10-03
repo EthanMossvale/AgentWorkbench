@@ -12,12 +12,11 @@ export interface LocalCodexExecutorConfig {
 
 export function buildLocalExecutorSpec(config: LocalCodexExecutorConfig, baseEnvironment: NodeJS.ProcessEnv = process.env): ProcessSpec {
   if (!config.authorized) throw new Error('Explicit local executor authorization is required');
-  if (config.version !== CODEX_DEFERRED_BASELINE) throw new Error('Local executor version must match the verified deferred contract');
   for (const path of [config.executable, config.cwd, config.isolatedCodexHome]) if (!isAbsolute(path) || /[\0\r\n]/.test(path)) throw new Error('Executor paths must be explicit absolute paths');
   if (!Number.isInteger(config.port) || config.port < 1024 || config.port > 65535) throw new Error('Executor port must be an explicit non-privileged loopback port');
   const env = buildSshEnvironment(baseEnvironment);
   env.CODEX_HOME = resolve(config.isolatedCodexHome);
-  // An allowlist rather than key-name filtering keeps model keys/proxies out of the worker.
+  // Use the real local environment without injecting Workbench account secrets.
   // 0.155.1 accepts --exit-on-stdin-close only with remote registration, not a loopback listener.
   return { executable: config.executable, args: ['exec-server', '--listen', `ws://127.0.0.1:${config.port}`], cwd: config.cwd, env, outputMode: 'opaque' };
 }

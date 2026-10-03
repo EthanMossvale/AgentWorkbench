@@ -59,8 +59,8 @@ export class NativeSessionStorage {
   return {...base,sessions,total:result.total,nextCursor:result.nextCursor,loginBusy:result.loginBusy};
  }
  private entries(raw:unknown,provider:Provider):Entry[]{
-  if(!Array.isArray(raw)||raw.length>10000)throw Error('原生归档清单无效。');const seen=new Set<string>();let total=0;
-  return raw.map(e=>{if(!e||typeof e.path!=='string'||e.path.startsWith('/')||e.path.includes('\\')||!categories[provider].includes(e.path.split('/')[0])||e.path.split('/').some((v:string)=>!v||v==='.'||v==='..')||!Number.isSafeInteger(e.size)||e.size<0||typeof e.sha256!=='string'||!/^[a-f0-9]{64}$/.test(e.sha256)||typeof e.delete!=='boolean'||!Number.isInteger(e.mode)||e.mode<0||e.mode>4095||!Number.isFinite(e.mtime)||seen.has(e.path))throw Error('原生归档文件清单无效。');total+=e.size;if(total>8*1024**3)throw Error('单次原生归档超过 8 GB，未回收。');seen.add(e.path);return {path:e.path,sha256:e.sha256,size:e.size,mode:e.mode,mtime:e.mtime,delete:e.delete};});
+  if(!Array.isArray(raw))throw Error('原生归档清单无效。');const seen=new Set<string>();
+  return raw.map(e=>{if(!e||typeof e.path!=='string'||e.path.startsWith('/')||e.path.includes('\\')||!categories[provider].includes(e.path.split('/')[0])||e.path.split('/').some((v:string)=>!v||v==='.'||v==='..')||!Number.isSafeInteger(e.size)||e.size<0||typeof e.sha256!=='string'||!/^[a-f0-9]{64}$/.test(e.sha256)||typeof e.delete!=='boolean'||!Number.isInteger(e.mode)||e.mode<0||e.mode>4095||!Number.isFinite(e.mtime)||seen.has(e.path))throw Error('原生归档文件清单无效。');seen.add(e.path);return {path:e.path,sha256:e.sha256,size:e.size,mode:e.mode,mtime:e.mtime,delete:e.delete};});
  }
  private async save(a:Archive){
   const directory=this.folder(a.archiveId),temp=path.join(directory,'manifest.pending');const handle=await open(temp,'w',0o600);
@@ -113,14 +113,14 @@ export class NativeSessionStorage {
  }
  async reclaim(host:SshHost,provider:Provider,options:RetentionOptions={}){
   const limit=options.maxBytes??16*1024*1024,duration=options.maxDurationMs??30000,maxCandidates=options.maxCandidates??8;
-  if(!Number.isSafeInteger(limit)||limit<chunkSize||limit>8*1024**3||!Number.isSafeInteger(duration)||duration<1||duration>300000||!Number.isSafeInteger(maxCandidates)||maxCandidates<1||maxCandidates>1000)throw Error('SESSION_RETENTION_BUDGET_INVALID');
+  if(!Number.isSafeInteger(limit)||limit<chunkSize||!Number.isSafeInteger(duration)||duration<1||duration>2147483647||!Number.isSafeInteger(maxCandidates)||maxCandidates<1)throw Error('SESSION_RETENTION_BUDGET_INVALID');
   const abort=new AbortController(),signal=AbortSignal.any([abort.signal,this.shutdown.signal,...(options.signal?[options.signal]:[])]);signal.throwIfAborted();
   const key=endpoint(host)+':'+provider;if(this.locks.has(key))return;this.locks.add(key);let reclaimedBytes=0,deferred=false;const errors:string[]=[];
   let finish!:()=>void;const pass={abort,done:new Promise<void>(resolve=>{finish=resolve;}),accountId:undefined as string|undefined,sessions:undefined as string[]|undefined};this.passes.set(key,pass);
   const timer=setTimeout(()=>abort.abort(new RetentionYield()),duration);timer.unref();const budget:RetentionBudget={signal,bytes:0,limit};
   try{
    const existing=await this.archives(),result=await this.request(host,{method:'retention/candidates',provider},signal);
-   if(!Array.isArray(result?.candidates)||result.candidates.length>1000)throw Error('原生回收候选回执无效。');
+   if(!Array.isArray(result?.candidates))throw Error('原生回收候选回执无效。');
    const candidates=result.candidates,start=(this.cursors.get(key)??0)%Math.max(1,candidates.length);
    if(!candidates.length)this.log(host,provider,'checked','检查完成，本轮没有可处理的到期会话。');
    for(let index=0;index<Math.min(maxCandidates,candidates.length);index++){

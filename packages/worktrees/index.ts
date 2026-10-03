@@ -1,7 +1,7 @@
 import { execFile } from 'node:child_process';
 import { promisify } from 'node:util';
 import { createHash, randomUUID } from 'node:crypto';
-import { mkdir, readFile, writeFile, rename, lstat, realpath, access } from 'node:fs/promises';
+import { mkdir, readFile, writeFile, rename, lstat, realpath, access, readlink, symlink, chmod } from 'node:fs/promises';
 import path from 'node:path';
 import {scanCheckout,createArchive,readArchive,type WorktreeArchive} from './archive';
 
@@ -16,7 +16,7 @@ export interface WorktreeInspection {
   available: boolean; reason?: string; repositoryRoot?: string; cwd?: string; head?: string;
   branch?: string; dirty?: boolean; untrackedFiles?: number;
 }
-interface Snapshot { staged: Buffer; unstaged: Buffer; untracked: {name: string; data: Buffer}[]; digest: string }
+interface Snapshot { staged: Buffer; unstaged: Buffer; index:Buffer; indexState:string; files:{name:string;data:Buffer;link?:string;mode:number}[]; untracked:string[]; digest: string }
 interface Saved { version: 1; root?: string; autoDelete?:boolean; limit?:number; records: WorktreeRecord[] }
 const contained = (root: string, target: string) => { const relative = path.relative(root,target); return relative === '' || (!path.isAbsolute(relative) && relative !== '..' && !relative.startsWith('..'+path.sep)); };
 const hash = (...values: (string | Buffer)[]) => { const h=createHash('sha256'); for(const value of values){h.update(String(Buffer.byteLength(value)));h.update(':');h.update(value);} return h.digest('hex'); };
@@ -33,12 +33,12 @@ export class WorktreeService {
   })(); }
   private async save() { await mkdir(this.directory,{recursive:true});const file=path.join(this.directory,'worktree-state.json'),temp=file+'.'+randomUUID()+'.tmp';await writeFile(temp,JSON.stringify(this.saved,null,2));await rename(temp,file); }
   private git(cwd: string, args: string[], input?: Buffer): Promise<Buffer> {
-    const env:NodeJS.ProcessEnv={...process.env,GIT_TERMINAL_PROMPT:'0'};
+    const env:NodeJS.ProcessEnv={...process.env,GIT_TERMINAL_PROMPT:'0',GIT_OPTIONAL_LOCKS:'0'};
     for(const key of Object.keys(env))if(/^GIT_(DIR|WORK_TREE|INDEX_FILE|COMMON_DIR|OBJECT_DIRECTORY|ALTERNATE_OBJECT_DIRECTORIES|CONFIG.*)$/.test(key))delete env[key];
     const command=['--no-pager','-c','core.hooksPath='+path.join(this.directory,'disabled-hooks'),...args];
-    if(!input)return execute('git',command,{cwd,env,encoding:'buffer',maxBuffer:64*1024*1024,timeout:120000,windowsHide:true}).then(result=>result.stdout);
+    if(!input)return execute('git',command,{cwd,env,encoding:'buffer',maxBuffer:Infinity,windowsHide:true}).then(result=>result.stdout);
     return new Promise((resolve,reject)=>{
-      const child=execFile('git',command,{cwd,env,encoding:'buffer',maxBuffer:64*1024*1024,timeout:120000,windowsHide:true},(error,stdout)=>error?reject(error):resolve(stdout));
+      const child=execFile('git',command,{cwd,env,encoding:'buffer',maxBuffer:Infinity,windowsHide:true},(error,stdout)=>error?reject(error):resolve(stdout));
       child.stdin?.on('error',()=>{});child.stdin?.end(input);
     });
   }
@@ -54,7 +54,6 @@ export class WorktreeService {
       reason='此 Git 仓库尚无提交，请先创建首个提交后再使用工作树。';
       const head=(await this.git(cwd,['rev-parse','--verify','HEAD'])).toString().trim();
       reason='无法读取 Git 工作区状态，请检查仓库和文件权限。';
-      if((await this.git(cwd,['ls-files','--unmerged','-z'])).length)return {available:false,repositoryRoot,reason:'请先解决 Git 合并冲突，再创建工作树。'};
       if((await this.git(cwd,['ls-files','--stage'])).toString().split('\n').some(line=>line.startsWith('160000 ')))return {available:false,repositoryRoot,reason:'此版本尚不支持复制含子模块的工作树。'};
       const branch=(await this.git(cwd,['branch','--show-current'])).toString().trim();
       const dirty=(await this.git(cwd,['status','--porcelain=v1','-z'])).length>0;
@@ -88,17 +87,29 @@ export class WorktreeService {
   private async snapshot(root: string): Promise<Snapshot> {
     const staged=await this.git(root,['diff','--cached','--binary','--no-ext-diff','--no-textconv','HEAD','--']);
     const unstaged=await this.git(root,['diff','--binary','--no-ext-diff','--no-textconv','--']);
-    const names=(await this.git(root,['ls-files','--others','--exclude-standard','-z'])).toString().split('\0').filter(Boolean).sort();
-    const untracked:Snapshot['untracked']=[];let bytes=staged.length+unstaged.length;
-    if(names.length>10000)throw Error('WORKTREE_TOO_MANY_FILES');
+    const untracked=(await this.git(root,['ls-files','--others','--exclude-standard','-z'])).toString().split('\0').filter(Boolean).sort();
+    const names=[...new Set([...untracked,...(await this.git(root,['ls-files','-z'])).toString().split('\0').filter(Boolean)])].sort();
+    const files:Snapshot['files']=[];
     for(const name of names){
       const file=path.resolve(root,name);if(!contained(root,file)||name.split(/[\\/]/).includes('.git'))throw Error('WORKTREE_UNSAFE_PATH');
-      for(let current=file;current!==root;current=path.dirname(current)){const stat=await lstat(current);if(stat.isSymbolicLink())throw Error('WORKTREE_UNTRACKED_SYMLINK');}
-      const stat=await lstat(file);if(!stat.isFile()||stat.size>32*1024*1024)throw Error('WORKTREE_UNSUPPORTED_UNTRACKED_FILE');
-      bytes+=stat.size;if(bytes>128*1024*1024)throw Error('WORKTREE_SNAPSHOT_TOO_LARGE');
-      untracked.push({name,data:await readFile(file)});
+      const stat=await lstat(file).catch(error=>{if(error.code==='ENOENT')return undefined;throw error;});if(!stat)continue;
+      if(stat.isSymbolicLink()){const link=await readlink(file);files.push({name,data:Buffer.from(link),link,mode:stat.mode&0o777});continue;}if(!stat.isFile())throw Error('WORKTREE_UNSUPPORTED_UNTRACKED_FILE');
+      files.push({name,data:await readFile(file),mode:stat.mode&0o777});
     }
-    return {staged,unstaged,untracked,digest:hash(staged,unstaged,...untracked.flatMap(file=>[file.name,file.data]))};
+    const index=await this.captureIndex(root),indexState=await this.indexState(root);
+    return {staged,unstaged,index,indexState,files,untracked,digest:hash(indexState,...files.flatMap(file=>[file.name,file.link===undefined?'file':'link',file.data]))};
+  }
+  private async indexState(root:string){return hash(await this.git(root,['ls-files','--stage','-z']),await this.git(root,['ls-files','-v','-z']));}
+  private async captureIndex(root:string){
+    const location=(await this.git(root,['rev-parse','--path-format=absolute','--git-path','index'])).toString().trim();
+    const shared=(await this.git(root,['rev-parse','--shared-index-path'])).toString().trim();
+    return Buffer.from(JSON.stringify({version:1,index:(await readFile(location)).toString('base64'),...(shared?{shared:{name:path.basename(shared),data:(await readFile(path.resolve(root,shared))).toString('base64')}}:{})}));
+  }
+  private async restoreIndex(root:string,payload:Buffer){
+    const saved=JSON.parse(payload.toString());
+    const location=(await this.git(root,['rev-parse','--path-format=absolute','--git-path','index'])).toString().trim();
+    if(saved.shared)await writeFile(path.join(path.dirname(location),path.basename(saved.shared.name)),Buffer.from(saved.shared.data,'base64'));
+    await writeFile(location,Buffer.from(saved.index,'base64'));
   }
   async create(sourceDirectory: string): Promise<WorktreeRecord> {
     await this.load();if(this.busy)throw Error('WORKTREE_BUSY');this.busy=true;
@@ -111,10 +122,9 @@ export class WorktreeService {
       const id=randomUUID(),target=path.join(resolvedRoot,id),cwd=path.join(target,path.relative(source,info.cwd!));
       record={id,path:target,cwd,sourceDirectory:info.cwd!,repositoryRoot:source,head,createdAt:new Date().toISOString(),status:'failed',copiedTrackedChanges:!!(snapshot.staged.length||snapshot.unstaged.length),copiedUntrackedFiles:snapshot.untracked.length};
       this.saved.records.push(record);await this.save();
-      await this.git(source,['worktree','add','--detach',target,head]);created=true;
-      if(snapshot.staged.length)await this.git(target,['apply','--binary','--index','--whitespace=nowarn','-'],snapshot.staged);
-      if(snapshot.unstaged.length)await this.git(target,['apply','--binary','--whitespace=nowarn','-'],snapshot.unstaged);
-      for(const file of snapshot.untracked){const destination=path.join(target,file.name);await mkdir(path.dirname(destination),{recursive:true});await writeFile(destination,file.data,{flag:'wx'});}
+      await this.git(source,['worktree','add','--detach','--no-checkout',target,head]);created=true;
+      for(const file of snapshot.files){const destination=path.join(target,file.name);await mkdir(path.dirname(destination),{recursive:true});if(file.link!==undefined)await symlink(file.link,destination);else{await writeFile(destination,file.data,{flag:'wx'});if(process.platform!=='win32')await chmod(destination,file.mode);}}
+      await this.restoreIndex(target,snapshot.index);
       await mkdir(cwd,{recursive:true});
       if((await this.git(source,['rev-parse','HEAD'])).toString().trim()!==head||(await this.snapshot(source)).digest!==snapshot.digest)throw Error('WORKTREE_SOURCE_CHANGED');
       // Compare checkout bytes through Git's normalization, including staged state.
@@ -142,12 +152,14 @@ export class WorktreeService {
         if(archived.length>=target)break;if(protectedNow(candidate.id))continue;const record=this.saved.records.find(r=>r.id===candidate.id)!;
         try{
           await this.validate(record);
-          if((await this.git(record.path,['ls-files','--stage'])).toString().split('\n').some(line=>line.startsWith('160000 '))||(await this.git(record.path,['ls-files','--unmerged'])).length||(await this.git(record.path,['ls-files','-v'])).toString().split('\n').some(line=>/^[a-zS] /.test(line)))throw Error('WORKTREE_ARCHIVE_UNSUPPORTED_INDEX');
-          const head=(await this.git(record.path,['rev-parse','HEAD'])).toString().trim(),index=await this.git(record.path,['diff','--cached','--binary','--no-ext-diff','--no-textconv','HEAD','--']),manifest=await scanCheckout(record.path);
-          const archive=await createArchive(record.path,path.join(this.directory,'worktree-archives'),head,index,manifest);archive.ref='refs/workbench/archive/'+record.id;
+          if((await this.git(record.path,['ls-files','--stage'])).toString().split('\n').some(line=>line.startsWith('160000 ')))throw Error('WORKTREE_ARCHIVE_UNSUPPORTED_SUBMODULE');
+          const head=(await this.git(record.path,['rev-parse','HEAD'])).toString().trim(),index=await this.captureIndex(record.path),indexState=await this.indexState(record.path),manifest=await scanCheckout(record.path);
+          const archive=await createArchive(record.path,path.join(this.directory,'worktree-archives'),head,index,manifest);archive.indexFormat='raw-v1';archive.ref='refs/workbench/archive/'+record.id;
+          const objects=new Set((await this.git(record.path,['ls-files','--stage','-z'])).toString().split('\0').map(line=>/^\d+ ([a-f0-9]+) /.exec(line)?.[1]).filter((oid):oid is string=>!!oid&&!/^0+$/.test(oid)));
+          for(const oid of objects)await this.git(record.repositoryRoot,['update-ref','refs/workbench/archive-index/'+record.id+'/'+oid,oid]);
           await this.git(record.repositoryRoot,['update-ref',archive.ref,head]);record.archive=archive;delete record.archiveError;await this.save();
           await this.validate(record);
-          if((await scanCheckout(record.path)).digest!==manifest.digest||(await this.git(record.path,['rev-parse','HEAD'])).toString().trim()!==head||!(await this.git(record.path,['diff','--cached','--binary','--no-ext-diff','--no-textconv','HEAD','--'])).equals(index))throw Error('WORKTREE_CHANGED_DURING_ARCHIVE');
+          if((await scanCheckout(record.path)).digest!==manifest.digest||(await this.git(record.path,['rev-parse','HEAD'])).toString().trim()!==head||await this.indexState(record.path)!==indexState)throw Error('WORKTREE_CHANGED_DURING_ARCHIVE');
           if(protectedNow(record.id))continue;
           await this.git(record.repositoryRoot,['worktree','remove','--force',record.path]);record.status='archived';record.head=head;await this.save();archived.push(record.id);
         }catch(error){const code=error instanceof Error&&/^WORKTREE_[A-Z_]+$/.test(error.message)?error.message:'WORKTREE_ARCHIVE_FAILED';record.archiveError=code;failed.push({id:record.id,code});await this.save();}
@@ -161,9 +173,11 @@ export class WorktreeService {
       const archived=await readArchive(record.archive);
       await this.git(record.repositoryRoot,['worktree','add','--detach','--no-checkout',record.path,record.archive.head]);
       record.status='failed';await this.save();
-      await this.git(record.path,['read-tree',record.archive.head]);if(archived.index.length)await this.git(record.path,['apply','--cached','--binary','--whitespace=nowarn','-'],archived.index);
+      if(record.archive.indexFormat==='raw-v1')await this.restoreIndex(record.path,archived.index);
+      else{await this.git(record.path,['read-tree',record.archive.head]);if(archived.index.length)await this.git(record.path,['apply','--cached','--binary','--whitespace=nowarn','-'],archived.index);}
       await readArchive(record.archive,await realpath(record.path));
-      if((await scanCheckout(record.path)).digest!==archived.manifest.digest||!(await this.git(record.path,['diff','--cached','--binary','--no-ext-diff','--no-textconv','HEAD','--'])).equals(archived.index))throw Error('WORKTREE_RESTORE_VERIFICATION_FAILED');
+      const restoredIndex=record.archive.indexFormat==='raw-v1'?await this.captureIndex(record.path):await this.git(record.path,['diff','--cached','--binary','--no-ext-diff','--no-textconv','HEAD','--']);
+      if((await scanCheckout(record.path)).digest!==archived.manifest.digest||!restoredIndex.equals(archived.index))throw Error('WORKTREE_RESTORE_VERIFICATION_FAILED');
       record.status='ready';record.head=record.archive.head;record.lastUsedAt=new Date().toISOString();delete record.archiveError;await this.save();return {...record};
     }finally{this.busy=false;}
   }

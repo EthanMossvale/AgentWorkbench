@@ -36,7 +36,7 @@ def read(provider):
         info = os.fstat(stream.fileno())
         require(stat.S_ISREG(info.st_mode) and info.st_uid == 0 and info.st_nlink == 1 and not info.st_mode & 0o077 and info.st_size < 8192)
         value = json.load(stream)
-    require(type(value.get('revision')) is int and value['revision'] >= 0 and all(type(value.get(k)) is bool for k in ('autoUpdate', 'reclaimIdle')) and type(value.get('idleHours')) is int and 1 <= value['idleHours'] <= 8760)
+    require(type(value.get('revision')) is int and value['revision'] >= 0 and all(type(value.get(k)) is bool for k in ('autoUpdate', 'reclaimIdle')) and type(value.get('idleHours')) is int and value['idleHours'] >= 1)
     require(set(value) <= {'revision', 'autoUpdate', 'reclaimIdle', 'idleHours', 'lastUpdateAttempt', 'lastUpdateError'})
     return value
 
@@ -61,7 +61,7 @@ def write(provider, value):
 
 
 def configure(provider, revision, changes):
-    require(provider in PROVIDERS and type(revision) is int and isinstance(changes, dict) and changes and set(changes) <= {'autoUpdate', 'reclaimIdle', 'idleHours'} and all(type(v) is int and 1 <= v <= 8760 if k == 'idleHours' else type(v) is bool for k, v in changes.items()))
+    require(provider in PROVIDERS and type(revision) is int and isinstance(changes, dict) and changes and set(changes) <= {'autoUpdate', 'reclaimIdle', 'idleHours'} and all(type(v) is int and v >= 1 if k == 'idleHours' else type(v) is bool for k, v in changes.items()))
     with cli_guard.lease('configuration', exclusive=True):
         current = read(provider)
         require(current['revision'] == revision, 'CLI_POLICY_CHANGED')

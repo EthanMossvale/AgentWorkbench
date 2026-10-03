@@ -21,6 +21,7 @@ export const workbenchSurfaces = Object.freeze({
   'font-discovery':'[data-workbench-font-discovery]',
   'login-discovery':'[data-workbench-login-discovery]',
   'native-skill-export':'[data-workbench-skill-export]',
+  'archive-password':'[data-workbench-archive-password]',
   'sidebar-undo':'[data-workbench-sidebar-undo]',
   shell: '.desktop-frame', titlebar: '.desktop-titlebar', sidebar: '.sidebar',
   'session-preview': '[data-workbench-session-preview]', 'session-preview-body': '[data-workbench-session-preview-body]',

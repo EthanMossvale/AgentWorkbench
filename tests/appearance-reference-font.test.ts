@@ -15,6 +15,19 @@ test('optional Claude resources fail closed without downloading or fabricating a
   const fonts=new ClaudeReferenceFont(async()=>undefined);assert.equal((await fonts.status()).available,false);await assert.rejects(fonts.read('normal'),/REFERENCE_UNAVAILABLE/);assert.equal((await referenceFontResponse('awb-font://claude/serif',fonts)).status,404);
 });
 
+test('approved locator loads large nested relative assets and releases them on disable',async t=>{
+ const directory=await mkdtemp(path.join(os.tmpdir(),'awb-font-locator-')),root=path.join(directory,'assets'),nested=path.join(root,'nested');await mkdir(nested,{recursive:true});
+ const bytes=Buffer.alloc(6*1024*1024);bytes.write('wOF2');await writeFile(path.join(root,'serif.woff2'),bytes);
+ await writeFile(path.join(nested,'font.css'),' '.repeat(5*1024*1024)+'@font-face{font-family:"Anthropic Serif";src:url(../serif.woff2)}');
+ const fonts=new ClaudeReferenceFont(async()=>undefined),plugins=new PluginRegistry(path.join(directory,'plugins'));await plugins.initialize();plugins.services.register('appearance.reference-fonts',fonts,{version:1});
+ t.after(async()=>{await plugins.dispose();await rm(directory,{recursive:true,force:true});});
+ const manifest={schemaVersion:1,apiVersion:1,id:'test.font-locator',name:'Locator',version:'1.0.0',description:'Synthetic installed asset roots',capabilities:['host'],main:'main.mjs'};
+ const source=`export function activate(api){api.onDispose(api.services.get('appearance.reference-fonts').registerLocator({id:'plugin:'+api.id+'/root',locate:async()=>${JSON.stringify(root)}}));}`;
+ const zip=path.join(directory,'locator.zip');await writeFile(zip,encodeZip([{name:'workbench.plugin.json',data:Buffer.from(JSON.stringify(manifest))},{name:'main.mjs',data:Buffer.from(source)}]));
+ await plugins.importZip(zip);const record=(await plugins.list())[0]!;await assert.rejects(plugins.setEnabled(manifest.id,record.hash,true),/approval/);
+ for(let i=0;i<2;i++){await plugins.setEnabled(manifest.id,record.hash,true,true);assert.equal((await fonts.status()).available,true);assert.equal((await fonts.read('normal')).length,bytes.length);await plugins.setEnabled(manifest.id,record.hash,false);assert.equal((await fonts.status()).available,false);}
+});
+
 test('temporary discovery failures retry on the next request and expose redacted causes',async()=>{
  let calls=0;const fonts=new ClaudeReferenceFont(async()=>{calls++;if(calls===1)throw Error('EACCES: synthetic font directory, password=fixture-secret');return undefined;});
  const status=await fonts.status();assert.equal(status.available,false);assert.match(status.reason!,/EACCES/);assert.doesNotMatch(status.reason!,/fixture-secret/);

@@ -19,20 +19,20 @@ const discoveryOutput = 'identity\t0\naccount\troot\t0\t/root\t/bin/bash\naccoun
 test('SSH rejects host/user/port injection and non-explicit credential paths', () => {
   for (const override of [{ hostname: '-oProxyCommand=bad' }, { hostname: 'good;echo bad' }, { hostname: 'user@host' }, { username: 'owner;id' }, { username: '-root' }, { port: 0 }, { identityFile: 'relative-key' }, { knownHostsFile: 'known\nHosts' }]) assert.throws(() => buildSshArgs({ ...host, ...override }, 'true'));
 });
-test('changed host keys remain blocked; no permissive fallback or inherited SSH configuration', () => {
+test('SSH inherits routing configuration while keeping selected identity and strict host trust', () => {
   const args = buildSshArgs(host, 'true');
-  for (const setting of ['StrictHostKeyChecking=yes', 'UpdateHostKeys=no', 'GlobalKnownHostsFile=none', 'IdentityAgent=none', 'ForwardAgent=no', 'ClearAllForwardings=yes', 'PasswordAuthentication=no', 'SendEnv=-*']) assert.ok(args.includes(setting), setting);
-  assert.equal(args[0], '-F'); assert.equal(args.at(-2), host.hostname); assert.equal(args.at(-1), 'true');
+  for (const setting of ['StrictHostKeyChecking=yes', 'UpdateHostKeys=no', 'GlobalKnownHostsFile=none', 'ForwardAgent=no', 'ClearAllForwardings=yes', 'PasswordAuthentication=no', 'IdentitiesOnly=yes']) assert.ok(args.includes(setting), setting);
+  assert.ok(!args.includes('-F')); assert.equal(args.at(-2), host.hostname); assert.equal(args.at(-1), 'true');
   assert.ok(!args.join(' ').includes('accept-new')); assert.ok(!args.join(' ').includes('StrictHostKeyChecking=no'));
 });
 test('installed OpenSSH parses strict offline configuration without a connection', () => {
   const result = spawnSync(SSH_EXECUTABLE, ['-G', ...buildSshArgs(host, 'true')], { encoding: 'utf8', timeout: 5000, windowsHide: true, shell: false, env: buildSshEnvironment() });
   assert.equal(result.error, undefined); assert.equal(result.status, 0, result.stderr);
-  for (const pattern of [/^stricthostkeychecking true$/m, /^batchmode yes$/m, /^forwardagent no$/m, /^clearallforwardings yes$/m, /^identityagent none$/m, /^updatehostkeys false$/m]) assert.match(result.stdout, pattern);
+  for (const pattern of [/^stricthostkeychecking true$/m, /^batchmode yes$/m, /^forwardagent no$/m, /^clearallforwardings yes$/m, /^identitiesonly yes$/m, /^updatehostkeys false$/m]) assert.match(result.stdout, pattern);
 });
-test('SSH environment excludes provider credentials, ambient proxy and agent', () => {
+test('SSH environment inherits the actual local environment, proxy and agent', () => {
   const env = buildSshEnvironment({ PATH: '/bin', HOME: '/home/test', ANTHROPIC_API_KEY: 'fixture-secret', OPENAI_API_KEY: 'fixture-secret', HTTPS_PROXY: 'secret-proxy', SSH_AUTH_SOCK: 'ambient-agent' });
-  assert.equal(env.PATH, '/bin'); assert.equal(env.ANTHROPIC_API_KEY, undefined); assert.equal(env.OPENAI_API_KEY, undefined); assert.equal(env.HTTPS_PROXY, undefined); assert.equal(env.SSH_AUTH_SOCK, '');
+  assert.equal(env.PATH, '/bin'); assert.equal(env.ANTHROPIC_API_KEY, 'fixture-secret'); assert.equal(env.OPENAI_API_KEY, 'fixture-secret'); assert.equal(env.HTTPS_PROXY, 'secret-proxy'); assert.equal(env.SSH_AUTH_SOCK, 'ambient-agent');
 });
 test('SSH cancellation before spawn is side-effect free and diagnostics redact secrets', async () => {
   await assert.rejects(runSsh(host, 'true', { signal: AbortSignal.abort() }), /cancelled/);

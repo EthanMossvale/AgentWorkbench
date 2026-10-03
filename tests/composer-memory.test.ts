@@ -69,6 +69,6 @@ test('handoff reader exposes only the active runtime/session batch, checks hashe
   assert.equal((await service.status()).activeClaude,1);const batch=await service.readHandoff('claude','bound',{}) as any;const id=batch.entries[0].archiveId;
   await assert.rejects(service.readHandoff('claude','other',{}),/INACTIVE/);await assert.rejects(service.readHandoff('codex','bound',{}),/INACTIVE/);
   const page=await service.readHandoff('claude','bound',{archiveId:id,limit:9}) as any;assert.equal(page.content,'Reference');assert.equal(page.nextOffset,9);
-  await assert.rejects(service.readHandoff('claude','bound',{archiveId:'0'.repeat(64)}),/NOT_ISSUED/);await assert.rejects(service.readHandoff('claude','bound',{archiveId:id,limit:24001}),/INVALID/);
+  await assert.rejects(service.readHandoff('claude','bound',{archiveId:'0'.repeat(64)}),/NOT_ISSUED/);assert.equal((await service.readHandoff('claude','bound',{archiveId:id,limit:24001}) as any).content,'Reference archive content.');
   await service.configure({enabled:false});await assert.rejects(service.readHandoff('claude','bound',{}),/INACTIVE/);await session.finish();assert.equal((await service.status()).activeClaude,0);assert.equal((await service.status()).pendingClaude,1);assert.equal((await service.status()).lastSync,undefined);
 });

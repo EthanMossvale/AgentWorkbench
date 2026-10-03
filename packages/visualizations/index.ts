@@ -22,13 +22,13 @@ export interface VisualizationsApi {
 }
 const start = '\uE200visualize\uE202', end = '\uE201';
 export function parseVisualization(raw: string): VisualizationReference | undefined {
-  if (raw.length > 8192 || !raw.startsWith(start) || !raw.endsWith(end)) return;
+  if (!raw.startsWith(start) || !raw.endsWith(end)) return;
   try {
     const value = JSON.parse(raw.slice(start.length, -end.length));
     if (!value || Array.isArray(value) || Object.keys(value).some(key => !['path','title','mode','renderer'].includes(key))) return;
-    if (typeof value.path !== 'string' || !value.path || value.path.length > 4096 || /[\x00-\x1f]/.test(value.path) || !/\.html?$/i.test(value.path)) return;
+    if (typeof value.path !== 'string' || !value.path || /[\x00-\x1f]/.test(value.path) || !/\.html?$/i.test(value.path)) return;
     if (/^(?:[a-z][a-z0-9+.-]*:\/\/|\\\\|\/\/)/i.test(value.path)) return;
-    if (value.title !== undefined && (typeof value.title !== 'string' || value.title.length > 160)) return;
+    if (value.title !== undefined && (typeof value.title !== 'string')) return;
     if (value.mode !== undefined && value.mode !== 'wide') return;
     if (value.renderer !== undefined && (typeof value.renderer !== 'string' || !/^(?:core\.html|plugin:[a-z][a-z0-9.-]{1,79}\/[a-z][a-z0-9.-]{0,79})$/.test(value.renderer))) return;
     return value;
@@ -49,11 +49,10 @@ export function visualizationState(value: unknown): VisualizationState {
   assertUiValue(value);
   if (!value || Array.isArray(value) || typeof value !== 'object' || Object.keys(value).some(key=>!['modelContent','privateContent'].includes(key))) throw Error('VISUALIZATION_STATE_INVALID');
   const next = { modelContent: value.modelContent ?? null, privateContent: value.privateContent ?? null };
-  if (new TextEncoder().encode(JSON.stringify(next)).length > 16384) throw Error('VISUALIZATION_STATE_LIMIT');
   return structuredClone(next);
 }
 export function assertVisualizationHtml(html: unknown): asserts html is string {
-  if (typeof html !== 'string' || new TextEncoder().encode(html).length > 1024 * 1024 || html.includes('\0')) throw Error('VISUALIZATION_HTML_INVALID');
+  if (typeof html !== 'string' || html.includes('\0')) throw Error('VISUALIZATION_HTML_INVALID');
 }
 
 /** Production directory used by both plugin calls and every mounted message. */
@@ -79,7 +78,7 @@ export class VisualizationRegistry {
     let timeout: ReturnType<typeof setTimeout> | undefined;
     let abort: () => void = () => {};
     try {
-      const cancelled = new Promise<never>((_, reject) => { abort = () => reject(Error('VISUALIZATION_ABORTED')); signal.addEventListener('abort',abort,{once:true}); timeout=setTimeout(()=>reject(Error('VISUALIZATION_RENDERER_TIMEOUT')),10000); });
+      const cancelled = new Promise<never>((_, reject) => { abort = () => reject(Error('VISUALIZATION_ABORTED')); signal.addEventListener('abort',abort,{once:true}); });
       const html = await Promise.race([Promise.resolve().then(()=>entry.render({document:structuredClone(document),reference:{...reference},signal})), cancelled]);
       signal.throwIfAborted(); if (this.entries.get(entry.id) !== entry) throw Error('VISUALIZATION_RENDERER_RELEASED');
       assertVisualizationHtml(html); return { html, renderer: entry.id, fallback: false };

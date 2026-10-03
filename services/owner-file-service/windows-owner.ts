@@ -9,8 +9,10 @@ export const verifyCurrentWindowsOwner: OwnerVerifier = async (resolvedPath) => 
   const script = `$ErrorActionPreference='Stop'; $target=[Console]::In.ReadToEnd(); $owner=(Get-Acl -LiteralPath $target).GetOwner([System.Security.Principal.SecurityIdentifier]).Value; $current=[System.Security.Principal.WindowsIdentity]::GetCurrent().User.Value; if ($owner -eq $current) { [Console]::Out.Write('owned') } else { [Console]::Out.Write('other-owner') }`;
   const encoded = Buffer.from(script, 'utf16le').toString('base64');
   const executable = path.join(process.env.SystemRoot || 'C:\\Windows', 'System32', 'WindowsPowerShell', 'v1.0', 'powershell.exe');
+  const env = buildSshEnvironment();
+  for (const key of Object.keys(env)) if (key.toLowerCase() === 'psmodulepath') delete env[key];
   return new Promise<boolean>((resolve) => {
-    const child = spawn(executable, ['-NoLogo', '-NoProfile', '-NonInteractive', '-EncodedCommand', encoded], { shell: false, windowsHide: true, stdio: ['pipe', 'pipe', 'pipe'], env: buildSshEnvironment() });
+    const child = spawn(executable, ['-NoLogo', '-NoProfile', '-NonInteractive', '-EncodedCommand', encoded], { shell: false, windowsHide: true, stdio: ['pipe', 'pipe', 'pipe'], env });
     let output = '', bytes = 0, failed = false;
     const timer = setTimeout(() => { failed = true; child.kill(); }, 5000);
     child.stdout.on('data', (chunk: Buffer) => { bytes += chunk.length; if (bytes > 1024) { failed = true; child.kill(); } else output += chunk.toString(); });

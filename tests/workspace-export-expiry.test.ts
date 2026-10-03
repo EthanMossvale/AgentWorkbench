@@ -4,10 +4,10 @@ import {spawnSync} from 'node:child_process';
 import {PORTABLE_ENROLL,portablePrepareScript} from '../packages/workspace-control/portable-script';
 import {workspaceExportTtl} from '../packages/workspace-control/export-policy';
 
-test('export policy defaults to one hour and rejects unsupported authorization durations',()=>{
+test('export policy accepts custom positive integer durations and defaults to one hour',()=>{
  assert.equal(workspaceExportTtl(),3600);
- for(const ttl of [3600,21600,43200,86400,604800])assert.equal(workspaceExportTtl(ttl),ttl);
- for(const value of [null,'3600',true,0,-1,3601,604801,Infinity,NaN])assert.throws(()=>workspaceExportTtl(value));
+ for(const ttl of [3600,21600,43200,86400,604800,3601,604801])assert.equal(workspaceExportTtl(ttl),ttl);
+ for(const value of [null,'3600',true,0,-1,1.5,Infinity,NaN])assert.throws(()=>workspaceExportTtl(value));
 });
 
 test('shipped Python computes all deadlines on the issuer clock and rejects redemption at the boundary',()=>{
@@ -18,9 +18,9 @@ sys.modules['pwd']=types.SimpleNamespace(getpwuid=lambda uid:types.SimpleNamespa
 payload=json.loads(sys.stdin.read());scope={}
 exec(payload['prepare'].split('try:main()')[0],scope)
 scope['time'].time=lambda:1700000000
-for ttl in (3600,21600,43200,86400,604800):
+for ttl in (3600,21600,43200,86400,604800,3599,604801):
     assert scope['invitation_window'](ttl)==(1700000000,1700000000+ttl)
-for ttl in (True,0,3599,604801,'3600'):
+for ttl in (True,0,-1,1.5,'3600'):
     try:scope['invitation_window'](ttl)
     except ValueError:pass
     else:raise AssertionError('Unsupported TTL accepted')

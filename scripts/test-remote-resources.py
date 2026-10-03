@@ -91,14 +91,19 @@ class Fixture(unittest.TestCase):
         link = self.root/'link'; link.symlink_to(outside, target_is_directory=True)
         self.assertFalse(self.call('write', path=str(link/'keep'), content='wrong')['ok'])
         self.assertFalse(self.call('browse', path=str(self.root/'../etc'))['ok'])
-        self.assertFalse(self.call('browse', path='/proc/1/environ')['ok'])
+        self.assertEqual(files.parts('/proc/fixture'), ('proc', 'fixture'))
         view=self.call('browse', path=str(outside))['value']
         self.assertFalse(self.call('copy', path=str(outside), revision=view['revision'], destination=str(outside)+'//inside')['ok'])
         self.assertFalse(self.call('write', path=str(outside/'keep'), content='wrong')['ok'])
         self.assertEqual((outside/'keep').read_text(), 'safe')
         view = self.call('browse', path=str(link))['value']
-        self.assertTrue(view['link'])
-        self.assertTrue(self.call('remove', path=str(link), revision=view['revision'], confirm=True)['ok'])
+        self.assertEqual(view['path'], str(outside))
+        read = self.call('browse', path=str(link/'keep'))['value']
+        self.assertEqual(read['content'], 'safe')
+        self.assertTrue(self.call('write', path=str(link/'keep'), revision=read['revision'], content='edited')['ok'])
+        self.assertEqual((outside/'keep').read_text(), 'edited')
+        (outside/'keep').write_text('safe')
+        self.assertTrue(self.call('remove', path=str(link), revision=files.revision(link.lstat()), confirm=True)['ok'])
         self.assertEqual((outside/'keep').read_text(), 'safe')
 
     def manager(self):
@@ -154,7 +159,7 @@ class Fixture(unittest.TestCase):
             for _ in range(2):manager.tick()
             self.assertEqual(calls,[])
             manager.tick();self.assertEqual(calls,['stop']);self.assertEqual(protected,[])
-            with self.assertRaisesRegex(Exception,'REMOTE_MEMORY_PRESSURE'):manager.admit()
+            manager.admit()
 
     def test_restart_uncertainty_needs_empty_dedicated_service_group_then_releases(self):
         manager,_=self.manager()
@@ -259,11 +264,12 @@ class Fixture(unittest.TestCase):
         self.assertEqual(calls,['stop'])
         self.assertEqual(old.receipt['closeReason'],'idle_session_expired')
 
-    def test_disk_reserve_uses_total_volume_and_leaves_system_headroom(self):
+    def test_disk_capacity_checks_actual_bytes_without_an_extra_reserve(self):
         gib=1024**3
         with patch.object(resources.os,'statvfs',return_value=types.SimpleNamespace(f_blocks=20*gib,f_bavail=3*gib,f_frsize=1)):
             self.assertTrue(resources.disk_headroom('/',gib))
-            self.assertFalse(resources.disk_headroom('/',gib+1))
+            self.assertTrue(resources.disk_headroom('/',3*gib))
+            self.assertFalse(resources.disk_headroom('/',3*gib+1))
 
 
 if __name__=='__main__':

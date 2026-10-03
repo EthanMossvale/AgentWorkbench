@@ -200,13 +200,8 @@ class RuntimeMaintenance:
             self.low_samples = 0
 
     def admit(self):
-        import resources
-        if resources.policy()['autoMemory'] and resources.pressure(resources.metrics()):
-            from runtime import RuntimeErrorCode
-            raise RuntimeErrorCode('REMOTE_MEMORY_PRESSURE')
-        if not resources.disk_headroom(str(self.runtime.broker.registry.root)):
-            from runtime import RuntimeErrorCode
-            raise RuntimeErrorCode('REMOTE_STORAGE_PRESSURE')
+        # Resource pressure remains visible in metrics; admission is user-owned.
+        pass
 
     def start(self):
         if self.worker:

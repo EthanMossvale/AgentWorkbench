@@ -28,7 +28,7 @@ export async function readMemory(homes: NativeHomes, id: string): Promise<Native
 }
 /** Only IDs discovered in native memory roots are writable; callers cannot supply paths. */
 export async function changeMemory(homes: NativeHomes, id: string, revision: string, content: string | null) {
-  if (content !== null && (typeof content !== 'string' || !content.trim() || content.includes('\0') || Buffer.byteLength(content) > 2 * 1024 * 1024)) throw Error('Memory content must be nonempty bounded UTF-8 text.');
+  if (content !== null && (typeof content !== 'string' || !content.trim() || content.includes('\0'))) throw Error('Memory content must be nonempty UTF-8 text.');
   if (content !== null && [BEGIN, END, PROJECTION].some(marker => content.includes(marker))) throw Error('Managed synchronization markers cannot be inserted into native memory.');
   const source = await resolve(homes, id);
   if (digest(source.content) !== revision) throw Error('Native memory changed since it was opened. Reload before saving or deleting.');

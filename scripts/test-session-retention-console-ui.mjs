@@ -30,6 +30,14 @@ try{
   };
   ipcMain.removeHandler('workbench:call');ipcMain.handle('workbench:call',async(_event,method,p={})=>{
    h.requests.push({method,p});const ok=value=>({ok:true,value});
+   h.preferences??={schemaVersion:1,revision:0,entries:{}};
+   if(method==='ui-preferences/get')return ok(h.preferences);
+   if(method==='ui-preferences/update'){const key=JSON.stringify([p.id,p.scope??'']);h.preferences.entries[key]={revision:++h.preferences.revision,value:p.value};BrowserWindow.getAllWindows()[0].webContents.send('workbench:ui-preferences',h.preferences);return ok(h.preferences);}
+   if(method==='branding/get')return ok({id:'core',name:'AgentWorkbench',version:1});
+   if(['plugin-recovery/pulse','plugin-recovery/ui-language','plugin-recovery/core-ready','desktop/titlebar'].includes(method))return ok(null);
+   if(method==='plugin-recovery/status')return ok({safeMode:false,pending:[],incidents:[]});
+   if(method==='plugin-recovery/repair-draft')return ok(null);
+   if(method==='desktop-updates/status')return ok({phase:'idle',available:false});
    if(method==='state/get')return ok(state);if(method==='navigation/get'||method==='navigation/view')return ok({sessionId:null});if(method==='translation/usage')return ok({calls:0,cost:null});if(method==='codex-auth/current')return ok(null);
    if(['extensions/renderers','local-cli/list','model-targets/list','runtime/catalog'].includes(method))return ok([]);if(method==='extensions/appearance')return ok({variables:{}});
    if(method==='host/discover')return ok({hostId:'admin',ownerId:'fixture',generation:'g',observedAt:new Date().toISOString(),effectiveUid:0,privilege:'root',accounts:[],registry:'recognized',publicKeyFingerprints:[],workspaces:[],warnings:[],stateHash:'fixture'});
@@ -45,7 +53,7 @@ try{
    h.unexpected.push(method);return {ok:false,error:'Unmocked operation blocked: '+method};
   });
  },state);
- await page.reload();await navigateWorkbench(page,'connections');await page.getByTestId('connection-tab-retention').click();
+ await page.reload({waitUntil:'domcontentloaded',timeout:30000});await navigateWorkbench(page,'connections');await page.getByTestId('connection-tab-retention').click();
  const panel=page.locator('.remote-retention');
  await check('read-only session rows display actual interruption, unknown and reclaimed states',async()=>{
   await page.getByTestId('retention-session-interrupted').waitFor();assert.match(await page.getByTestId('retention-session-interrupted').innerText(),/已中断[\s\S]*待清理/);
@@ -55,15 +63,15 @@ try{
  await check('countdown ticks locally without refreshing model activity',async()=>{const cell=page.getByTestId('retention-session-recent').locator('.retention-countdown'),before=await cell.innerText();await page.waitForTimeout(1200);assert.notEqual(await cell.innerText(),before);});
  await page.screenshot({path:path.join(output,'retention-light.png')});
  await check('custom hours persist and providers keep independent policies',async()=>{
-  await panel.getByRole('spinbutton',{name:'Codex 闲置小时数'}).fill('48');await panel.getByRole('button',{name:'保存',exact:true}).click();await page.waitForFunction(()=>globalThis.__unused===undefined);await page.waitForTimeout(120);
-  assert.equal(await app.evaluate(()=>globalThis.__retentionQA.policies.codex.idleHours),48);
+  await panel.getByRole('spinbutton',{name:'Codex 闲置小时数'}).fill('9000');await panel.getByRole('button',{name:'保存',exact:true}).click();await page.waitForFunction(()=>globalThis.__unused===undefined);await page.waitForTimeout(120);
+  assert.equal(await app.evaluate(()=>globalThis.__retentionQA.policies.codex.idleHours),9000);
   await panel.getByRole('tab',{name:'Claude Code',exact:true}).click();await panel.getByRole('spinbutton',{name:'Claude Code 闲置小时数'}).waitFor();assert.equal(await panel.getByRole('spinbutton').inputValue(),'24');assert.equal(await panel.getByRole('checkbox',{name:'自动清理',exact:true}).isChecked(),false);
   await panel.getByRole('checkbox',{name:'自动清理',exact:true}).click();await page.waitForTimeout(120);assert.equal(await app.evaluate(()=>globalThis.__retentionQA.policies.claude.reclaimIdle),true);
-  await panel.getByRole('tab',{name:'Codex',exact:true}).click();await panel.getByRole('spinbutton',{name:'Codex 闲置小时数'}).waitFor();assert.equal(await panel.getByRole('spinbutton').inputValue(),'48');
+  await panel.getByRole('tab',{name:'Codex',exact:true}).click();await panel.getByRole('spinbutton',{name:'Codex 闲置小时数'}).waitFor();assert.equal(await panel.getByRole('spinbutton').inputValue(),'9000');
  });
  await check('session pagination reaches later remote rows',async()=>{await panel.getByRole('button',{name:'下一页',exact:true}).click();await page.getByTestId('retention-session-next-page').waitFor();await panel.getByRole('button',{name:'上一页',exact:true}).click();await page.getByTestId('retention-session-recent').waitFor();});
  await check('logs show failure reasons, detail identifiers and local storage location',async()=>{assert.match(await panel.locator('.retention-logs').innerText(),/本机空间不足/);await panel.locator('.retention-log-details').first().locator('summary').click();assert.match(await panel.locator('.retention-log-details').first().innerText(),/LOCAL_DISK_PRESSURE[\s\S]*interrupted/);await panel.getByText('本机日志位置',{exact:true}).click();assert.match(await panel.locator('.retention-log-location').innerText(),/remote-session-archives\/logs/);});
- await check('revision errors preserve settings and explain the reason',async()=>{await app.evaluate(()=>{globalThis.__retentionQA.conflict=true;});await panel.getByRole('spinbutton').fill('72');await panel.getByRole('button',{name:'保存',exact:true}).click();await panel.getByRole('alert').filter({hasText:'其他窗口'}).waitFor();assert.equal(await app.evaluate(()=>globalThis.__retentionQA.policies.codex.idleHours),48);await app.evaluate(()=>{globalThis.__retentionQA.conflict=false;});});
+ await check('revision errors preserve settings and explain the reason',async()=>{await app.evaluate(()=>{globalThis.__retentionQA.conflict=true;});await panel.getByRole('spinbutton').fill('72');await panel.getByRole('button',{name:'保存',exact:true}).click();await panel.getByRole('alert').filter({hasText:'其他窗口'}).waitFor();assert.equal(await app.evaluate(()=>globalThis.__retentionQA.policies.codex.idleHours),9000);await app.evaluate(()=>{globalThis.__retentionQA.conflict=false;});});
  await check('offline inspection preserves readable local logs and marks countdown stale',async()=>{await app.evaluate(()=>{globalThis.__retentionQA.offline=true;});await panel.getByRole('button',{name:'刷新会话清理',exact:true}).click();await panel.getByRole('alert').filter({hasText:'SSH 连接失败'}).waitFor();assert.equal(await page.getByTestId('retention-session-recent').locator('.retention-countdown').innerText(),'待刷新');await panel.getByRole('button',{name:'刷新本机清理日志',exact:true}).click();assert.match(await panel.locator('.retention-logs').innerText(),/本机空间不足/);});
  await page.screenshot({path:path.join(output,'retention-offline.png')});
  await app.evaluate(()=>{globalThis.__retentionQA.offline=false;});await panel.getByRole('button',{name:'刷新会话清理',exact:true}).click();await panel.getByRole('tab',{name:'Claude Code',exact:true}).click();await panel.getByRole('tab',{name:'Codex',exact:true}).click();await panel.getByRole('spinbutton',{name:'Codex 闲置小时数'}).waitFor();

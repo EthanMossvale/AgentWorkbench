@@ -104,12 +104,12 @@ test('Claude Skills without OpenAI metadata use their native description and sha
   const catalog = JSON.parse((await service.createDiscoverySnapshot({ sessionId: 'claude-fallback' })).items[0]!.content); assert.equal(catalog.entries[0].description, 'Claude native description.\nAdditional invocation details.'); assert.equal(await readFile(path.join(root, 'SKILL.md'), 'utf8'), markdown); await assert.rejects(readFile(path.join(root, 'agents', 'openai.yaml')));
 });
 
-test('archive rejects traversal, alternate streams, duplicate names, corrupt content and symlink export', async t => {
+test('archive rejects traversal, alternate streams, duplicate names and corrupt content while exporting linked bytes', async t => {
   for (const name of ['../evil', '/absolute', 'C:/secret', 'safe/../../evil', 'safe/file:stream', 'CON', 'file.']) assert.throws(() => encodeZip([{ name, data: Buffer.from('x') }]));
   assert.throws(() => encodeZip([{ name: 'a', data: Buffer.from('x') }, { name: 'A', data: Buffer.from('y') }]), /Duplicate/);
   const valid = encodeZip([{ name: 'safe.txt', data: Buffer.from('abc') }]), broken = Buffer.from(valid); broken[40] = broken[40]! ^ 1; assert.throws(() => decodeZip(broken));
   assert.deepEqual(decodeZip(valid)[0]!.data, Buffer.from('abc'));
-  const f=await fixture(t),resource=path.join(f.root,'resource'),outside=path.join(f.root,'outside');await put(path.join(resource,'SKILL.md'),skill('archive'));await put(path.join(outside,'private.txt'),'Do not export linked content');await symlink(outside,path.join(resource,'linked'),'junction');await assert.rejects(collectDirectory(resource),/Linked/);
+  const f=await fixture(t),resource=path.join(f.root,'resource'),outside=path.join(f.root,'outside');await put(path.join(resource,'SKILL.md'),skill('archive'));await put(path.join(outside,'private.txt'),'Portable linked content');await symlink(outside,path.join(resource,'linked'),'junction');const entries=await collectDirectory(resource);assert.equal(entries.find(e=>e.name==='linked/private.txt')?.data.toString(),'Portable linked content');
 });
 const manifest = (id: string) => ({ schemaVersion: 1, id, name: 'Example plugin', description: 'An extensible test plugin', version: '1.0.0', apiVersion: 1, capabilities: ['context', 'theme'], contributes: { context: 'Prefer verified evidence.', theme: { variables: { '--accent': '#ab6753' } } } });
 test('declarative plugin starts disabled, contributes real context and theme, exports the complete package', async t => {

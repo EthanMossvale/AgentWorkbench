@@ -24,10 +24,10 @@ export interface MemoryConsolidationWriter {
 export function consolidationInput(value:unknown):MemoryConsolidationInput {
   if(!value||typeof value!=='object'||Array.isArray(value))throw Error('MEMORY_CONSOLIDATION_ARGUMENT_INVALID');
   const input=value as MemoryConsolidationInput;
-  if(Object.keys(input).some(k=>k!=='entries')||!Array.isArray(input.entries)||!input.entries.length||input.entries.length>24)throw Error('MEMORY_CONSOLIDATION_ARGUMENT_INVALID');
+  if(Object.keys(input).some(k=>k!=='entries')||!Array.isArray(input.entries)||!input.entries.length)throw Error('MEMORY_CONSOLIDATION_ARGUMENT_INVALID');
   const seen=new Set<string>();
   for(const e of input.entries){
-    if(!e||typeof e!=='object'||Object.keys(e).some(k=>!['archiveId','title','content','topic'].includes(k))||!/^([a-f\d]{64})$/.test(e.archiveId)||seen.has(e.archiveId)||typeof e.title!=='string'||!e.title.trim()||e.title.length>160||/[\r\n\0<>]/.test(e.title)||typeof e.content!=='string'||!e.content.trim()||Buffer.byteLength(e.content)>48000||/\0|<!--\s*agent-workbench/i.test(e.content)||e.topic!==undefined&&(typeof e.topic!=='string'||!/^[-a-z0-9]{1,80}$/.test(e.topic)))throw Error('MEMORY_CONSOLIDATION_ARGUMENT_INVALID');
+    if(!e||typeof e!=='object'||Object.keys(e).some(k=>!['archiveId','title','content','topic'].includes(k))||!/^([a-f\d]{64})$/.test(e.archiveId)||seen.has(e.archiveId)||typeof e.title!=='string'||!e.title.trim()||/[\r\n\0<>]/.test(e.title)||typeof e.content!=='string'||!e.content.trim()||/\0|<!--\s*agent-workbench/i.test(e.content)||e.topic!==undefined&&(typeof e.topic!=='string'||!/^[-a-z0-9]+$/.test(e.topic)))throw Error('MEMORY_CONSOLIDATION_ARGUMENT_INVALID');
     seen.add(e.archiveId);
   }
   return input;
@@ -58,7 +58,6 @@ export async function storeConsolidatedReference(homes:NativeHomes,archive:Memor
   const indexNext=existing?indexBefore!:(indexBefore??'')+((indexBefore??'').endsWith('\n')||!indexBefore?'':'\n')+`${handoffStart(archive.id)}\n${pointer}\n${handoffEnd(archive.id)}\n`;
   const topicLink=`[${entry.topic??'general'}](${path.basename(file)}). Source scope: ${archive.scope}.`;
   const directoryNext=directoryParts.spans.some(p=>p.content.includes(`](${path.basename(file)})`))?directoryBefore!:(directoryBefore??'')+((directoryBefore??'').endsWith('\n')||!directoryBefore?'':'\n')+`${start}\n${topicLink}\n${end}\n`;
-  if(Buffer.byteLength(next)>2*1024*1024||Buffer.byteLength(directoryNext)>2*1024*1024||Buffer.byteLength(indexNext)>30000)throw Error('MEMORY_CONSOLIDATION_INDEX_BUDGET');
   const check=async()=>{
     await assertActive();await noLinks(file);await noLinks(index);await noLinks(directoryIndex);
     if(!samePath((await consolidationDestination(homes,runtime,archive.scope)).index,index)||await optionalText(index)!==indexBefore)throw Error('MEMORY_CONSOLIDATION_NATIVE_CHANGED');

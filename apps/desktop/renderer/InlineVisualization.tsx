@@ -6,7 +6,7 @@ import './InlineVisualization.css';
 
 export default function InlineVisualization({reference,sessionId}:{reference:VisualizationReference;sessionId?:string}) {
   const [document,setDocument]=useState<VisualizationDocument>(),[error,setError]=useState(''),[reload,setReload]=useState(0);
-  useEffect(()=>{let live=true;setDocument(undefined);setError('');void api<VisualizationDocument>('visualizations/read',{sessionId,path:reference.path}).then(value=>{if(live)setDocument(value);}).catch(()=>{if(live)setError('无法读取展示文件。请确认文件仍在本机，且为 1 MB 以内的 UTF-8 HTML。');});return()=>{live=false;};},[sessionId,reference.path,reload]);
+  useEffect(()=>{let live=true;setDocument(undefined);setError('');void api<VisualizationDocument>('visualizations/read',{sessionId,path:reference.path}).then(value=>{if(live)setDocument(value);}).catch(()=>{if(live)setError('无法读取展示文件，请确认文件仍在本机且为 UTF-8 HTML。');});return()=>{live=false;};},[sessionId,reference.path,reload]);
   return <section className="inline-visualization" data-workbench-visualization data-visualization-path={reference.path} data-visualization-mode={reference.mode??'normal'} onClick={event=>event.stopPropagation()}>
     {document?<VisualizationView key={JSON.stringify([sessionId,document.path,reload])} document={document} reference={reference} sessionId={sessionId} reload={()=>setReload(value=>value+1)}/>:<><div className="visualization-toolbar" data-workbench-visualization-toolbar><span>{reference.title||'交互展示'}</span><button type="button" onClick={()=>setReload(value=>value+1)}>重新载入</button></div><p className="visualization-status" role={error?'alert':'status'}>{error||'正在载入交互展示…'}</p></>}
   </section>;
@@ -41,7 +41,7 @@ function VisualizationView({document:source,reference,sessionId,reload}:{documen
     const receive=(event:MessageEvent)=>{
       const data=event.data;
       if(event.source!==frame.current?.contentWindow||!data||data.channel!==channel.current)return;
-      if(data.type==='height'&&Number.isFinite(data.height))setHeight(Math.max(160,Math.min(900,data.height)));
+      if(data.type==='height'&&Number.isFinite(data.height))setHeight(Math.max(160,data.height));
       else if(data.type==='ready')globals();
       else if(data.type==='error')setError('展示中的脚本发生错误；可以查看源码或重新载入。');
       else if(data.type==='blocked-navigation')setError('交互展示无法打开外部页面。');
