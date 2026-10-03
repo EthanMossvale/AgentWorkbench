@@ -2436,3 +2436,7 @@ Local asynchronous commands retain arbitrary numbers of receipts and queue at th
 ## D036 skill-source access, partial delivery (2026-10-03)
 
 Skill source is readable even with native lifecycle declarations. Sequence arguments, pwsh and custom effort values are supported; actual resource loads consume a typed adapter registry with approved plugin restoration. Unknown declarations stay visible as unexecuted native requirements. 39 context/controller cases pass. Built-in hooks/isolation/background/inline-model execution is still outstanding; this is partial progress, not completion or native model acceptance. No UI persistence change applies.
+
+## D037 skill discovery capacity (2026-10-03)
+
+Removed fixed directory depth/count, project-ancestor, skill-body and display-metadata limits in both native skill discovery and the Claude local resource bridge. Skill roots include hidden/named group directories; canonical cycle detection and the boundary between an installed skill and its own supporting files remain. Large sources flow through reads and link-plan checks unchanged. 39 focused cases pass, including 5,005 empty directories, 522 native/521 Claude entries, 70 ancestors, large Unicode sources and an approved production host plugin. One optional installed Codex probe was skipped because no executable was supplied. Source/protocol validation does not claim live model or installed desktop acceptance; no UI state contract changed.

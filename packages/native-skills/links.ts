@@ -81,7 +81,7 @@ export class NativeSkillLinks {
   }
   private async prepare(skill: NativeSkill, runtime: SkillRuntime, skills: NativeSkill[], ledger: Ledger): Promise<Prepared> {
     const source = await canonicalDirectory(skill.directory), root = await inspectRoot(this.roots()[runtime]);
-    if (digest(await textFile(path.join(source, 'SKILL.md'), 256 * 1024)) !== skill.hash) throw Error('SKILL_LINK_SOURCE_CHANGED');
+    if (digest(await textFile(path.join(source, 'SKILL.md'), Infinity)) !== skill.hash) throw Error('SKILL_LINK_SOURCE_CHANGED');
     const origins = skill.origins.filter(o => o.kind === 'personal' && !o.pluginId && o.entryPath);
     const name = path.basename(origins[0]?.entryPath ?? source);
     const destination = await inspect(childPath(root.logical, name));
@@ -164,7 +164,7 @@ export class NativeSkillLinks {
       if (item.operation === 'skip' || item.operation === 'reuse') { result.items.push({ id: item.id, status: item.operation === 'skip' ? 'skipped' : 'reused', count: item.count }); continue; }
       const state = prepared.get(item.id)!; let completed = 0;
       try {
-        if (!samePath(await canonicalDirectory(state.source), state.source) || identity(await lstat(state.source)) !== state.sourceIdentity || digest(await textFile(path.join(state.source, 'SKILL.md'), 256 * 1024)) !== item.hash) throw Error('SKILL_LINK_SOURCE_CHANGED');
+        if (!samePath(await canonicalDirectory(state.source), state.source) || identity(await lstat(state.source)) !== state.sourceIdentity || digest(await textFile(path.join(state.source, 'SKILL.md'), Infinity)) !== item.hash) throw Error('SKILL_LINK_SOURCE_CHANGED');
         if (item.operation === 'create') {
           const expected = createdRoot ?? state.root, current = await inspectRoot(state.root.logical);
           if (JSON.stringify(current) !== JSON.stringify(expected)) throw Error('SKILL_LINK_ROOT_CHANGED');

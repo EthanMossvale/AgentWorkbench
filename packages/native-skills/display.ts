@@ -21,19 +21,19 @@ export function interfaceFields(yaml: string): Record<string, string> {
     let value = match[2]!;
     if (/^[>|][-+]?\s*$/.test(value)) { const body = []; while (index + 1 < lines.length && /^    /.test(lines[index + 1]!)) body.push(lines[++index]!.trim()); value = body.join(' '); }
     else value = scalar(value);
-    if (value && value.length <= 2048) result[match[1]!] = value.replace(/\s+/g, ' ').trim();
+    if (value) result[match[1]!] = value.replace(/\s+/g, ' ').trim();
   }
   return result;
 }
 export async function readSkillDisplay(directory: string): Promise<{ displayName?: string; shortDescription?: string; icon?: string }> {
   let values: Record<string, string>;
-  try { values = interfaceFields(await optionalText(path.join(directory, 'agents', 'openai.yaml'), 64 * 1024) ?? ''); }
+  try { values = interfaceFields(await optionalText(path.join(directory, 'agents', 'openai.yaml'), Infinity) ?? ''); }
   catch { return {}; }
   const result: { displayName?: string; shortDescription?: string; icon?: string } = { displayName: values.display_name, shortDescription: values.short_description };
   const icon = values.icon_small ?? values.icon_large;
   if (icon) try {
     const file = childPath(directory, icon.replace(/^\.\//, '')); await noLinks(file);
-    const info = await lstat(file); if (!info.isFile() || info.size > 256 * 1024) return result;
+    const info = await lstat(file); if (!info.isFile()) return result;
     const extension = path.extname(file).toLowerCase(), mime = ({ '.svg': 'image/svg+xml', '.png': 'image/png', '.jpg': 'image/jpeg', '.jpeg': 'image/jpeg', '.webp': 'image/webp' } as Record<string, string>)[extension];
     if (!mime) return result;
     const data = await readFile(file);

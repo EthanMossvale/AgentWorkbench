@@ -190,13 +190,14 @@ test('an uncertain dynamic command is never replayed and stale configuration can
  }finally{await f.close();}
 });
 
-test('deep skill trees return usable instructions and siblings with explicit partial-discovery warnings',async()=>{
+test('deep skill trees return every skill without a partial-discovery ceiling',async()=>{
  const f=await fixture();try{
   await f.put(path.join(f.cwd,'AGENTS.md'),'Fixture instructions');await f.skill('visible','Visible skill');
   await f.put(path.join(f.claude,'skills','a','b','c','d','e','f','g','SKILL.md'),'---\nname: deep\ndescription: fixture\n---\nDeep skill');
   const result=parsed(await f.tools.call('LocalContext',{}));
   assert.ok(result.instructions.some((i:any)=>i.path.endsWith('AGENTS.md')));
   assert.ok(result.skills.some((s:any)=>s.name==='visible'));
-  assert.ok(result.warnings.some((s:string)=>s.includes('LOCAL_CONTEXT_DISCOVERY_LIMIT')));
+  assert.ok(result.skills.some((s:any)=>s.name==='deep'));
+  assert.ok(!result.warnings.some((s:string)=>s.includes('LOCAL_CONTEXT_DISCOVERY_LIMIT')));
  }finally{await f.close();}
 });

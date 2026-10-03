@@ -37,14 +37,15 @@ const scalar=(front:string,key:string)=>{
   return raw.startsWith("'")&&raw.endsWith("'")?raw.slice(1,-1).replaceAll("''","'"):raw;
 };
 function parts(markdown:string){const text=markdown.replace(/^\uFEFF/,'').replaceAll('\r\n','\n'),front=/^---\n([\s\S]*?)\n---(?:\n|$)/.exec(text);return {front:front?.[1]??'',body:front?text.slice(front[0].length):text};}
-async function directories(cwd:string,home:string){const values:string[]=[];let at=path.resolve(cwd);for(let n=0;n<64;n++){values.unshift(at);const parent=path.dirname(at);if(parent===at||samePath(at,home))break;at=parent;}return values;}
-async function walk(root:string,accept:(file:string)=>boolean,warnings:string[],maxDepth=5){const files:string[]=[],seen=new Set<string>();let visits=0;const visit=async(dir:string,depth:number)=>{
-  if(depth>maxDepth||++visits>2048){const warning='LOCAL_CONTEXT_DISCOVERY_LIMIT: Partial discovery under '+root+'; deeper or excess entries were not scanned.';if(!warnings.includes(warning))warnings.push(warning);return;}
-  let entries;try{const canonical=await realpath(dir);if(seen.has(canonical))return;seen.add(canonical);entries=await readdir(dir,{withFileTypes:true});}catch(e){if(missing(e))return;throw e;}
+async function directories(cwd:string,home:string){const values:string[]=[];let at=path.resolve(cwd);for(;;){values.unshift(at);const parent=path.dirname(at);if(parent===at||samePath(at,home))break;at=parent;}return values;}
+async function walk(root:string,accept:(file:string)=>boolean,skillTree=false){const files:string[]=[],seen=new Set<string>();const visit=async(dir:string)=>{
+  let entries;try{const resolved=await realpath(dir),canonical=process.platform==='win32'?resolved.toLowerCase():resolved;if(seen.has(canonical))return;seen.add(canonical);entries=await readdir(dir,{withFileTypes:true});}catch(e){if(missing(e))return;throw e;}
+  // Once a skill is found, its nested files belong to that skill's resources.
+  if(skillTree&&entries.some(entry=>entry.name==='SKILL.md'&&entry.isFile())){files.push(path.join(dir,'SKILL.md'));return;}
   for(const entry of entries.sort((a,b)=>a.name.localeCompare(b.name))){
-    if(visits>2048||files.length>=512){const warning='LOCAL_CONTEXT_DISCOVERY_LIMIT: Partial discovery under '+root+'; entry budget reached.';if(!warnings.includes(warning))warnings.push(warning);break;}const target=path.join(dir,entry.name);let directory=entry.isDirectory();if(entry.isSymbolicLink()){try{directory=(await lstat(await realpath(target))).isDirectory();}catch(e){if(missing(e))continue;throw e;}}
-    if(directory&&!entry.name.startsWith('.')&&!['node_modules','backups','scripts','references','assets','synced'].includes(entry.name))await visit(target,depth+1);else if(entry.isFile()&&accept(target)){files.push(target);}}
-};await visit(root,0);return files.sort();}
+    const target=path.join(dir,entry.name);let directory=entry.isDirectory();if(entry.isSymbolicLink()){try{directory=(await lstat(await realpath(target))).isDirectory();}catch(e){if(missing(e))continue;throw e;}}
+    if(directory&&(skillTree||!entry.name.startsWith('.')&&!['node_modules','backups','scripts','references','assets','synced'].includes(entry.name)))await visit(target);else if(entry.isFile()&&accept(target)){files.push(target);}}
+};await visit(root);return files.sort();}
 const toolText=(value:unknown)=>{const safe=sanitizeWorkbenchMcpPayload(value),text=JSON.stringify(safe);return {content:[{type:'text',text}],structuredContent:JSON.parse(text)};};
 
 export class LocalClaudeContext implements ClaudeLocalContext {
@@ -70,7 +71,7 @@ export class LocalClaudeContext implements ClaudeLocalContext {
     await addInstruction(path.join(this.claudeHome,'CLAUDE.md'),'user-instructions');
     if(samePath(this.home,os.homedir()))await addInstruction(path.join(managed,'CLAUDE.md'),'managed-instructions');
     for(const dir of dirs)for(const name of ['CLAUDE.md','.claude/CLAUDE.md','CLAUDE.local.md','AGENTS.md'])await addInstruction(path.join(dir,name),name==='AGENTS.md'?'project-agents-reference':'project-instructions');
-    for(const root of [path.join(this.claudeHome,'rules'),...dirs.map(dir=>path.join(dir,'.claude','rules'))])for(const file of await walk(root,f=>f.endsWith('.md'),warnings))await addInstruction(file,'rule-read-paths-frontmatter-before-applying');
+    for(const root of [path.join(this.claudeHome,'rules'),...dirs.map(dir=>path.join(dir,'.claude','rules'))])for(const file of await walk(root,f=>f.endsWith('.md')))await addInstruction(file,'rule-read-paths-frontmatter-before-applying');
     let enabled=true,source='default',directorySource='default',memoryDirectory:string|undefined,blockOutside=false,disabled:unknown=this.options.env.CLAUDE_CODE_DISABLE_AUTO_MEMORY;
     for(const layer of settings){const v=layer.value;if(v.autoMemoryEnabled!==undefined){if(typeof v.autoMemoryEnabled!=='boolean')throw Error('LOCAL_CONTEXT_SETTINGS_INVALID');enabled=v.autoMemoryEnabled;source=layer.source;}
       if(v.autoMemoryDirectory!==undefined){if(typeof v.autoMemoryDirectory!=='string')throw Error('LOCAL_CONTEXT_SETTINGS_INVALID');const target:string=v.autoMemoryDirectory.startsWith('~/')?path.join(this.home,v.autoMemoryDirectory.slice(2)):v.autoMemoryDirectory;if(!path.isAbsolute(target))throw Error('LOCAL_CONTEXT_MEMORY_PATH_INVALID');memoryDirectory=target;directorySource=layer.source;}
@@ -93,20 +94,20 @@ export class LocalClaudeContext implements ClaudeLocalContext {
       if(key.length>200){warnings.push('Long native project keys require an explicit autoMemoryDirectory; no directory was guessed.');}
       else memoryDirectory=path.join(this.claudeHome,'projects',key,'memory');
     }
-    const memory={enabled,directory:memoryDirectory,source,files:enabled&&memoryDirectory?await walk(memoryDirectory,f=>f.endsWith('.md'),warnings):[]};
+    const memory={enabled,directory:memoryDirectory,source,files:enabled&&memoryDirectory?await walk(memoryDirectory,f=>f.endsWith('.md')):[]};
     const skills:LocalClaudeSkill[]=[],names=new Set<string>();
     const skillDirs:string[]=[];for(const dir of [...dirs].reverse()){skillDirs.push(dir);try{await lstat(path.join(dir,'.git'));break;}catch(e){if(!missing(e))throw e;}}
     const roots=[...skillDirs.map(dir=>({root:path.join(dir,'.claude','skills'),kind:'skill' as const})),{root:path.join(this.claudeHome,'skills'),kind:'skill' as const},...skillDirs.map(dir=>({root:path.join(dir,'.claude','commands'),kind:'command' as const})),{root:path.join(this.claudeHome,'commands'),kind:'command' as const}];
     if(samePath(this.home,os.homedir()))roots.unshift({root:path.join(managed,'.claude','skills'),kind:'skill'});
     const plugins=await claudePluginRoots(this.claudeHome,dirs);
     const entries:[string,'skill'|'command',string?,string?][]=[];
-    for(const root of roots)for(const file of await walk(root.root,f=>root.kind==='skill'?path.basename(f)==='SKILL.md':f.endsWith('.md'),warnings))entries.push([file,root.kind,root.kind==='command'?path.relative(root.root,file).slice(0,-3).split(path.sep).join(':'):undefined]);
+    for(const root of roots)for(const file of await walk(root.root,f=>root.kind==='skill'?path.basename(f)==='SKILL.md':f.endsWith('.md'),root.kind==='skill'))entries.push([file,root.kind,root.kind==='command'?path.relative(root.root,file).slice(0,-3).split(path.sep).join(':'):undefined]);
     for(const plugin of plugins){let on=plugin.defaultEnabled!==false;for(const layer of settings){const state=layer.value.enabledPlugins?.[plugin.pluginId!];if(state!==undefined)on=state===true;}if(!on)continue;
       let pluginRoot:string|undefined;for(const at of [...await directories(plugin.root,this.home)].reverse()){try{if((await lstat(path.join(at,'.claude-plugin','plugin.json'))).isFile()){pluginRoot=await realpath(at);break;}}catch(e){if(!missing(e))throw e;}}
-      for(const file of await walk(plugin.root,f=>path.basename(f)==='SKILL.md',warnings))entries.push([file,'skill',plugin.namespace+':',pluginRoot]);
+      for(const file of await walk(plugin.root,f=>path.basename(f)==='SKILL.md',true))entries.push([file,'skill',plugin.namespace+':',pluginRoot]);
     }
     for(const [file,kind,commandName,pluginRoot] of entries){
-      const markdown=await textFile(file,256*1024),{front,body}=parts(markdown),metadata=kind==='skill'?skillMetadata(markdown,path.basename(path.dirname(file))):undefined;
+      const markdown=await textFile(file,Infinity),{front,body}=parts(markdown),metadata=kind==='skill'?skillMetadata(markdown,path.basename(path.dirname(file))):undefined;
       const nativeName=metadata?.name||path.basename(path.dirname(file)),name=kind==='command'?commandName!:commandName?(nativeName.startsWith(commandName)?nativeName:commandName+nativeName):nativeName;
       let visibility:string|undefined,shellExecution=true,denied=false;
       for(const layer of settings){const state=layer.value.skillOverrides?.[name];if(!commandName?.endsWith(':')&&state!==undefined)visibility=state;if(layer.value.disableSkillShellExecution!==undefined)shellExecution=layer.value.disableSkillShellExecution!==true;
@@ -126,7 +127,7 @@ export class LocalClaudeContext implements ClaudeLocalContext {
     const invocation=this.key(request,-1);
     if(userInvoked?!skill.userInvocable:!skill.modelInvocable&&!this.userInvocations.has(invocation))throw Error('LOCAL_SKILL_INVOCATION_DISABLED');
     if(userInvoked)this.userInvocations.add(invocation);
-    const markdown=await textFile(skill.path,256*1024);if(digest(markdown)!==request.hash)throw Error('LOCAL_SKILL_CHANGED');
+    const markdown=await textFile(skill.path,Infinity);if(digest(markdown)!==request.hash)throw Error('LOCAL_SKILL_CHANGED');
     const plan=await claudeSkillAdapters.load({skill,request,markdown,cwd:this.options.cwd,effort:this.options.env.CLAUDE_EFFORT},()=>this.compileSkill(skill,request,markdown));
     this.alive();return plan;
   }

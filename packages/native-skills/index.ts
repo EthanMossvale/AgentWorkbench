@@ -16,8 +16,8 @@ export interface NativeSkill { id: string; name: string; description: string; di
 interface Preferences { version: 1; enabled: Record<string, boolean> }
 export interface SkillScan { skills: NativeSkill[]; roots: SkillOrigin[]; errors: { path: string; message: string }[] }
 export function skillMetadata(markdown: string, directoryName: string) {
-  if (Buffer.byteLength(markdown) > 256 * 1024 || markdown.includes('\0')) throw Error('SKILL.md is too large or contains invalid text.');
-  const normalized = markdown.replace(/^\uFEFF/, '').replaceAll('\r\n', '\n'), front = /^---\n([\s\S]{0,32768}?)\n---(?:\n|$)/.exec(normalized);
+  if (markdown.includes('\0')) throw Error('SKILL.md contains invalid text.');
+  const normalized = markdown.replace(/^\uFEFF/, '').replaceAll('\r\n', '\n'), front = /^---\n([\s\S]*?)\n---(?:\n|$)/.exec(normalized);
   if (!front) throw Error('SKILL.md requires YAML frontmatter.');
   const values: Record<string, string> = {}, lines = front[1]!.split('\n');
   for (let index = 0; index < lines.length; index++) {
@@ -30,7 +30,7 @@ export function skillMetadata(markdown: string, directoryName: string) {
   }
   const body = normalized.slice(front[0].length).trim();
   const name = values.name?.trim() || directoryName, description = values.description?.trim() || body.replace(/^#+\s*/gm, '').split(/\n\s*\n/)[0]?.slice(0, 1024) || '';
-  if (!body || !name || name.length > 200 || /[\r\n\0]/.test(name) || !description || description.length > 4096) throw Error('Skill needs a bounded name, description and instruction body.');
+  if (!body || !name || /[\r\n\0]/.test(name) || !description) throw Error('Skill needs a name, description and instruction body.');
   return { name, description, userInvocable: !/^user-invocable:\s*false\s*(?:#.*)?$/m.test(front[1]!), dynamic: /!`|\$\{CLAUDE_SKILL_DIR\}|^context:\s*fork/m.test(normalized) };
 }
 export class NativeSkillsService {
@@ -56,7 +56,7 @@ export class NativeSkillsService {
     const projects = new Set<string>();
     for (const project of this.options.projects?.() ?? []) {
       let current = path.resolve(project);
-      for (let depth = 0; depth < 32; depth++) { projects.add(current); try { await lstat(path.join(current, '.git')); break; } catch (e) { if (!missing(e)) break; } const parent = path.dirname(current); if (parent === current || current === this.home) break; current = parent; }
+      for (;;) { projects.add(current); try { await lstat(path.join(current, '.git')); break; } catch (e) { if (!missing(e)) break; } const parent = path.dirname(current); if (parent === current || current === this.home) break; current = parent; }
     }
     for (const project of projects) { roots.push({ provider: 'codex', kind: 'project', root: path.join(project, '.agents', 'skills') }, { provider: 'claude', kind: 'project', root: path.join(project, '.claude', 'skills') }); }
     roots.push(...await claudePluginRoots(this.claudeHome, [...projects]));
@@ -86,16 +86,15 @@ export class NativeSkillsService {
     const controls = new NativeSkillControls({ home: this.home, codexHome: this.codexHome, claudeHome: this.claudeHome, projects, codexExecutable }); await controls.load(origins); return controls;
   }
   async scan(): Promise<SkillScan> {
-    const roots = await this.roots(), records = new Map<string, NativeSkill>(), errors: SkillScan['errors'] = []; let visited = 0;
+    const roots = await this.roots(), records = new Map<string, NativeSkill>(), errors: SkillScan['errors'] = [];
     for (const origin of roots) {
       const seen = new Set<string>();
-      const visit = async (directory: string, depth: number, currentOrigin: SkillOrigin) => {
-        if (depth > 8 || ++visited > 5000) throw Error('Skill discovery exceeds directory limits.');
+      const visit = async (directory: string, currentOrigin: SkillOrigin) => {
         const resolved = await canonicalDirectory(directory), key = process.platform === 'win32' ? resolved.toLowerCase() : resolved;
         const alreadySeen = seen.has(key); seen.add(key);
         const file = path.join(resolved, 'SKILL.md');
         try {
-          const markdown = await textFile(file, 256 * 1024), parsed = skillMetadata(markdown, path.basename(resolved)), id = digest(key).slice(0, 32), existing = records.get(id);
+          const markdown = await textFile(file, Infinity), parsed = skillMetadata(markdown, path.basename(resolved)), id = digest(key).slice(0, 32), existing = records.get(id);
           const skillOrigin = { ...currentOrigin, entryPath: directory, nativeName: currentOrigin.pluginId && currentOrigin.namespace ? (parsed.name.startsWith(currentOrigin.namespace + ':') ? parsed.name : `${currentOrigin.namespace}:${parsed.name}`) : currentOrigin.provider === 'claude' ? path.basename(directory) : parsed.name };
           if (existing) { if (!existing.origins.some(o => o.provider === currentOrigin.provider && o.kind === currentOrigin.kind && o.pluginId === currentOrigin.pluginId && o.settingsFile === currentOrigin.settingsFile && o.nativeName === skillOrigin.nativeName && o.entryPath === directory)) existing.origins.push(skillOrigin); return; }
           const display = await readSkillDisplay(resolved);
@@ -105,11 +104,10 @@ export class NativeSkillsService {
         if (alreadySeen) return;
         for (const item of await readdir(resolved, { withFileTypes: true })) {
           if (!item.isDirectory() && !item.isSymbolicLink()) continue;
-          if (['.git', 'node_modules', 'backups', 'scripts', 'assets', 'references'].includes(item.name) || (item.name.startsWith('.') && item.name !== '.system')) continue;
-          try { await visit(path.join(directory, item.name), depth + 1, item.name === '.system' && origin.provider === 'codex' ? { ...currentOrigin, kind: 'official' } : currentOrigin); } catch (error) { errors.push({ path: path.join(directory, item.name), message: (error as Error).message }); }
+          try { await visit(path.join(directory, item.name), item.name === '.system' && origin.provider === 'codex' ? { ...currentOrigin, kind: 'official' } : currentOrigin); } catch (error) { errors.push({ path: path.join(directory, item.name), message: (error as Error).message }); }
         }
       };
-      try { await visit(origin.root, 0, origin); } catch (error) { if (!missing(error)) errors.push({ path: origin.root, message: (error as Error).message }); }
+      try { await visit(origin.root, origin); } catch (error) { if (!missing(error)) errors.push({ path: origin.root, message: (error as Error).message }); }
     }
     const executable = await this.executable('claude');
     if (executable) {
@@ -143,7 +141,7 @@ export class NativeSkillsService {
   async readMarkdown(id: string, expectedHash: string) {
     await this.scan(); const skill = this.catalog.get(id); if (!skill || skill.hash !== expectedHash) throw Error('Skill changed; refresh the catalog before reading.');
     if (skill.builtin) throw Error('Bundled Claude skills have no exportable SKILL.md.');
-    const markdown = await textFile(skill.path, 256 * 1024); if (digest(markdown) !== expectedHash) throw Error('Skill changed during reading.'); return { ...skill, markdown };
+    const markdown = await textFile(skill.path, Infinity); if (digest(markdown) !== expectedHash) throw Error('Skill changed during reading.'); return { ...skill, markdown };
   }
   async importZip(file: string, provider: 'codex' | 'claude') {
     if (provider !== 'codex' && provider !== 'claude') throw Error('Select Codex or Claude Code as the skill destination.');
