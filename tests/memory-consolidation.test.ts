@@ -45,11 +45,62 @@ async function consolidate(task:MemoryTaskExecution){
   assert.equal((await task.verify()).complete,true);return {state:'completed' as const};
 }
 
-test('two receiving-native sessions serially accept their own frozen backlogs without overwriting generated indexes',async t=>{
+test('bounded admission consumes embedded short archives without model read calls and retains the rest',async t=>{
+  const f=await fixture(t,1,14);let calls=0;
+  f.bg.registerExecutor({mode:'consolidation',supports:()=>true,run:async task=>{
+    calls++;
+    const manifest=JSON.parse(task.prompt.split('<agent-workbench-memory-consolidation>\n')[1]!.split('\n</agent-workbench-memory-consolidation>')[0]!);
+    assert.equal(manifest.entries.length,6);assert.equal(manifest.initialArchivePages.length,6);
+    assert.ok(manifest.initialArchivePages.every((p:any)=>p.nextOffset===null));
+    assert.ok(manifest.initialArchivePages.reduce((n:number,p:any)=>n+p.content.length,0)<=24000);
+    const feedback=await task.store!({entries:manifest.initialArchivePages.map((p:any)=>({archiveId:p.archiveId,title:'Scoped reference',content:p.content}))});
+    assert.equal(feedback.verified,6);return {state:'completed'};
+  }});
+  await f.bg.start(target,'bounded',{maxEntries:6});await settled(f.service);
+  assert.equal(calls,1);assert.equal(f.bg.list()[0]!.processed,6);
+  const status=await f.service.status();assert.equal(status.pendingCodex,8);assert.equal(status.pendingClaude,1);
+  await assert.rejects(f.bg.start(target,'invalid',{maxEntries:0}),/ARGUMENT_INVALID/);
+});
+
+test('failed later batch retains verified progress and never dispatches another batch',async t=>{
+  const f=await fixture(t,0,14);let calls=0;
+  f.bg.registerExecutor({mode:'consolidation',supports:()=>true,run:async task=>++calls===1?consolidate(task):{state:'failed'}});
+  await f.bg.start(target,'partial');await settled(f.service);
+  assert.equal(calls,2);assert.equal(f.bg.list()[0]!.state,'failed');assert.equal(f.bg.list()[0]!.processed,6);assert.equal(f.bg.list()[0]!.total,14);
+  assert.equal((await f.service.status()).pendingCodex,8);
+  assert.equal((await f.bg.start(target,'no-replay',{maxEntries:6})).reason,'MEMORY_BACKGROUND_UNCHANGED');assert.equal(calls,2);
+  await f.service.dispose();const restarted=new NativeMemoryService(f.directory,f.options);await restarted.initialize();t.after(()=>restarted.dispose());
+  restarted.background.registerExecutor({mode:'consolidation',supports:()=>true,run:async()=>{calls++;return {state:'failed'};}});
+  assert.equal((await restarted.background.start(target,'after-restart',{maxEntries:6})).reason,'MEMORY_BACKGROUND_UNCHANGED');assert.equal(calls,2);
+});
+
+test('embedded archive pages retain offsets and require remaining content without truncating evidence',async t=>{
+  const f=await fixture(t,0,1),content='Scoped evidence. '.repeat(320);
+  await put(path.join(f.homes.claude,'projects','source-project','memory','source-0.md'),content);await f.service.sync();
+  f.bg.registerExecutor({mode:'consolidation',supports:()=>true,run:async task=>{
+    const manifest=JSON.parse(task.prompt.split('<agent-workbench-memory-consolidation>\n')[1]!.split('\n</agent-workbench-memory-consolidation>')[0]!);
+    const first=manifest.initialArchivePages[0];assert.equal(first.content.length,4000);assert.equal(first.nextOffset,4000);
+    const last=await task.read({archiveId:first.archiveId,offset:first.nextOffset}) as any;
+    assert.equal(first.content+last.content,content);assert.equal(last.nextOffset,null);
+    await task.store!({entries:[{archiveId:first.archiveId,title:'Scoped reference',content:first.content+last.content}]});return {state:'completed'};
+  }});
+  await f.bg.start(target,'long-page',{maxEntries:6});await settled(f.service);assert.equal(f.bg.list()[0]!.state,'completed');
+});
+
+test('failed initial archive read releases the batch and explicit retry can recover',async t=>{
+  const f=await fixture(t,0,1);let calls=0;
+  f.bg.registerExecutor({mode:'consolidation',supports:()=>true,run:async task=>{calls++;return consolidate(task);}});
+  const read=t.mock.method(f.service.exchange,'readActive',async()=>{throw Error('MEMORY_HANDOFF_ARCHIVE_CHANGED');});
+  await f.bg.start(target,'broken');await settled(f.service);assert.equal(calls,0);assert.equal(f.bg.list()[0]!.state,'failed');
+  read.mock.restore();await f.bg.start(target,'fixed',{retry:true});await settled(f.service);
+  assert.equal(calls,1);assert.equal(f.bg.list().at(-1)!.state,'completed');
+});
+
+test('bounded receiving-native sessions serially accept frozen backlogs without overwriting generated indexes',async t=>{
   const f=await fixture(t,125,11);let calls=0,active=0,maxActive=0;const sessions=new Set<string>();
-  f.bg.registerExecutor({mode:'consolidation',supports:()=>true,run:async task=>{calls++;active++;maxActive=Math.max(maxActive,active);sessions.add(task.sessionId);try{return await consolidate(task);}finally{active--;}}});
+  f.bg.registerExecutor({mode:'consolidation',supports:()=>true,run:async task=>{calls++;active++;maxActive=Math.max(maxActive,active);sessions.add(task.sessionId);const manifest=await task.read({}) as any;assert.ok(manifest.entries.length<=6);assert.match(task.prompt,/initialArchivePages/);assert.doesNotMatch(task.prompt,/Read the complete manifest with/);try{return await consolidate(task);}finally{active--;}}});
   await f.bg.startReceivers([recipient('codex'),recipient('claude')],'one');await settled(f.service);
-  assert.equal(calls,2);assert.equal(sessions.size,2);assert.equal(maxActive,1);assert.deepEqual(f.bg.list().map(t=>[t.runtime,t.recipientRuntime,t.state,t.processed,t.total]),[['codex','codex','completed',11,11],['claude','claude','completed',125,125]]);
+  assert.equal(calls,23);assert.equal(sessions.size,23);assert.equal(maxActive,1);assert.deepEqual(f.bg.list().map(t=>[t.runtime,t.recipientRuntime,t.state,t.processed,t.total]),[['codex','codex','completed',11,11],['claude','claude','completed',125,125]]);
   const status=await f.service.status();assert.equal(status.pendingCodex,0);assert.equal(status.pendingClaude,0);
   await f.service.sync();assert.equal((await f.service.status()).pendingCodex,0);assert.equal((await f.service.status()).pendingClaude,0);
   assert.equal(await readFile(path.join(f.homes.codex,'memories','source-0.md'),'utf8'),'Scoped Codex fact 0.');
@@ -264,6 +315,17 @@ test('public process command consumes live default and writer services through a
   assert.ok(native.memory.background.list().every(t=>t.state==='completed'));assert.deepEqual(observed.receivers,[{runtime:'codex',effort:'low'},{runtime:'claude',effort:'high'}]);assert.equal((await new StateStore(root).load()).nativeMemoryDefaults?.codex?.targetId,codex.id);
   await registry.setEnabled(plugin.manifest.id,plugin.hash,false);await registry.setEnabled(plugin.manifest.id,plugin.hash,true);
   assert.equal((await registry.command(plugin.manifest.id,'process',{}) as any).reason,'MEMORY_BACKGROUND_EMPTY');
+  for(let i=0;i<9;i++)await put(path.join(root,'.claude','projects','fixture','memory',`fresh-${i}.md`),'Fresh scoped Claude evidence '+i);
+  await native.memory.sync();
+  const chat=await controller.call('session/create',{modelTargetId:codex.id,permissionMode:'full-access'}) as any;
+  t.mock.method((controller as any).nativeProvider,'submit',async()=>null);
+  await (controller as any).dispatchDraft(chat,{id:'bounded-foreground',original:'hi',translated:'hi',sourceHash:'fixture',revision:1,bypass:true,demo:false});
+  const admissionDeadline=Date.now()+5000;while((native.memory.background.list().length<3||['queued','running'].includes(native.memory.background.list().at(-1)!.state))&&Date.now()<admissionDeadline)await new Promise(r=>setTimeout(r,10));
+  await settled(native.memory);
+  const bounded=await registry.command(plugin.manifest.id,'inspect',{}) as any;
+  assert.equal(bounded.runs,1,JSON.stringify({tasks:native.memory.background.list(),admission:native.memory.background.admission(),chat}));assert.equal(bounded.last.binding.runtime,'codex');assert.equal(bounded.last.modelSelection.effort,'low');
+  assert.equal(native.memory.background.list().at(-1)!.total,6);assert.equal((await native.memory.status()).pendingCodex,3);
+  assert.equal(bounded.defaults,2,'Only the earlier explicit empty process call resolves both defaults');
   await assert.rejects(controller.call('native-memory/process',{runtime:'other'}),/ARGUMENT_INVALID/);
   await assert.rejects(controller.call('native-memory/process',{runtime:['codex']}),/ARGUMENT_INVALID/);
   await store.update(s=>{s.lastModelTargetId='missing';});

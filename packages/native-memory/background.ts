@@ -20,6 +20,7 @@ export interface MemoryBackgroundTask {
   receiptIssues?: MemoryReceiptCode[];
   mode?:'consolidation'; workKey?:string;
   recipientRuntime?:MemoryRuntime;
+  lastBatchWorkKeys?:string[];
 }
 export interface MemoryTaskExecution {
   sessionId: string; target: MemoryTaskBinding; prompt: string; signal: AbortSignal;
@@ -50,6 +51,7 @@ type Active = {task:MemoryBackgroundTask;target:MemoryTaskBinding;executor:Memor
 type ReceiverSequence={targets:MemoryTaskBinding[];entries:string[][];executors:(MemoryTaskExecutor|undefined)[];submissionId:string;retry?:boolean;abort:AbortController;done:Promise<void>};
 const terminal = new Set<MemoryTaskState>(['completed','blocked','failed','uncertain','cancelled']);
 const safeReason = (error:unknown) => error instanceof Error && /^MEMORY_[A-Z_]+$/.test(error.message) ? error.message : 'MEMORY_BACKGROUND_FAILED';
+const entryWorkKey=(target:MemoryTaskBinding,id:string)=>{const {nativeSessionId:_native,executionSessionId:_execution,...binding}=target.binding;return digest(JSON.stringify([binding,target.modelSelection,target.permissionMode,id]));};
 
 /** Metadata journal only. Never owns foreground messages, native memory or authentication. */
 export class MemoryBackgroundTasks extends EventEmitter {
@@ -71,6 +73,7 @@ export class MemoryBackgroundTasks extends EventEmitter {
     for(const task of this.tasks)if(task.receiptIssues!==undefined&&(!Array.isArray(task.receiptIssues)||task.receiptIssues.length>12||task.receiptIssues.some(code=>!Object.hasOwn(receiptMessages,code))))throw Error('MEMORY_BACKGROUND_JOURNAL_INVALID');
     for(const task of this.tasks)if(task.mode!==undefined&&task.mode!=='consolidation'||task.workKey!==undefined&&!/^[a-f\d]{64}$/.test(task.workKey))throw Error('MEMORY_BACKGROUND_JOURNAL_INVALID');
     for(const task of this.tasks)if(task.recipientRuntime!==undefined&&task.recipientRuntime!==task.runtime)throw Error('MEMORY_BACKGROUND_JOURNAL_INVALID');
+    for(const task of this.tasks)if(task.lastBatchWorkKeys!==undefined&&(!Array.isArray(task.lastBatchWorkKeys)||task.lastBatchWorkKeys.length>6||task.lastBatchWorkKeys.some(key=>typeof key!=='string'||!/^[a-f\d]{64}$/.test(key))))throw Error('MEMORY_BACKGROUND_JOURNAL_INVALID');
     for(const task of this.tasks)if(!terminal.has(task.state)){task.state='uncertain';task.reason='MEMORY_BACKGROUND_INTERRUPTED';task.finishedAt=new Date().toISOString();}
     await this.save();this.initialized=true;
   }
@@ -90,7 +93,8 @@ export class MemoryBackgroundTasks extends EventEmitter {
     return ()=>{if(!live)return;live=false;this.executors=this.executors.filter(e=>e!==executor);if(this.receiverSequence?.executors.includes(executor))this.receiverSequence.abort.abort('MEMORY_BACKGROUND_EXECUTOR_REMOVED');for(const a of this.active.values())if(a.executor===executor)a.abort.abort('MEMORY_BACKGROUND_EXECUTOR_REMOVED');};
   }
   /** Called only after an explicit user submission is accepted. Never from capture timers or peer messages. */
-  async start(target:MemoryTaskBinding,submissionId:string,options:{retry?:boolean}={}):Promise<{started:boolean;taskId?:string;reason?:string}>{
+  async start(target:MemoryTaskBinding,submissionId:string,options:{retry?:boolean;maxEntries?:number}={}):Promise<{started:boolean;taskId?:string;reason?:string}>{
+    if(options.maxEntries!==undefined&&(!Number.isSafeInteger(options.maxEntries)||options.maxEntries<1||options.maxEntries>1500))throw Error('MEMORY_CONSOLIDATION_ARGUMENT_INVALID');
     return this.admit(target,submissionId,options);
   }
   /** Freeze each recipient's own backlog, then run separate native sessions serially. */
@@ -122,7 +126,7 @@ export class MemoryBackgroundTasks extends EventEmitter {
       }catch(error){this.decline(safeReason(error),target.binding.runtime as MemoryRuntime);break;}
     }
   }
-  private async admit(target:MemoryTaskBinding,submissionId:string,options:{retry?:boolean},sequence?:ReceiverSequence,frozen?:string[]):Promise<{started:boolean;taskId?:string;reason?:string}>{
+  private async admit(target:MemoryTaskBinding,submissionId:string,options:{retry?:boolean;maxEntries?:number},sequence?:ReceiverSequence,frozen?:string[]):Promise<{started:boolean;taskId?:string;reason?:string}>{
     const result=await this.queue.run(async()=>{
       const runtime=target.binding.runtime;
       if(this.stopped||!this.initialized||!['codex','claude'].includes(runtime))return {started:false,reason:'MEMORY_BACKGROUND_UNAVAILABLE'};
@@ -137,13 +141,15 @@ export class MemoryBackgroundTasks extends EventEmitter {
       const executor=sequence?sequence.executors[sequence.targets.indexOf(target)]:this.executors.findLast(e=>e.supports(target));
       if(executor&&!this.executors.includes(executor))return {started:false,reason:'MEMORY_BACKGROUND_EXECUTOR_REMOVED'};
       const consolidate=executor?.mode==='consolidation';
-      const pending=frozen??await this.port.pending(native),entries=consolidate?pending:pending.slice(0,120);
+      const pending=frozen??await this.port.pending(native),entries=(consolidate?pending:pending.slice(0,120)).slice(0,options.maxEntries);
       if(!entries.length)return {started:false,reason:'MEMORY_BACKGROUND_EMPTY'};
       if(entries.length>1500)return {started:false,reason:'MEMORY_BACKGROUND_JOURNAL_FULL'};
       const {nativeSessionId:_native,executionSessionId:_execution,...binding}=target.binding;
       const workKey=consolidate||!executor?digest(JSON.stringify([consolidate?'receiver-v1':'unsupported-v1',binding,target.modelSelection,target.permissionMode,entries.slice().sort()])):undefined;
       const unchanged=workKey&&this.tasks.findLast(t=>t.workKey===workKey);
       if(unchanged&&!options.retry)return {started:false,taskId:unchanged.id,reason:'MEMORY_BACKGROUND_UNCHANGED'};
+      const failedBatch=!options.retry&&consolidate&&this.tasks.findLast(t=>t.state!=='completed'&&t.lastBatchWorkKeys?.some(key=>entries.some(id=>entryWorkKey(target,id)===key)));
+      if(failedBatch)return {started:false,taskId:failedBatch.id,reason:'MEMORY_BACKGROUND_UNCHANGED'};
       const task:MemoryBackgroundTask={id:randomUUID(),runtime:native,model:target.modelSelection.model,effort:target.modelSelection.effort,permissionMode:target.permissionMode??'default',submissionKey,state:'queued',createdAt:new Date().toISOString(),processed:0,total:entries.length};
       if(workKey)task.workKey=workKey;
       if(consolidate){task.mode='consolidation';task.recipientRuntime=native;}
@@ -200,12 +206,23 @@ export class MemoryBackgroundTasks extends EventEmitter {
     }finally{clearTimeout(timeout);clearInterval(guard);await this.change(task,{finishedAt:new Date().toISOString()});}
   }
   private async runConsolidation(active:Active,entries:string[]){
+    // A fresh native context per small batch avoids retransmitting the entire
+    // backlog's growing tool history on every archive read and write.
+    for(let offset=0;offset<entries.length;offset+=6){
+      active.abort.signal.throwIfAborted();
+      await this.change(active.task,{lastBatchWorkKeys:entries.slice(offset,offset+6).map(id=>entryWorkKey(active.target,id))});
+      const complete=await this.runConsolidationBatch(active,entries.slice(offset,offset+6),offset);
+      if(!complete)return;
+    }
+    await this.change(active.task,{state:'completed',reason:undefined});
+  }
+  private async runConsolidationBatch(active:Active,entries:string[],offset:number):Promise<boolean>{
     const {task,target,abort,executor}=active;
     if(!this.port.prepareConsolidation||!this.port.readConsolidation||!this.port.storeConsolidation||!this.port.verifyConsolidation||!this.port.finishConsolidation)throw Error('MEMORY_CONSOLIDATION_UNSUPPORTED');
     const sessionId=randomUUID();abort.signal.throwIfAborted();
-    const batch=await this.port.prepareConsolidation(target,sessionId,task.id,entries);
-    if(!batch){await this.change(task,{state:'blocked',reason:'MEMORY_BACKGROUND_SOURCE_CHANGED'});return;}
-    await this.change(task,{total:batch.count});
+    const batch=await this.port.prepareConsolidation(target,sessionId,task.id+':'+offset,entries);
+    if(!batch||batch.count!==entries.length){if(batch)await this.port.finishConsolidation(sessionId);await this.change(task,{state:'blocked',reason:'MEMORY_BACKGROUND_SOURCE_CHANGED'});return false;}
+    const processedBeforeBatch=task.processed;let verified=0;
     let result:Awaited<ReturnType<MemoryTaskExecutor['run']>>;
     const attempts=new Map<string,number>(),storageErrors=new Map<string,string>();let checks=0;
     try{
@@ -219,16 +236,18 @@ export class MemoryBackgroundTasks extends EventEmitter {
           for(const e of input.entries)attempts.set(e.archiveId,(attempts.get(e.archiveId)??0)+1);
           const feedback=await this.port.storeConsolidation!(target,sessionId,input,abort.signal);
           for(const entry of feedback.entries){if(entry.code)storageErrors.set(entry.archiveId,entry.code);else storageErrors.delete(entry.archiveId);}
-          await this.change(task,{processed:feedback.verified,reason:storageErrors.values().next().value});return feedback;
+          await this.change(task,{processed:processedBeforeBatch+feedback.verified,reason:storageErrors.values().next().value});return feedback;
         },
         verify:async()=>{abort.signal.throwIfAborted();if(++checks>2)throw Error('MEMORY_HANDOFF_VERIFY_LIMIT');return this.port.verifyConsolidation!(target,sessionId);},
       });
     }finally{
-      const verified=await this.port.finishConsolidation(sessionId);
-      await this.change(task,{processed:verified,receiptIssues:[...new Set(batch.deliveryIds.flatMap(id=>this.port.issues?.(id)??[]))]});
+      verified=await this.port.finishConsolidation(sessionId);
+      await this.change(task,{processed:processedBeforeBatch+verified,receiptIssues:[...new Set(batch.deliveryIds.flatMap(id=>this.port.issues?.(id)??[]))]});
     }
     abort.signal.throwIfAborted();
-    await this.change(task,result.state!=='completed'?{state:result.state,reason:result.reason??'MEMORY_BACKGROUND_NATIVE_FAILED'}:task.processed===task.total?{state:'completed',reason:undefined}:{state:'blocked',reason:storageErrors.values().next().value??'MEMORY_BACKGROUND_RECEIPT_UNVERIFIED'});
+    if(result.state!=='completed'){await this.change(task,{state:result.state,reason:result.reason??'MEMORY_BACKGROUND_NATIVE_FAILED'});return false;}
+    if(verified!==batch.count){await this.change(task,{state:'blocked',reason:storageErrors.values().next().value??'MEMORY_BACKGROUND_RECEIPT_UNVERIFIED'});return false;}
+    return true;
   }
   async cancel(id:string){
     const active=[...this.active.values()].find(a=>a.task.id===id);

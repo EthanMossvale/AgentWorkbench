@@ -192,6 +192,12 @@ export class WorkbenchController {
     if(!steering&&session.binding.runtime==='api')await this.apiRunner.settleCompleted(session.id);
     beforeDispatch?.();
     const result=await (isPluginRuntime(session.binding.runtime)?(steering?this.pluginRuntimes.steer(session.id,preview):this.pluginRuntimes.submit(session.id,preview)):steering?(this.providerBinding(session.binding)?this.providerRunner(session).steer(session.id,preview,steering):this.nativeCodex!.steer(session.id,preview,steering)):session.binding.runtime==='demo'?this.runDemo(session.id,preview):this.providerBinding(session.binding)?this.providerRunner(session).submit(session.id,preview):this.nativeCodex!.submit(session.id,preview));
+    if(!steering&&!preview.demo&&['codex','claude'].includes(session.binding.runtime)){
+      const current=this.session(session.id);
+      // One bounded receiving batch, using this submission's actual binding.
+      // Never resolve or dispatch the other runtime's saved default here.
+      void this.shared?.native?.memory?.background.start({binding:structuredClone(current.binding),modelSelection:current.modelSelection?structuredClone(current.modelSelection):undefined,permissionMode:current.permissionMode,projectPath:current.projectPath},preview.id,{maxEntries:6}).catch(()=>{});
+    }
     return result;
   }
   private questionPreviews=new Map<string,{sessionId:string;reference:AsyncQuestionReference}>();
