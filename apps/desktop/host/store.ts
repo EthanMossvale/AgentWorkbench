@@ -65,6 +65,7 @@ export class StateStore {
       if(!preferences)rememberRuntimeModel(this.state);
       for(const session of this.state.sessions){
         if(session.translationCalls!==undefined&&(!Number.isSafeInteger(session.translationCalls)||session.translationCalls<0))throw Error('TRANSLATION_CALLS_INVALID');
+        if(session.apiCallBudget!==undefined&&(!Number.isSafeInteger(session.apiCallBudget)||session.apiCallBudget<0))throw Error('API_CALL_BUDGET_INVALID');
         draftRecovery.restart(session);
         if(session.annotationDraft!==undefined)annotationDraft(session.annotationDraft);
         delete session.followUpError;

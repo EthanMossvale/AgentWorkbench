@@ -6,6 +6,7 @@ import ModelTargetPicker from './ModelTargetPicker';
 import { api } from './App';
 import { errorText, Icon } from './ui';
 import './ModelControls.css';
+import ApiCallBudget from './ApiCallBudget';
 import ReasoningControl from './ReasoningControl';
 import { availableReasoningEfforts, reasoningStatus } from '../../../packages/model-api/reasoning-info';
 import { currentProviderContext, displayedContext } from '../../../packages/model-api/native-context';
@@ -91,6 +92,7 @@ export default function ModelControls({state,targetId,bindingLocked,onTarget,act
       {selected&&!catalogOpen&&<>
         <ReasoningControl key={selected.model} levels={selected.efforts} value={effort} defaultValue={selected.defaultEffort} disabled={disabled||!!providerModel&&bindingLocked} onChange={commitEffort} leadingControl={selected.serviceTiers.some(tier=>tier.id==='priority')?<button className="effort-fast" role="switch" aria-label="Fast" aria-checked={serviceTier==='priority'} title={serviceTier==='priority'?'Fast 已开启':'开启 Fast'} disabled={disabled} onClick={()=>choose({model:selected.model,effort,...(serviceTier!=='priority'?{serviceTier:'priority'}:{})})}><svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinejoin="round" aria-hidden="true"><path d="m13 2-9 12h7l-1 8 10-13h-7z"/></svg></button>:undefined} status={providerModel?reasoningStatus(providerModel)+(!availableReasoningEfforts(providerModel).length?'；可在模型连接详情中手动选择':''):undefined} modelChoice={<button className="current-model" data-testid="current-model-choice" aria-expanded={catalogOpen} title={name+' · '+(connection?.name??'原生运行时')} onClick={()=>setCatalogOpen(true)}><span>{name}</span><Icon name="chevron-down" size={11}/></button>}/>
       </>}
+      {session?.binding.runtime==='api'&&!catalogOpen&&<ApiCallBudget session={session}/>}
       {error&&<p role="alert">{error}</p>}{busy&&<p role="status">读取模型…</p>}
     </section>,document.body)}
   </div>;

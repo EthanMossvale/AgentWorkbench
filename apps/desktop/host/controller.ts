@@ -320,7 +320,7 @@ export class WorkbenchController {
       'sessions.native-titles': nativeSessionTitles,
       'workbench.state': { get: () => this.publicState(this.store.snapshot()), update: (change: (state: AppState) => void) => this.update(change) },
       'workbench.store': this.store, 'workbench.secrets': this.secrets, 'workbench.actions': this.actions,
-      'models.account-export': this.accountExport, 'models.account-names': this.accountNames, 'models.accounts': this.localAccounts, 'models.account-access': this.localAccounts.access, 'model.connections': this.modelConnections, 'runtime.api': this.apiRunner, 'runtime.api.tools': this.apiRunner.local, 'runtime.extensions': this.pluginRuntimes,
+      'models.account-export': this.accountExport, 'models.account-names': this.accountNames, 'models.accounts': this.localAccounts, 'models.account-access': this.localAccounts.access, 'model.connections': this.modelConnections, 'runtime.api': this.apiRunner, 'runtime.api.budgets':this.apiRunner.budgets, 'runtime.api.tools': this.apiRunner.local, 'runtime.extensions': this.pluginRuntimes,
       'remote.configurations': this.remoteConfigurations,
       'models.targets': this.targetCatalog,
       'runtime.native-provider': this.nativeProvider, 'runtime.codex': this.nativeCodex,
@@ -1211,6 +1211,7 @@ export class WorkbenchController {
         await this.actions.openWeb(safeInteractionUrl(item.url));return null;
       }
       case 'session/end-wait':return this.sessionRecovery.endWait(required(p.sessionId,'会话ID'),p.confirm===true);
+      case 'session/api-budget':return this.apiRunner.configureBudget(String(p.sessionId),p.limit,p.expected);
       case 'session/api-acknowledge':{const session=this.session(p.sessionId);if(!localModelBinding(session.binding))throw Error('请确认结束等待当前 API 结果。');return this.sessionRecovery.endWait(session.id,p.confirm===true);}
       case 'ssh/pick-file':{const service=this.actions.sshOnboarding;if(!service)throw Error('SSH 文件选择不可用。');return service.pick(required(p.kind,'文件类型') as 'key'|'config'|'known-hosts');}
       case 'ssh/import-file':{const service=this.actions.sshOnboarding;if(!service)throw Error('SSH 文件导入不可用。');return service.importFile(required(p.filePath,'文件路径'));}

@@ -37,7 +37,7 @@ export function observeTurnTiming(previous: Session | undefined, session: Sessio
   if (session.status === 'running') return;
   const nativeStatus = session.nativeTurnStatus?.toLowerCase();
   timing.status = session.status === 'uncertain' ? 'uncertain'
-    : ['interrupted', 'cancelled', 'canceled', 'stopped'].includes(nativeStatus ?? '') ? 'stopped'
+    : ['interrupted', 'cancelled', 'canceled', 'stopped', 'budget-exhausted'].includes(nativeStatus ?? '') ? 'stopped'
     : session.status === 'blocked' || !!session.nativeError || nativeStatus === 'failed' ? 'failed' : 'completed';
   if (timing.status !== 'uncertain') timing.endedAt = at;
   if (session.nativeError) timing.error = session.nativeError;

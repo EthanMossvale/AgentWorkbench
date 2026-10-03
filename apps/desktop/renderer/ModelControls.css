@@ -69,3 +69,8 @@
 .context-tooltip p { margin:7px 0 5px; font-size:0.769231rem; font-variant-numeric:tabular-nums; }
 .context-tooltip small { display:block; font-size:0.769231rem; }
 .context-tooltip small + small { margin-top:3px; }
+
+.api-call-budget { border-top:1px solid var(--line); margin-top:10px; padding-top:10px; }
+.api-call-budget label { display:flex; align-items:center; justify-content:space-between; gap:8px; font-size:0.846154rem; }
+.api-call-budget input { width:64px; min-width:0; padding:4px 6px; border:1px solid var(--line); border-radius:6px; background:var(--surface); color:var(--text); }
+.api-call-budget small { display:block; color:var(--muted); font-size:0.769231rem; margin-top:6px; }

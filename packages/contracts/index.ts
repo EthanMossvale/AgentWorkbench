@@ -90,6 +90,8 @@ export interface Session extends SessionTitleMetadata {
   agentParent?:{sessionId:string;operationId:string;authorizationQuote:string;taskHash:string};
   /** Independent chat created at the user's request; not a native child lifecycle. */
   agentCreated?:{sourceSessionId:string;operationId:string;initialMessageId:string};
+  apiCallBudget?:number;
+  apiBudgetPause?:import('../model-api/turn-budget').ApiBudgetPause;
   apiSummary?:{text:string;throughMessageId:string;targetId:string;createdAt:string};
   id: string; projectId: string|null; title: string; pinned: boolean; archived: boolean; group: string;
   binding: SessionBinding; status: 'idle' | 'running' | 'blocked' | 'uncertain'; messages: Message[]; createdAt: string;

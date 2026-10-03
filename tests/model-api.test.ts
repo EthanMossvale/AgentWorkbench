@@ -398,3 +398,36 @@ test('approved file-reader extension runs through actual API tool calls and rest
   }
  }finally{await plugins.dispose();await f.close();}
 });
+
+
+test('API turns exceed 64 calls by default and explicit budgets pause after known results without replay',async()=>{
+ let calls=0,finishAfter=65;const f=await fixture(async()=>{calls++;return calls>finishAfter?json(finished('Finished explicitly')):json({choices:[{finish_reason:'tool_calls',message:{role:'assistant',tool_calls:[{id:'list-'+calls,type:'function',function:{name:'workbench_list_sessions',arguments:'{}'}}]}}]});});
+ try{
+  const connection=await f.save();await f.store.update(s=>{s.modelConnections![0]!.models[0]!.contextWindow=1000000;});const chat=await f.create(connection);
+  await f.submit(chat.id);for(let i=0;i<2000&&f.store.snapshot().sessions[0]!.status==='running';i++)await new Promise(r=>setTimeout(r,5));assert.equal(calls,66);assert.equal(f.store.snapshot().sessions[0]!.nativeTurnStatus,'completed');
+  await f.controller.call('session/api-budget',{sessionId:chat.id,limit:2,expected:0});await assert.rejects(f.controller.call('session/api-budget',{sessionId:chat.id,limit:3,expected:0}),/CHANGED/);
+  calls=0;finishAfter=3;await f.submit(chat.id,'Continue within my budget.');await wait(()=>f.store.snapshot().sessions[0]!.status==='idle');const paused=f.store.snapshot().sessions[0]!;assert.equal(calls,2);assert.equal(paused.nativeError,undefined);assert.equal(paused.nativeTurnStatus,'budget-exhausted');assert.equal(paused.apiBudgetPause?.calls,2);assert.equal(paused.turnTimings?.at(-1)?.status,'stopped');
+  const restarted=new StateStore(f.directory);await restarted.load();assert.equal(restarted.snapshot().sessions[0]!.apiCallBudget,2);assert.equal(restarted.snapshot().sessions[0]!.apiBudgetPause?.calls,2);assert.equal(restarted.snapshot().sessions[0]!.status,'idle');
+  await f.submit(chat.id,'Continue with a new explicit instruction.');await wait(()=>f.store.snapshot().sessions[0]!.status==='idle');assert.equal(calls,4);assert.equal(f.store.snapshot().sessions[0]!.apiBudgetPause,undefined);
+ }finally{await f.close();}
+});
+test('approved budget policies drive production API calls and restore the saved budget on disable',async()=>{
+ let calls=0;const f=await fixture(async()=>++calls%3===0?json(finished()):json({choices:[{finish_reason:'tool_calls',message:{role:'assistant',tool_calls:[{id:'list-'+calls,type:'function',function:{name:'workbench_list_sessions',arguments:'{}'}}]}}]}));const plugins=new PluginRegistry(path.join(f.directory,'plugins'));await plugins.initialize();
+ try{
+  for(const[id,service]of Object.entries(f.controller.developmentServices()))if(service)plugins.services.register(id,service,{version:1});
+  const id='test.api-budget',manifest={schemaVersion:1,apiVersion:1,id,name:'Budget fixture',version:'1.0.0',description:'Synthetic budget',capabilities:['host'],main:'main.mjs'},source=`export function activate(api){api.onDispose(api.services.get('runtime.api.budgets').register({id:'plugin:'+api.id+'/budget',limit:()=>1}));}`;
+  const zip=path.join(f.directory,'budget.zip');await writeFile(zip,encodeZip([{name:'workbench.plugin.json',data:Buffer.from(JSON.stringify(manifest))},{name:'main.mjs',data:Buffer.from(source)}]));await plugins.importZip(zip);const hash=(await plugins.list())[0]!.hash;await plugins.setEnabled(id,hash,true,true);const chat=await f.create(await f.save());
+  for(const enabled of [true,false,true]){calls=0;await plugins.setEnabled(id,hash,enabled);await f.submit(chat.id,'List synthetic peers.');await wait(()=>f.store.snapshot().sessions[0]!.status==='idle');assert.equal(calls,enabled?1:3);assert.equal(f.store.snapshot().sessions[0]!.apiCallBudget??0,0);}
+ }finally{await plugins.dispose();await f.close();}
+});
+
+test('API budget is frozen for the active turn and pending steering remains unsent at its boundary',async()=>{
+ let release!:(value:Response)=>void,calls=0;
+ const f=await fixture(async()=>{calls++;if(calls===1)return new Promise<Response>(r=>{release=r;});return json(finished());});
+ try{
+  const chat=await f.create(await f.save());await f.controller.call('session/api-budget',{sessionId:chat.id,limit:1,expected:0});await f.submit(chat.id);await wait(()=>!!release);
+  await f.controller.call('session/api-budget',{sessionId:chat.id,limit:0,expected:1});const extra=await f.submit(chat.id,'Unsent steering at boundary');release(json(finished('Known result')));await wait(()=>f.store.snapshot().sessions[0]!.status==='idle');
+  const s=f.store.snapshot().sessions[0]!;assert.equal(calls,1);assert.equal(s.apiCallBudget,0);assert.equal(s.apiBudgetPause?.limit,1);assert.equal(s.messages.find(m=>m.id===extra.id)?.delivery,'not-sent');
+  await f.submit(chat.id,'Explicit new task');await wait(()=>f.store.snapshot().sessions[0]!.status==='idle');assert.equal(calls,2);assert.ok(!String(f.requests.at(-1)!.init.body).includes('Unsent steering at boundary'));
+ }finally{release?.(json(finished()));await f.close();}
+});

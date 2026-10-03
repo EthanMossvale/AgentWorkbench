@@ -2387,3 +2387,9 @@ Local API tools no longer reject files at 1,000,000 bytes or pages at 32000 char
 ## D025: commands complete independently of output volume (2026-10-03)
 
 The API command runner removes its 16000-character, two-minute and 1 MB termination limits. Full stdout/stderr stream to local profile files, with typed result references and configurable inline previews. Optional explicit timeout and user stop retain owned-process cleanup and uncertain-result handling. Approved executor registrations and replacements reach the real runner; disabling an in-flight executor never starts another execution. Focused tests passed for large scripts/output, Unicode, cancellation and lifecycle; an isolated 122-second command checks the former deadline. Output paths remain available for subsequent file reads, and temporary command scripts are removed.
+
+## D026: user-selected API turn budgets (2026-10-03)
+
+The standalone API loop no longer fails at 64 calls. A compact per-session budget defaults to unlimited and persists after restart; an explicit positive choice pauses at a known request boundary with retained tool results and a visible next-step notice. Active turns freeze their budget, pending untransmitted steering remains unsent, and a new user instruction starts a new turn without replay. Approved policies and named surfaces support replacement and disable restoration through actual production consumers. Native Codex/Claude loops remain native-owned.
+
+Focused model/turn-timing tests and hidden production UI cover more than 64 calls, policy lifecycle, stale writes, frozen configuration, restart and surface restoration. Build, typecheck, plugin contracts, docs and preference gates accompany the change. This does not update the installed desktop or establish live model/SSH acceptance.

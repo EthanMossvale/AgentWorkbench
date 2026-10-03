@@ -5,6 +5,7 @@ export const workbenchSurfaces = Object.freeze({
   'data-directory-settings':'[data-workbench-data-directory-settings]',
   'codex-install-directory':'[data-workbench-codex-install-directory]',
   'composer-model':'[data-workbench-model-controls]', 'composer-runtime':'[data-workbench-runtime-controls]',
+  'api-call-budget':'[data-workbench-api-budget]', 'api-budget-pause':'[data-workbench-api-budget-pause]',
   'composer-account':'[data-workbench-composer-account]',
   'draft-recovery':'[data-workbench-draft-recovery]',
   'annotation-selection':'[data-workbench-annotation-selection]',
