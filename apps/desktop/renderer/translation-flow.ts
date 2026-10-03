@@ -21,6 +21,7 @@ export function preparedDraftAction(options: {
     return preview.moduleDisabled === true && preview.bypass && preview.translated === skillPrompt(annotationPrompt(source,preview.annotations),preview.skills) ? 'submit-original' : 'discard';
   }
   if (preview.moduleDisabled || preview.bypass && !bypass) return 'discard';
+  if (preview.incomplete) return 'review';
   if (annotationsNeedInputTranslation(preview.annotations)) return 'review';
   return autoSubmit && !bypass ? 'submit-translated' : 'review';
 }

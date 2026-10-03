@@ -65,3 +65,5 @@ test('normal retry cannot silently accept an original-only preview',()=>{
  assert.equal(decide(policy,policy,preview({bypass:true}),true,false),'discard');
  assert.equal(decide(policy,policy,preview({bypass:true}),false,true),'review');
 });
+
+test('partial translation uses review while keeping the direct-send preference',()=>{const enabled=translationFlowPolicy(settings());assert.equal(decide(enabled,enabled,preview({incomplete:true}),true),'review');});

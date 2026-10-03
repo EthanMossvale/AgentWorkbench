@@ -175,3 +175,10 @@ test('native execution gate still applies when translation is disabled', async (
     await assert.rejects(f.controller.call('draft/prepare', { sessionId: session.id, text: 'Do not bypass native verification.' }), /Claude SSH 工具连接尚未就绪|H 原生桥/);
   } finally { await f.close(); }
 });
+
+test('partial input previews retain the source, reject automatic send and dispatch once on explicit confirmation',async()=>{
+ const f=await fixture(async()=>Response.json({choices:[{finish_reason:'length',message:{content:'Partial translation'}}]}));
+ try{await f.configure();await f.controller.call('translation/auto-submit',{enabled:true});const session=await f.create();const preview=await f.controller.call('draft/prepare',{sessionId:session.id,text:'完整原稿'}) as DraftPreview;
+ assert.equal(preview.incomplete,true);assert.equal(preview.original,'完整原稿');assert.equal(preview.translated,'Partial translation');const payload={sessionId:session.id,id:preview.id,sourceHash:preview.sourceHash};await assert.rejects(f.controller.call('draft/submit',{...payload,automatic:true}),/部分译文/);assert.equal(f.store.snapshot().sessions[0]!.messages.length,0);await f.controller.call('draft/submit',{...payload,automatic:false});await assert.rejects(f.controller.call('draft/submit',{...payload,automatic:false}));assert.equal(f.store.snapshot().sessions[0]!.messages.filter(m=>m.role==='user').length,1);assert.equal(f.store.snapshot().autoSubmitTranslated,true);
+ }finally{await f.close();}
+});

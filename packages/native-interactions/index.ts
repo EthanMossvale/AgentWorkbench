@@ -23,7 +23,7 @@ export interface NativeInteraction {
 }
 export interface QuestionTranslation { status:'pending'|'complete'|'failed'|'off'; values?:Record<string,string>; error?:string }
 export interface AnswerRecord { questionId:string; original:string[]; submitted:string[]; secret?:boolean }
-export interface AnswerPreview { id:string; sourceHash:string; answers:AnswerRecord[]; review:boolean }
+export interface AnswerPreview { incomplete?:boolean; id:string; sourceHash:string; answers:AnswerRecord[]; review:boolean }
 export function questionSegments(items:NativeQuestion[]):Record<string,string> {
   return Object.fromEntries(items.flatMap((q,i)=>[
     [`q${i}.header`,q.header],[`q${i}.question`,q.question],

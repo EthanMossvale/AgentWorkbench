@@ -25,6 +25,7 @@ export interface TranslationProfile {
   reasoning?: TranslationReasoning; maxOutputTokens?: number;
 }
 export interface TranslationResult {
+  incomplete?:boolean;
   text: string; sourceHash: string; providerId: string; providerName?: string; model: string; direction: TranslationDirection;
   elapsedMs: number; inputTokens: number | null; outputTokens: number | null;
   requestedEffort: string | null; effectiveEffort: string | null; protectionVersion: 1 | 2;
@@ -210,7 +211,7 @@ export interface AppState {
   /** Computed by the trusted host from local acceptance evidence, never a renderer grant. */
   nativeCodexBindings?:{hostId:string;accountRef:string}[];
 }
-export interface DraftPreview { annotations?:import('../context-annotations').ContextAnnotation[]; annotationRevision?:number; followUp?:import('../session-core/follow-ups').FollowUpIntent; skills?:import('../native-skills/invocation').SkillInvocation[]; attachments?:import('../attachments/types').Attachment[]; id: string; revision: number; original: string; translated: string; sourceHash: string; demo: boolean; bypass: boolean; moduleDisabled?:boolean; revisions?:{source:string;instruction?:string}[] }
+export interface DraftPreview { incomplete?:boolean; annotations?:import('../context-annotations').ContextAnnotation[]; annotationRevision?:number; followUp?:import('../session-core/follow-ups').FollowUpIntent; skills?:import('../native-skills/invocation').SkillInvocation[]; attachments?:import('../attachments/types').Attachment[]; id: string; revision: number; original: string; translated: string; sourceHash: string; demo: boolean; bypass: boolean; moduleDisabled?:boolean; revisions?:{source:string;instruction?:string}[] }
 export interface Capability { id: string; label: string; status: 'implemented' | 'contract-tested' | 'unverified' | 'unsupported'; detail: string }
 export type ApiResult<T = unknown> = { ok: true; value: T } | { ok: false; error: string };
 export type DesktopCommand = 'new-session' | 'new-project' | 'settings' | 'search' | 'toggle-sidebar' | 'back' | 'forward' | 'shortcuts' | 'capabilities' | 'about' | 'archive-session' | 'delete-session' | 'pin-session' | 'unread-session' | 'focus-composer' | 'zoom-in' | 'zoom-out' | 'zoom-reset' | 'fullscreen' | 'menu-file' | 'menu-edit' | 'menu-view' | 'menu-help' | 'close-window' | 'quit-app';

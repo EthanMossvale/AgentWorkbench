@@ -6,7 +6,7 @@ export interface TranslationTarget {
   id: string; name: string; description: string; model: string; runtime: RuntimeKind;
   ready: boolean; reason?: string; efforts: string[]; defaultEffort?: string;
 }
-export interface TranslationCompletion { text: string; counts: TokenCounts; model?: string; reasoningTokens?: number | null }
+export interface TranslationCompletion { incomplete?:boolean; text: string; counts: TokenCounts; model?: string; reasoningTokens?: number | null }
 export interface TranslationExecutionRequest { instructions: string; input: string; profile: TranslationProfile; signal: AbortSignal }
 export interface TranslationBackend {
   profile: TranslationProfile; key?: string; auth?: 'key' | 'none'; runtime: RuntimeKind; sourceId: string;

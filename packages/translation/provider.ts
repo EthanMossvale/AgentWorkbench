@@ -1,3 +1,4 @@
+import {TranslationOutputs} from './output';
 import {apiEndpoints} from '../model-api/endpoints';
 import type { Protocol, TranslationDirection, TranslationProfile, TranslationResult } from '../contracts/index';
 import { randomUUID } from 'node:crypto';
@@ -76,39 +77,8 @@ export async function listModels(profile: TranslationProfile, key: string, fetch
   }
   throw new Error('模型目录分页超过安全限制；可手动填写模型 ID。');
 }
-function outputText(data:JsonObject,protocol:Protocol):string {
-  const invalid=()=>new Error('翻译被拒绝、包含工具请求或未完整完成；已阻止提交。');
-  let output:unknown;
-  if(protocol==='responses'){
-    if(data.status!=='completed'||data.error||data.incomplete_details)throw invalid();
-    if(data.output!==undefined&&!Array.isArray(data.output))throw invalid();
-    const parts:string[]=[];
-    for(const item of data.output??[] as unknown[]){
-      if(!object(item))throw invalid();
-      if(item.type==='reasoning')continue;
-      if(item.type!=='message'||(item.status!==undefined&&item.status!=='completed')||!Array.isArray(item.content))throw invalid();
-      for(const part of item.content){if(!object(part)||part.type!=='output_text'||typeof part.text!=='string')throw invalid();parts.push(part.text);}
-    }
-    output=parts.length?parts.join(''):data.output_text;
-  }else if(protocol==='anthropic-messages'){
-    if((data.stop_reason!=='end_turn'&&data.stop_reason!=='stop_sequence')||!Array.isArray(data.content))throw invalid();
-    const parts:string[]=[];
-    for(const part of data.content){
-      if(!object(part))throw invalid();
-      if(part.type==='thinking'||part.type==='redacted_thinking')continue;
-      if(part.type!=='text'||typeof part.text!=='string')throw invalid();
-      parts.push(part.text);
-    }
-    output=parts.join('');
-  }else{
-    const choice=Array.isArray(data.choices)?data.choices[0]:undefined;
-    if(!object(choice)||choice.finish_reason!=='stop'||!object(choice.message)||choice.message.refusal||choice.message.function_call||(Array.isArray(choice.message.tool_calls)?choice.message.tool_calls.length:choice.message.tool_calls))throw invalid();
-    output=choice.message.content;
-  }
-  if(typeof output!=='string'||!output.trim())throw new Error('上游未返回可用的翻译文本；已阻止提交。');
-  return output;
-}
 export class Translator {
+  readonly outputs=new TranslationOutputs();
   private calls=new Map<string,number>();
   private unsaved=new Map<string,TranslationUsageReceipt>();
   private receiptQueue:Promise<void>=Promise.resolve();
@@ -152,24 +122,26 @@ export class Translator {
     const started=Date.now();
     let counts:TokenCounts=parseTokenCounts(undefined,profile.protocol),reasoningTokens:number|null=null,reportedModel=profile.model,status:'complete'|'failed'='failed';
     try {
-    let output:string;
-    if(backend?.execute){const result=await backend.execute({instructions:instruction,input:protectedText.text,profile,signal:combined});counts=result.counts;reasoningTokens=result.reasoningTokens??null;reportedModel=result.model??profile.model;output=result.text;assertActive(combined);}
+    let output:string,incomplete=false;
+    if(backend?.execute){const result=await backend.execute({instructions:instruction,input:protectedText.text,profile,signal:combined});counts=result.counts;reasoningTokens=result.reasoningTokens??null;reportedModel=result.model??profile.model;output=result.text;incomplete=!!result.incomplete;assertActive(combined);}
     else {
       const data=await request(this.fetcher,url!,{method:'POST',headers:auth,body:JSON.stringify(body)},combined);
       counts=parseTokenCounts(data.usage,profile.protocol);
       const usage=object(data.usage)?data.usage:{};
       reasoningTokens=tokenCount(object(usage.output_tokens_details)?usage.output_tokens_details.reasoning_tokens:object(usage.completion_tokens_details)?usage.completion_tokens_details.reasoning_tokens:undefined);
       if(typeof data.model==='string')reportedModel=data.model;
-      output=outputText(data,profile.protocol);
+      const result=this.outputs.read(data,profile.protocol);output=result.text;incomplete=!!result.incomplete;
     }
     let result:string;
+    const restoreVisible=(value:string,source:ReturnType<typeof protect>)=>{try{return restore(value,source);}catch{incomplete=true;let visible=value;for(const span of source.spans)visible=visible.replaceAll(span.token,span.original);return visible;}};
     if(protectedSegments){
-      let translated:unknown;try{translated=JSON.parse(output);}catch{throw Error('分段译文格式无效，未使用错位译文。');}
-      if(!object(translated)||Object.keys(translated).length!==Object.keys(protectedSegments).length||Object.keys(translated).some(id=>!Object.hasOwn(protectedSegments,id))||Object.values(translated).some(value=>typeof value!=='string'||!value.trim()))throw Error('分段译文不完整，未使用错位译文。');
-      result=JSON.stringify(Object.fromEntries(Object.entries(protectedSegments).map(([id,value])=>[id,restore(translated[id] as string,value)])));
-    }else result=restore(output,protectedText);
+      let translated:unknown;try{translated=JSON.parse(output);}catch{incomplete=true;translated=Object.fromEntries([...output.matchAll(/"((?:[^"\\]|\\.)*)"\s*:\s*"((?:[^"\\]|\\.)*)"/g)].flatMap(match=>{try{return [[JSON.parse('"'+match[1]+'"'),JSON.parse('"'+match[2]+'"')]];}catch{return [];}}));}
+      if(!object(translated)){incomplete=true;translated={};}const fields=translated as Record<string,unknown>;
+      if(Object.keys(fields).length!==Object.keys(protectedSegments).length||Object.keys(fields).some(id=>!Object.hasOwn(protectedSegments,id)))incomplete=true;
+      result=JSON.stringify(Object.fromEntries(Object.entries(protectedSegments).map(([id,value])=>{const part=fields[id];if(typeof part!=='string'||!part.trim()){incomplete=true;return [id,segments![id]!];}try{return [id,restore(part,value)];}catch{incomplete=true;return [id,segments![id]!];}})));
+    }else result=restoreVisible(output,protectedText);
     const requestedEffort=reasoning?.mode==='budget'?`budget:${reasoning.budgetTokens}`:reasoning?.effort??(reasoning?.mode==='adaptive'?'adaptive':null);
-    status='complete';return {text:result,sourceHash:protectedText.sourceHash,providerId:backend?.sourceId??profile.id,providerName:profile.name,model:reportedModel,direction,elapsedMs:Date.now()-started,inputTokens:counts.inputTokens,outputTokens:counts.outputTokens,requestedEffort,effectiveEffort:null,protectionVersion:PROTECTION_VERSION};
+    status=incomplete?'failed':'complete';return {...(incomplete?{incomplete:true}:{}),text:result,sourceHash:protectedText.sourceHash,providerId:backend?.sourceId??profile.id,providerName:profile.name,model:reportedModel,direction,elapsedMs:Date.now()-started,inputTokens:counts.inputTokens,outputTokens:counts.outputTokens,requestedEffort,effectiveEffort:null,protectionVersion:PROTECTION_VERSION};
     } catch(error){
       if(error instanceof TranslationExecutionError){counts=error.counts;reportedModel=error.model;reasoningTokens=error.reasoningTokens;}
       throw error;
@@ -180,7 +152,8 @@ export class Translator {
   async integrateSupplement(original:string,supplement:string,profile:TranslationProfile,key:string,signal?:AbortSignal,backend?:TranslationBackend,sessionId='runtime'){
     if(!supplement.trim())throw new Error('请输入要补充或调整的要求。');
     const merged=await this.translate(`CURRENT REQUEST\n${original}\n\nUSER SUPPLEMENT\n${supplement}`,'output',profile,key,signal,'refine',backend,sessionId);
+    if(merged.incomplete)return {original,translated:merged.text,incomplete:true};
     const translated=await this.translate(merged.text,'input',profile,key,signal,'translation',backend,sessionId);
-    return {original:merged.text,translated:translated.text};
+    return {original:merged.text,translated:translated.text,...(translated.incomplete?{incomplete:true}:{})};
   }
 }

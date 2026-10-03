@@ -66,15 +66,17 @@ export class NativeInteractionFlow {
     try{
       const preview=await this.gate.prepare(id,async(original,signal)=>{
         this.module.assertConfiguration(policy);
+        let incomplete=false;
         const pending=enabled?custom.filter(a=>/\p{Script=Han}/u.test(a.value)):[];
         if(pending.length){
           const translated=await this.module.segments(Object.fromEntries(pending.map(a=>[a.key,a.value])),'input',id,signal,sessionId);
+          incomplete=!!translated.incomplete;
           for(const a of pending)records[a.i]!.submitted[a.j]=translated.value[a.key]!;
         }
         this.current(sessionId,requestId,receipt);this.module.assertConfiguration(policy);
-        return JSON.stringify(Object.fromEntries(records.map(a=>[a.questionId,a.submitted])));
+        return {text:JSON.stringify(Object.fromEntries(records.map(a=>[a.questionId,a.submitted]))),incomplete};
       },false,!enabled,!enabled);
-      return {id,sourceHash:preview.sourceHash,answers:records.map(a=>a.secret?{...a,original:[],submitted:[]}:structuredClone(a)),review:meta.review};
+      return {id,incomplete:preview.incomplete,sourceHash:preview.sourceHash,answers:records.map(a=>a.secret?{...a,original:[],submitted:[]}:structuredClone(a)),review:meta.review};
     }catch(error){this.previews.delete(id);throw error;}finally{this.requests.delete(clientRequest);}
   }
   cancel(id?:string,request?:string){const target=id??this.requests.get(request??'');if(target){this.gate.cancel(target);this.previews.delete(target);}return null;}
@@ -84,6 +86,7 @@ export class NativeInteractionFlow {
     this.module.assertConfiguration(meta.policy);
     if(automatic&&meta.review&&(!this.module.enabled()||!this.hooks.snapshot().autoSubmitTranslated))throw Error('直接发送已关闭，请检查回答预览后确认。');
     const preview=this.gate.getPreview(id,JSON.stringify([sessionId,meta.receipt]));
+    if(automatic&&preview.incomplete)throw Error('译文尚未完整完成，请检查回答预览后确认发送。');
     const answers=validateAnswers(item.questions??[],JSON.parse(preview.translated));
     try{return await this.gate.submit(id,JSON.stringify([sessionId,meta.receipt]),sourceHash,async()=>{
       this.current(sessionId,meta.requestId,meta.receipt);this.module.assertConfiguration(meta.policy);

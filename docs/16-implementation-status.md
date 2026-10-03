@@ -2405,3 +2405,8 @@ Model mappings accept custom reasoning names and lists beyond seven/twenty entri
 ## D029: endpoint addresses follow explicit configuration (2026-10-03)
 
 HTTP and LAN/link-local addresses are accepted without extra hostname interception. Query/fragment-bearing addresses persist; request resources append to the pathname while preserving queries and omitting fragments on the wire. Translation, direct API, probes and both native gateway paths share a typed production endpoint registry, verified with an approved plugin and disable restoration. Existing independent credentials and login-web boundaries remain. All 78 focused tests passed; type/plugin/docs/preference gates apply. No external endpoint, real model, native CLI, live SSH or user installation was changed.
+
+
+## D030 partial translation delivery (2026-10-03)
+
+Readable partial translations now reach the existing input/answer preview and all output reading consumers with a visible incomplete indication. Three API response protocols and both native runtime completions propagate optional incomplete metadata. Original inputs remain available, missing/mismatched segments keep their own source, and automatic submission never consumes partial text; explicit confirmation retains once-only dispatch. No retries or new approval flow. The production output-reader service supports approved registration/replacement and disposal; docs 36/37 and contract declarations are synchronized. 135 focused source/protocol cases and type checks pass; isolated hidden production UI validates plugin lifecycle and restart. This is source and synthetic acceptance only, not an installed desktop upgrade, real model or remote deployment.

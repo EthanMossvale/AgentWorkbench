@@ -28,6 +28,7 @@ export class TranslationModule {
   constructor(private state: () => AppState, private key: (scope: string) => Promise<string>, private fetcher: Fetcher = fetch, observed?:(receipt:TranslationUsageReceipt)=>Promise<void>, reserve?:(sessionId:string,limit:number)=>Promise<void>) {
     this.translator = new Translator(fetcher, observed, reserve);
   }
+  get outputs(){return this.translator.outputs;}
   enabled() { return !this.disposed && translationEnabled(this.state()); }
   private assertModuleEnabled() { if (this.disposed || !translationModuleEnabled(this.state())) throw new Error('翻译模块已关闭；请先在设置中开启。'); }
   assertEnabled() { this.assertModuleEnabled(); if (!this.enabled()) throw new Error('翻译已临时暂停；请在会话框左下角恢复翻译。'); }
@@ -67,7 +68,7 @@ export class TranslationModule {
       return this.translator.translate(text, direction, context.backend.profile, context.key, context.signal,'translation',context.backend,sessionId);
     }, context.signal);
     this.assertCurrent(context.policy);
-    return { value, policy: context.policy };
+    return { value:direction==='output'&&value.incomplete?{...value,text:'（部分译文，尚未完成）\n'+value.text}:value, policy: context.policy };
     }finally{finish();}
   }
   async refine(original: string, instruction: string, operationId: string, signal?: AbortSignal, sessionId='runtime') {
@@ -86,7 +87,8 @@ export class TranslationModule {
     const context=await this.requestContext(signal);
     const value=await this.queue.enqueue(operationId,'input',()=>this.translator.translate(JSON.stringify(values),direction,context.backend.profile,context.key,context.signal,'segments',context.backend,sessionId),context.signal);
     this.assertCurrent(context.policy);
-    return {value:JSON.parse(value.text) as Record<string,string>,policy:context.policy};
+    const translated=JSON.parse(value.text) as Record<string,string>;
+    return {value:direction==='output'&&value.incomplete?Object.fromEntries(Object.entries(translated).map(([id,text])=>[id,'（部分译文，尚未完成；缺失段落保留原文）\n'+text])):translated,incomplete:value.incomplete,policy:context.policy};
     }finally{finish();}
   }
   async dispose() { if (!this.disposed) { this.disposed = true; this.policy.invalidate(); this.targets.dispose(); } await Promise.all([...this.pending.values()].map(task=>task.done)); }

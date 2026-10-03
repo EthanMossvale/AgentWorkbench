@@ -62,7 +62,7 @@ test('usage includes cache and reasoning for every protocol, and retains counts 
  for(const protocol of ['responses','chat-completions','anthropic-messages'] as const){
   const receipts:TranslationUsageReceipt[]=[];
   const t=new Translator(async()=>Response.json(protocol==='responses'?{status:'incomplete',usage:{input_tokens:100,output_tokens:20,input_tokens_details:{cached_tokens:60},output_tokens_details:{reasoning_tokens:5},total_tokens:120}}:protocol==='chat-completions'?{choices:[{finish_reason:'length',message:{content:'partial'}}],usage:{prompt_tokens:100,completion_tokens:20,prompt_tokens_details:{cached_tokens:60},completion_tokens_details:{reasoning_tokens:5},total_tokens:120}}:{stop_reason:'max_tokens',content:[{type:'text',text:'partial'}],usage:{input_tokens:10,cache_read_input_tokens:60,cache_creation_input_tokens:30,output_tokens:20}}),async r=>{receipts.push(r);});
-  await assert.rejects(t.translate('input','input',{...profile(),protocol},'synthetic-key'));
+  if(protocol==='responses')await assert.rejects(t.translate('input','input',{...profile(),protocol},'synthetic-key'));else assert.equal((await t.translate('input','input',{...profile(),protocol},'synthetic-key')).incomplete,true);
   assert.equal(receipts.length,1);assert.equal(receipts[0]!.inputTokens,100);assert.equal(receipts[0]!.cacheReadTokens,60);assert.equal(receipts[0]!.outputTokens,20);assert.equal(receipts[0]!.status,'failed');
   assert.equal(receipts[0]!.reasoningTokens,protocol==='anthropic-messages'?null:5);
  }

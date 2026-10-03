@@ -331,7 +331,7 @@ export class WorkbenchController {
       'native.memory-background': this.shared?.native?.memory?.background,
       'native.memory-default': this.memoryDefaults,
       'native.memory-reference-writer': this.shared?.native?.memory?.referenceWriter,
-      'translation.targets': this.translationModule.targets, 'translation.workbench-targets': this.translationTargets, 'runtime.translation-native': this.translationNative, 'translation': this.translationModule, 'interactions': this.interactionFlow,
+      'translation.outputs':this.translationModule.outputs, 'translation.targets': this.translationModule.targets, 'translation.workbench-targets': this.translationTargets, 'runtime.translation-native': this.translationNative, 'translation': this.translationModule, 'interactions': this.interactionFlow,
       'collaboration': this.peerInbox, 'submission.gate': this.gate, 'composer.recovery': draftRecovery,
       'sessions.agent-tools': this.chatSessions,
       'attachments.payload-policies': this.actions.attachments?.payloadPolicies,
@@ -1097,23 +1097,23 @@ export class WorkbenchController {
         try{const result=await this.gate.prepare(id,async(source,signal)=>{
           this.translationModule.assertConfiguration(policy);
           if(question){
-            const records=structuredClone(question.answers);
+            const records=structuredClone(question.answers);let incomplete=false;
             const custom=question.message.questions!.flatMap((q,i)=>records[q.id]!.flatMap((value,j)=>q.options.some(option=>option.label===value)||!/[\p{Script=Han}]/u.test(value)?[]:[{key:`a${i}.${j}`,questionId:q.id,index:j,value}]));
-            if(!bypass&&custom.length){const translated=await this.translationModule.segments(Object.fromEntries(custom.map(a=>[a.key,a.value])),'input',id,signal,session.id);for(const a of custom)records[a.questionId]![a.index]=translated.value[a.key]!;}
+            if(!bypass&&custom.length){const translated=await this.translationModule.segments(Object.fromEntries(custom.map(a=>[a.key,a.value])),'input',id,signal,session.id);incomplete=!!translated.incomplete;for(const a of custom)records[a.questionId]![a.index]=translated.value[a.key]!;}
             currentAsyncQuestion(this.session(session.id),question.reference.messageId,question.reference);this.translationModule.assertConfiguration(policy);
-            return question.serialize(records);
+            return {text:question.serialize(records),incomplete};
           }
           if(bypass)return source;
           if(demo)return DEMO_TRANSLATED;
           if(annotations?.items.length&&/[\p{Script=Han}]/u.test(source+annotations.items.map(item=>item.text).join(''))){
             const segments:Record<string,string>={};if(source.trim())segments.body=source;annotations.items.forEach((item,index)=>{segments['annotation_'+index]=item.text;});
-            const translated=(await this.translationModule.segments(segments,'input',`${session.id}:${id}:annotations`,signal,session.id)).value;
+            const delivery=await this.translationModule.segments(segments,'input',`${session.id}:${id}:annotations`,signal,session.id),translated=delivery.value;
             this.translationModule.assertConfiguration(policy);
             if(Object.keys(segments).some(key=>typeof translated[key]!=='string'||!translated[key]!.trim()))throw Error('注释翻译不完整，草稿已保留，请重试。');
-            return {text:source.trim()?translated.body!:source,annotations:annotations.items.map((item,index)=>({...item,translatedText:translated['annotation_'+index]!}))};
+            return {incomplete:delivery.incomplete,text:source.trim()?translated.body!:source,annotations:annotations.items.map((item,index)=>({...item,translatedText:translated['annotation_'+index]!}))};
           }
           if(!/[\p{Script=Han}]/u.test(source))return source;
-          return (await this.translationModule.translate(source,'input',`${session.id}:${id}:input`,'input',signal,session.id)).value.text;
+          return (await this.translationModule.translate(source,'input',`${session.id}:${id}:input`,'input',signal,session.id)).value;
         },demo,bypass,moduleDisabled);return {...result,...(intent?{followUp:intent}:{})};}catch(error){this.questionPreviews.delete(id);this.steeringPreviews.delete(id);throw error;}finally{this.requests.delete(requestId);}
         });
       }
@@ -1134,6 +1134,7 @@ export class WorkbenchController {
         const session=this.session(p.sessionId);const id=required(p.id,'输入ID');this.assertDraftRuntime(session);const steering=this.steeringPreviews.get(id);if(steering?(session.nativeTurnId!==steering.expectedTurnId||!(session.status==='running'||steering.action==='queue'&&session.status==='idle')):session.status!=='idle')throw new Error('回合已结束或变化，请重新检查草稿；没有自动发送新任务。');
         if(p.automatic===true&&(!this.translationModule.enabled()||!this.store.snapshot().autoSubmitTranslated))throw new Error('直接发送已关闭，请检查预览后确认。');
         const preview=this.gate.getPreview(id,session.id);
+        if(p.automatic===true&&preview.incomplete)throw Error('部分译文需要在现有预览中核对后发送。');
         if(p.automatic===true&&preview.bypass&&!preview.moduleDisabled)throw Error('原文发送需要核对预览后确认。');
         if(p.automatic===true&&!preview.moduleDisabled&&annotationsNeedInputTranslation(preview.annotations))throw Error('中文注释需要确认发送预览。');
         if(preview.annotationRevision!==undefined&&this.annotations.read(session.id).revision!==preview.annotationRevision)throw Error('ANNOTATION_CONFLICT');

@@ -148,20 +148,21 @@ test('fetch and stream failures are sanitized and never retried',async()=>{
   await assert.rejects(streamTranslator.translate('文本','input',base,secret),error=>error instanceof Error&&!error.message.includes(secret)&&error.message.includes('读取'));
 });
 
-test('empty, malformed, refused and tool-bearing responses cannot become translations',async()=>{
-  const fixtures:[Protocol,unknown][]=[
-    ['responses',{output_text:'Not confirmed complete'}],
-    ['responses',{status:'completed',output_text:'Text',output:[{type:'function_call',name:'tool'}]}],
-    ['responses',{status:'completed',output:[{type:'message',content:[{type:'refusal',refusal:'No'}]}]}],
-    ['responses',{status:'completed',output:'malformed'}],
-    ['responses',{status:'completed',output_text:'  '}],
-    ['anthropic-messages',{stop_reason:'end_turn',content:[{type:'tool_use',name:'tool'},{type:'text',text:'Text'}]}],
-    ['anthropic-messages',{stop_reason:'end_turn',content:[{type:'thinking',thinking:'Private'}]}],
-    ['chat-completions',{choices:[{finish_reason:'stop',message:{content:'Text',function_call:{name:'tool'}}}]}],
-    ['chat-completions',{choices:[{finish_reason:'stop',message:{content:''}}]}],
-    ['chat-completions',null],
-  ];
-  for(const [protocol,data] of fixtures){const translator=new Translator(async()=>Response.json(data));await assert.rejects(translator.translate('文本','input',{...base,protocol},'fixture'));}
+test('readable non-final and tool-bearing responses preserve partial text without executing tools',async()=>{
+ const fixtures:[Protocol,unknown][]=[
+ ['responses',{output_text:'Partial'}],
+ ['responses',{status:'completed',output_text:'Partial',output:[{type:'function_call',name:'tool'}]}],
+ ['anthropic-messages',{stop_reason:'tool_use',content:[{type:'tool_use',name:'tool'},{type:'text',text:'Partial'}]}],
+ ['chat-completions',{choices:[{finish_reason:'length',message:{content:'Partial',function_call:{name:'tool'}}}]}]];
+ for(const [protocol,data] of fixtures){let calls=0;const translator=new Translator(async()=>{calls++;return Response.json(data);});const result=await translator.translate('文本','input',{...base,protocol},'fixture');assert.equal(result.text,'Partial');assert.equal(result.incomplete,true);assert.equal(calls,1);}
+});
+test('empty, malformed and refusal-only responses still have no translation',async()=>{
+ const fixtures:[Protocol,unknown][]=[
+ ['responses',{status:'completed',output:[{type:'message',content:[{type:'refusal',refusal:'No'}]}]}],
+ ['responses',{status:'completed',output:'malformed'}],['responses',{status:'completed',output_text:'  '}],
+ ['anthropic-messages',{stop_reason:'end_turn',content:[{type:'thinking',thinking:'Private'}]}],
+ ['chat-completions',{choices:[{finish_reason:'stop',message:{content:''}}]}],['chat-completions',null]];
+ for(const [protocol,data] of fixtures){const translator=new Translator(async()=>Response.json(data));await assert.rejects(translator.translate('文本','input',{...base,protocol},'fixture'));}
 });
 
 test('thinking content stays separate and is never returned as translated text',async()=>{
