@@ -51,7 +51,7 @@ for(const runtime of ['claude','codex'])test(`${runtime}: Windows managed layout
     assert.equal((await f.attachments.importViewedImages([path.join(link,'key.png')],workspace))[0]!.sha256,view!.sha256);
     await writeFile(view!.path,'changed');await assert.rejects(f.attachments.views([view!.id]),/变化/);await assert.rejects(f.attachments.importViewedImages([view!.path],workspace),/SOURCE_UNAVAILABLE/);
     const large=path.join(os.tmpdir(),path.basename(f.directory)+'.blend'),handle=await open(large,'w');await handle.truncate(21*1024*1024);await handle.close();
-    try{await assert.rejects(f.attachments.import([{filePath:large}]),/完整文件路径/);}finally{await rm(large);}
+    try{assert.equal((await f.attachments.import([{filePath:large}]))[0]!.size,21*1024*1024);}finally{await rm(large);}
   }finally{await f.close();}
 });
 

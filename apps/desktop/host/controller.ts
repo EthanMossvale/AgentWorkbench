@@ -192,7 +192,7 @@ export class WorkbenchController {
   private async dispatchDraft(session:Session,preview:DraftPreview,steering?:string,beforeDispatch?:()=>void){
     this.assertDraftRuntime(session);
     if(preview.skills?.length)await this.resolveComposerSkills(session,preview.skills.map(({id,hash})=>({id,hash})));
-    if(preview.attachments?.length)await this.actions.attachments!.payloads(preview.attachments.map(a=>a.id));
+    if(preview.attachments?.length)await this.actions.attachments!.payloads(preview.attachments.map(a=>a.id),{channel:'verify'});
     if(!steering&&session.binding.runtime==='api')await this.apiRunner.settleCompleted(session.id);
     beforeDispatch?.();
     const result=await (isPluginRuntime(session.binding.runtime)?(steering?this.pluginRuntimes.steer(session.id,preview):this.pluginRuntimes.submit(session.id,preview)):steering?(this.providerBinding(session.binding)?this.providerRunner(session).steer(session.id,preview,steering):this.nativeCodex!.steer(session.id,preview,steering)):session.binding.runtime==='demo'?this.runDemo(session.id,preview):this.providerBinding(session.binding)?this.providerRunner(session).submit(session.id,preview):this.nativeCodex!.submit(session.id,preview));
@@ -333,6 +333,7 @@ export class WorkbenchController {
       'translation.targets': this.translationModule.targets, 'translation.workbench-targets': this.translationTargets, 'runtime.translation-native': this.translationNative, 'translation': this.translationModule, 'interactions': this.interactionFlow,
       'collaboration': this.peerInbox, 'submission.gate': this.gate, 'composer.recovery': draftRecovery,
       'sessions.agent-tools': this.chatSessions,
+      'attachments.payload-policies': this.actions.attachments?.payloadPolicies,
       'images.generated': this.generatedImages,
       'images.viewed': this.viewedImages,
       'submission.leases': this.leases, 'submission.ledger': this.ledger,
@@ -790,10 +791,10 @@ export class WorkbenchController {
       case 'attachments/views':{if(!this.actions.attachments)throw Error('附件存储不可用。');return this.actions.attachments.views(p.ids);}
       case 'attachments/activity-images':{if(!this.viewedImages)throw Error('ATTACHMENT_STORE_UNAVAILABLE');return this.viewedImages.read({sessionId:required(p.sessionId,'Session ID',256),activityId:required(p.activityId,'Activity ID',1024)});}
       case 'attachments/copy-image':{if(!this.actions.attachments)throw Error('ATTACHMENT_STORE_UNAVAILABLE');return this.actions.attachments.copyImage(required(p.id,'Attachment ID',36));}
-      case 'attachments/open':{if(!this.actions.attachments)throw Error('ATTACHMENT_STORE_UNAVAILABLE');const item=(await this.actions.attachments.payloads([required(p.id,'Attachment ID',36)]))[0]!;await this.actions.openPath(item.attachment.path);return {opened:true};}
+      case 'attachments/open':{if(!this.actions.attachments)throw Error('ATTACHMENT_STORE_UNAVAILABLE');const item=(await this.actions.attachments.payloads([required(p.id,'Attachment ID',36)],{channel:'verify'}))[0]!;await this.actions.openPath(item.attachment.path);return {opened:true};}
       case 'attachments/save-as':{if(!this.actions.attachments)throw Error('ATTACHMENT_STORE_UNAVAILABLE');return this.actions.attachments.saveAs(required(p.id,'Attachment ID',36),p.png);}
       case 'attachments/storage':{if(!this.actions.attachments)throw Error('ATTACHMENT_STORE_UNAVAILABLE');return this.actions.attachments.locations();}
-      case 'attachments/reveal':{if(!this.actions.attachments||!this.actions.revealPath)throw Error('ATTACHMENT_REVEAL_UNAVAILABLE');const item=(await this.actions.attachments.payloads([p.id]))[0]!;await this.actions.revealPath(item.attachment.path);return {revealed:true};}
+      case 'attachments/reveal':{if(!this.actions.attachments||!this.actions.revealPath)throw Error('ATTACHMENT_REVEAL_UNAVAILABLE');const item=(await this.actions.attachments.payloads([p.id],{channel:'verify'}))[0]!;await this.actions.revealPath(item.attachment.path);return {revealed:true};}
       case 'attachments/open-storage':{if(!this.actions.attachments)throw Error('ATTACHMENT_STORE_UNAVAILABLE');const locations=this.actions.attachments.locations();if(p.kind!=='managed'&&p.kind!=='clipboard')throw Error('ATTACHMENT_STORAGE_INVALID');await mkdir(locations[p.kind],{recursive:true});await this.actions.openPath(locations[p.kind]);return {opened:true};}
       case 'attachments/cleanup':{if(!this.actions.attachments)throw Error('ATTACHMENT_STORE_UNAVAILABLE');const ids=this.store.snapshot().sessions.flatMap(s=>[...(s.forkAttachments??[]),...s.messages.flatMap(m=>m.attachments??[]),...(s.draftRecoveries??[]).flatMap(r=>r.preview.attachments??[]),...(s.followUps??[]).flatMap(r=>r.preview.attachments??[]),...(s.activities??[]).flatMap(a=>[...(a.imageDelivery?.attachment?[a.imageDelivery.attachment]:[]),...(a.viewedAttachments??[])])]).map(a=>a.id);return this.actions.attachments.cleanup([...new Set(ids)]);}
       case 'sidebar/collapse-all':{const collapsed=flag(p.collapsed,'折叠项目');return this.update(s=>{s.sidebarCollapsedProjectIds=collapsed?orderedProjects(s).map(p=>p.id):[];});}
@@ -1083,7 +1084,7 @@ export class WorkbenchController {
         const policy=this.translationModule.captureConfiguration();
         const question=p.questionReply===undefined?undefined:prepareAsyncQuestion(session,p.questionReply);
         if(question&&(p.attachmentIds!==undefined||p.skills!==undefined||p.demo===true||p.bypass===true||p.text!==undefined))throw Error('ASYNC_QUESTION_INVALID');
-        const attachments=p.attachmentIds===undefined?[]:await this.actions.attachments?.resolve(p.attachmentIds);if(!attachments)throw Error('附件存储不可用。');if(session.binding.runtime==='codex'&&attachments.filter(a=>a.mime.startsWith('image/')).reduce((sum,a)=>sum+a.size,0)>5*1024*1024)throw Error('当前原生连接每条消息最多发送 5 MB 图片，请减少图片或压缩后重新添加。');const input=question?.original??text(p.text,'输入',100000);const annotations=p.annotationRevision===undefined?undefined:this.annotations.read(session.id);if(annotations&&annotations.revision!==p.annotationRevision)throw Error('ANNOTATION_CONFLICT');if(!input.trim()&&!annotations?.items.length&&!attachments.length&&!(Array.isArray(p.skills)&&p.skills.length))throw new Error('输入不能为空。');const moduleDisabled=!this.translationModule.enabled(),demo=!moduleDisabled&&p.demo===true,bypass=moduleDisabled||p.bypass===true;
+        const attachments=p.attachmentIds===undefined?[]:await this.actions.attachments?.resolve(p.attachmentIds);if(!attachments)throw Error('附件存储不可用。');const input=question?.original??text(p.text,'输入',100000);const annotations=p.annotationRevision===undefined?undefined:this.annotations.read(session.id);if(annotations&&annotations.revision!==p.annotationRevision)throw Error('ANNOTATION_CONFLICT');if(!input.trim()&&!annotations?.items.length&&!attachments.length&&!(Array.isArray(p.skills)&&p.skills.length))throw new Error('输入不能为空。');const moduleDisabled=!this.translationModule.enabled(),demo=!moduleDisabled&&p.demo===true,bypass=moduleDisabled||p.bypass===true;
         if(demo&&input!==DEMO_INPUT)throw new Error('离线翻译只提供明确的固定样例；其他中文请配置真实翻译服务或本次直接发送原文。');
         if(!demo&&session.status==='idle')void this.prepareRuntime(session.id).catch(()=>{});
         const skills=await this.resolveComposerSkills(session,p.skills);
@@ -1137,7 +1138,7 @@ export class WorkbenchController {
         if(preview.annotationRevision!==undefined&&this.annotations.read(session.id).revision!==preview.annotationRevision)throw Error('ANNOTATION_CONFLICT');
         const question=this.questionPreviews.get(id);if(question)currentAsyncQuestion(session,question.reference.messageId,question.reference);
         if(preview.skills?.length)await this.resolveComposerSkills(session,preview.skills.map(({id,hash})=>({id,hash})));
-        if(preview.attachments?.length)await this.actions.attachments!.payloads(preview.attachments.map(a=>a.id));
+        if(preview.attachments?.length)await this.actions.attachments!.payloads(preview.attachments.map(a=>a.id),{channel:'verify'});
         if(!!preview.moduleDisabled===this.translationModule.enabled())throw new Error('翻译模块状态已改变，请重新准备当前原稿。');
         const result=await this.withSessionOperation(session.id,()=>this.gate.submit(id,session.id,required(p.sourceHash,'输入摘要'),async()=>{
           if(steering)return steering.action==='queue'?this.followUps.enqueue(session.id,preview,steering.expectedTurnId):this.dispatchDraft(session,preview,steering.expectedTurnId);

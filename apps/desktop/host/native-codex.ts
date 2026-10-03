@@ -151,7 +151,7 @@ export class NativeCodexRunner {
  }
  async submit(id:string,preview:DraftPreview){
   const session=this.session(id);this.assertAllowed(session);
-  const files=preview.attachments?.length?await this.hooks.attachments?.payloads(preview.attachments.map(a=>a.id)):[];if(!files)throw Error('附件存储不可用。');
+  const files=preview.attachments?.length?await this.hooks.attachments?.payloads(preview.attachments.map(a=>a.id),{channel:'native'}):[];if(!files)throw Error('附件存储不可用。');
   if(this.closing||this.preparing.has(id)||this.tracked.get(id)?.active||!['idle','blocked'].includes(session.status)||this.submissions.has(preview.id))throw Error('该原生回合正在处理或已经提交，不能重复发送。');
   this.submissions.add(preview.id);this.preparing.add(id);this.cancelled.delete(id);
   let sent=false,t:Tracked|undefined;
@@ -191,7 +191,7 @@ export class NativeCodexRunner {
  }
  async steer(id:string,preview:DraftPreview,expectedTurnId:string){
   const t=this.tracked.get(id);if(!t?.active||!t.lease||t.stopping||this.session(id).nativeTurnId!==expectedTurnId)throw Error('原生回合已结束或变化；草稿未作为新任务发送。');
-  const files=preview.attachments?.length?await this.hooks.attachments?.payloads(preview.attachments.map(a=>a.id)):[];if(!files)throw Error('附件存储不可用。');
+  const files=preview.attachments?.length?await this.hooks.attachments?.payloads(preview.attachments.map(a=>a.id),{channel:'native'}):[];if(!files)throw Error('附件存储不可用。');
   await this.updateSession(id,s=>{s.messages.push({id:preview.id,role:'user',original:preview.original,submitted:preview.translated,annotations:preview.annotations,attachments:preview.attachments,skills:preview.skills,draftRevisions:preview.revisions,demo:false,timestamp:new Date().toISOString(),nativeTurnId:expectedTurnId,delivery:'pending',modelSource:sourceLabel(s,this.hooks.snapshot())});});
   try{await t.handle.adapter.steer(attachmentPrompt(preview.translated,files),preview.id,expectedTurnId,t.lease,this.ledger,[...nativeAttachmentImages(files),...codexSkillInputs(preview.skills)]);await this.updateSession(id,s=>{const m=s.messages.find(m=>m.id===preview.id);if(m)m.delivery='accepted';});}
   catch(error){await this.updateSession(id,s=>{const m=s.messages.find(m=>m.id===preview.id);if(m)m.delivery='uncertain';s.nativeError='插入消息回执未确认；没有自动重发。';});throw error;}

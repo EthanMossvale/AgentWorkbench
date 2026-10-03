@@ -469,7 +469,7 @@ export class NativeProviderRunner {
         if(active.launchKey!==this.launchKey(current))throw Error('NATIVE_PREPARATION_CHANGED');
         active.abort.signal.throwIfAborted();
         if(remote&&this.hooks.quota&&!active.quotaHandle){const handle={threadId:preview.id};await this.hooks.quota.begin(current,handle);active.quotaHandle=handle;active.quotaTokens=0;active.abort.signal.throwIfAborted();}
-        const files=preview.attachments?.length?await this.hooks.attachments?.payloads(preview.attachments.map(file=>file.id)):[];if(!files)throw Error('ATTACHMENTS_UNAVAILABLE');
+        const files=preview.attachments?.length?await this.hooks.attachments?.payloads(preview.attachments.map(file=>file.id),{channel:this.session(id).binding.runtime==='claude'?'api':'native'}):[];if(!files)throw Error('ATTACHMENTS_UNAVAILABLE');
         const context=command?undefined:initialContext??this.hooks.context(id);initialContext=undefined;
         const input=command?'/compact':attachmentPrompt(preview.translated,files)+(!current.binding.nativeSessionId&&!current.branch?.native||current.handoffFromMessage!==undefined?visibleHandoff(current,current.handoffFromMessage??0):'')+await context;
         await this.update(id,session=>{
@@ -532,7 +532,7 @@ export class NativeProviderRunner {
   async steer(id: string, preview: DraftPreview, expectedTurnId: string) {
     const active = this.active.get(id),claude=this.session(id).binding.runtime==='claude';
     if (!active || active.stopping || active.completed || (claude?active.previewId:active.turnId) !== expectedTurnId || !(claude?active.process:active.rpc)) throw Error('此原生回合当前不可插入消息。');
-    const files = preview.attachments?.length ? await this.hooks.attachments?.payloads(preview.attachments.map(file => file.id)) : []; if (!files) throw Error('ATTACHMENTS_UNAVAILABLE');
+    const files = preview.attachments?.length ? await this.hooks.attachments?.payloads(preview.attachments.map(file => file.id),{channel:claude?'api':'native'}) : []; if (!files) throw Error('ATTACHMENTS_UNAVAILABLE');
     if(active.stopping||active.completed)throw Error('此原生回合当前不可插入消息。');
     if(claude)(active.claudeInputs??=new Set()).add(preview.id);
     try {

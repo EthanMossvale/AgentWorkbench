@@ -1,7 +1,6 @@
 import { useEffect, useRef, useState, useSyncExternalStore, type ClipboardEvent, type DragEvent } from 'react';
 import type { Attachment, AttachmentView } from '../../../packages/attachments/types';
 import { textPastePolicies } from '../../../packages/attachments/paste';
-import { MAX_ATTACHMENTS, MAX_ATTACHMENT_TOTAL } from '../../../packages/attachments/types';
 import { api } from './App';
 import { Icon, Modal, errorText } from './ui';
 import './Attachments.css';
@@ -21,8 +20,6 @@ export function useAttachments(initial:Attachment[],locked:boolean,onChange:()=>
     pending.current=true;setBusy(true);onChange();const revision=generation.current;
     try{const added=await load();if(!mounted.current||revision!==generation.current){if(propagate)throw Error('ATTACHMENT_DRAFT_CHANGED');return;}
       const next=[...itemsRef.current];for(const item of added)if(!next.some(old=>old.sha256===item.sha256&&old.name===item.name))next.push(item);
-      if(next.length>MAX_ATTACHMENTS)throw Error('每条消息最多添加 10 个附件。');
-      if(next.reduce((sum,a)=>sum+a.size,0)>MAX_ATTACHMENT_TOTAL)throw Error('附件总大小不能超过 50 MB。分析本机文件时，可改为在输入框中提供完整文件路径。');
       const count=next.length-itemsRef.current.length;itemsRef.current=next;setItems(next);return {added:count,duplicates:added.length-count};
     }catch(error){if(propagate)throw error;if(mounted.current&&revision===generation.current)report(error);}finally{pending.current=false;if(mounted.current)setBusy(false);}
   };

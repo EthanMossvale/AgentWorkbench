@@ -57,11 +57,11 @@ test('snapshots preserve file bytes after original edits; duplicate names and mi
     await writeFile(image!.path,'tampered');await assert.rejects(f.attachments.payloads([image!.id]),/变化/);
   }finally{await f.close();}
 });
-test('attachment names cannot overwrite metadata, and invalid lists, directories and size excess are rejected',async()=>{
+test('attachment names cannot overwrite metadata, invalid lists and directories reject; former count and byte caps are removed',async()=>{
   const f=await fixture();try{const [a]=await f.attachments.import([{name:'metadata.json',bytes:Buffer.from('{}')}]);assert.equal((await f.attachments.resolve([a!.id]))[0]!.name,'metadata.json');
     await assert.rejects(f.attachments.resolve(['../escape']),/无效/);await assert.rejects(f.attachments.resolve([a!.id,a!.id]),/无效/);
-    await assert.rejects(f.attachments.import([{filePath:f.dir}]),/普通文件/);await assert.rejects(f.attachments.import([{name:'huge',bytes:new Uint8Array(MAX_ATTACHMENT_BYTES+1)}]),/20 MB/);
-    await assert.rejects(f.attachments.import(Array.from({length:11},()=>({name:'a',bytes:png}))),/10/);
+    await assert.rejects(f.attachments.import([{filePath:f.dir}]),/普通文件/);assert.equal((await f.attachments.import([{name:'huge',bytes:new Uint8Array(MAX_ATTACHMENT_BYTES+1)}]))[0]!.size,MAX_ATTACHMENT_BYTES+1);
+    assert.equal((await f.attachments.import(Array.from({length:11},(_,i)=>({name:'a'+i,bytes:png})))).length,11);
     const protectedRoot=path.join(f.dir,'.ssh');await mkdir(protectedRoot);await writeFile(path.join(protectedRoot,'synthetic-fixture'),'not a key');assert.equal((await f.attachments.import([{filePath:path.join(protectedRoot,'synthetic-fixture')}]))[0]!.name,'synthetic-fixture');
   }finally{await f.close();}
 });

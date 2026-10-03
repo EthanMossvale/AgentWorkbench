@@ -7,8 +7,9 @@ export interface Attachment {
   generatedRoot?:string;
 }
 export interface AttachmentView extends Attachment { preview?: string }
+/** Legacy values for source compatibility only; the workbench no longer imposes these caps. */
 export const MAX_ATTACHMENT_BYTES = 20 * 1024 * 1024;
 export const MAX_ATTACHMENT_TOTAL = 50 * 1024 * 1024;
 export const MAX_ATTACHMENTS = 10;
 export interface AttachmentInput { name?: string; filePath?: string; bytes?: Uint8Array }
-export interface AttachmentPayload { attachment: Attachment; data: Uint8Array }
+export interface AttachmentPayload { attachment: Attachment; data: Uint8Array; dataOmitted?:boolean }

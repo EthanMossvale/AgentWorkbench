@@ -235,8 +235,8 @@ async function boot(){
    if(typeof method!=='string'||method.length>100)throw new Error('无效的 IPC 请求。');
    const bytes=method==='attachments/save-as'?(payload as {png?:unknown})?.png:undefined;
    const files=method==='attachments/import'?(payload as {files?:{bytes?:unknown}[]})?.files:undefined;
-   if(bytes!==undefined&&(!(bytes instanceof Uint8Array)||bytes.byteLength>20*1024*1024))throw Error('ATTACHMENT_EDIT_INVALID');
-   if(files!==undefined&&(!Array.isArray(files)||files.length>10||files.some(file=>file.bytes!==undefined&&(!(file.bytes instanceof Uint8Array)||file.bytes.byteLength>20*1024*1024))))throw Error('ATTACHMENT_INPUT_INVALID');
+   if(bytes!==undefined&&(!(bytes instanceof Uint8Array)))throw Error('ATTACHMENT_EDIT_INVALID');
+   if(files!==undefined&&(!Array.isArray(files)||files.some(file=>file.bytes!==undefined&&(!(file.bytes instanceof Uint8Array)))))throw Error('ATTACHMENT_INPUT_INVALID');
    const metadata=bytes!==undefined?{...(payload as object),png:undefined}:files?{files:files.map(file=>({...file,bytes:undefined}))}:payload;
    if(Buffer.byteLength(JSON.stringify(metadata??{}))>2_000_000)throw new Error('无效或过大的 IPC 请求。');
    // Emergency diagnostics and heartbeats cannot be swallowed by plugin middleware.

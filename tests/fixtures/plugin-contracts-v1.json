@@ -510,6 +510,18 @@
       "export interface TextPastePolicy {\n    id: string;\n    thresholdBytes: number;\n}",
       "export interface TextPastePolicyHandle {\n    id: string;\n    dispose(): void;\n}"
     ],
+    "packages/attachments/types.ts": [
+      "export interface Attachment {\n    id: string;\n    name: string;\n    size: number;\n    mime: string;\n    sha256: string;\n    path: string;\n    storage?: 'source' | 'clipboard' | 'managed';\n    createdAt?: string;\n    generatedRoot?: string;\n}",
+      "export interface AttachmentInput {\n    name?: string;\n    filePath?: string;\n    bytes?: Uint8Array;\n}",
+      "export interface AttachmentPayload {\n    attachment: Attachment;\n    data: Uint8Array;\n    dataOmitted?: boolean;\n}",
+      "export interface AttachmentView extends Attachment {\n    preview?: string;\n}"
+    ],
+    "packages/attachments/payload.ts": [
+      "export interface AttachmentPayloadOptions {\n    channel?: AttachmentChannel;\n}",
+      "export interface AttachmentPayloadPolicy {\n    id: `plugin:${string}`;\n    includeData(attachment: Readonly<Attachment>): boolean;\n}",
+      "export interface AttachmentPayloadPolicyApi {\n    register(policy: AttachmentPayloadPolicy): () => void;\n    includeData(attachment: Attachment, channel?: AttachmentChannel): boolean;\n}",
+      "export type AttachmentChannel = 'full' | 'native' | 'api' | 'preview' | 'verify' | `plugin:${string}`;"
+    ],
     "packages/context-annotations/index.ts": [
       "export interface AnnotationChange {\n    sessionId: string;\n    revision: number;\n    items: ContextAnnotation[];\n}",
       "export interface AnnotationDraft {\n    version: 1;\n    revision: number;\n    items: ContextAnnotation[];\n}",
