@@ -3,6 +3,12 @@ import type { Protocol, RuntimeKind, Session } from '../contracts';
 export const tokenFields = ['inputTokens', 'outputTokens', 'cacheReadTokens', 'cacheWriteTokens', 'totalTokens'] as const;
 export type TokenField = typeof tokenFields[number];
 export type TokenCounts = Record<TokenField, number | null>;
+/** Presentation only. Raw input counters retain their inclusive wire semantics. */
+export function uncachedInput(counts: TokenCounts & {incomplete?: TokenField[]}): {value:number|null;upperBound:boolean} {
+  if(counts.inputTokens===null||counts.incomplete?.includes('inputTokens'))return {value:null,upperBound:false};
+  const value=Math.max(0,counts.inputTokens-(counts.cacheReadTokens??0)-(counts.cacheWriteTokens??0));
+  return {value,upperBound:value>0&&(counts.cacheReadTokens===null||counts.cacheWriteTokens===null||!!counts.incomplete?.some(f=>f==='cacheReadTokens'||f==='cacheWriteTokens'))};
+}
 export interface UsageSample extends TokenCounts {
   /** Stable request identity; updates replace the same request, never add it twice. */
   id: string; model?: string; steps?: number; elapsedMs?: number;

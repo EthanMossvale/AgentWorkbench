@@ -1,5 +1,9 @@
 # 37 · UI preference persistence inventory
 
+## Input/cache presentation (2026-10-03)
+
+The disjoint input label and missing-cache upper bound are derived display values, not preferences. The existing `usage.period`, `usage.expanded`, model-price disclosure and session-metric model disclosures retain their keys, source/model scope, defaults, storage, restoration and reset behavior. Session hover/pinning remains transient. No window, zoom, tab, pane, order, disclosure or editor control is added. No migration or profile write is needed; the same saved counters are projected after restart, rebuild and update. Narrow layout and extension replacement do not modify preferences. Existing named `model-usage` and `session-metrics` surfaces retain cleanup and later-instance behavior. Validation uses the preference inventory check and the hidden usage renderer suites; raw unknown counters remain unknown rather than being persisted as zero.
+
 ## Device feedback reading and recovery (2026-10-03)
 
 `AppState.translationLayout` remains the global per-user reading preference in version-1 StateStore. Existing panel/inline values and the shipped panel default remain; translated-only and stable plugin IDs are additive. Unknown string IDs are retained with a visible panel fallback, and reenable restores the selected mode. Malformed non-string/empty/oversized values reject without rewriting the saved file. `translationLayouts` is a derived catalog, removed on load and never treated as the preference owner.

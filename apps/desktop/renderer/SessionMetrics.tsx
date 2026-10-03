@@ -2,7 +2,7 @@ import {RememberedDetails} from './UiMemory';
 import { useEffect, useId, useLayoutEffect, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import type { Session } from '../../../packages/contracts';
-import { sessionMetrics, type MetricsSnapshot, type TokenCounts, type TokenField } from '../../../packages/session-metrics';
+import { sessionMetrics, uncachedInput, type MetricsSnapshot, type TokenCounts, type TokenField } from '../../../packages/session-metrics';
 import './SessionMetrics.css';
 
 export function compactTokens(value: number | null): string {
@@ -13,9 +13,10 @@ export function compactTokens(value: number | null): string {
 const runtimeName = (runtime: string) => runtime === 'codex' ? 'Codex' : runtime === 'claude' ? 'Claude Code' : runtime === 'api' ? 'API 直连' : runtime === 'demo' ? '离线示例' : runtime.replace(/^plugin:/, '');
 const percent = (value: number | null) => value === null ? '—' : (value * 100).toFixed(1).replace(/\.0$/, '') + '%';
 const exactTokens = (value: number | null, partial = false) => value === null ? '—' : (partial ? '≥ ' : '') + value.toLocaleString('zh-CN');
-const labels: [TokenField, string][] = [['inputTokens', '输入'], ['outputTokens', '输出'], ['cacheReadTokens', '缓存读取'], ['cacheWriteTokens', '缓存写入']];
+const labels: [TokenField, string][] = [['inputTokens', '输入（不含缓存）'], ['outputTokens', '输出'], ['cacheReadTokens', '缓存读取'], ['cacheWriteTokens', '缓存写入']];
 function Counts({ value }: { value: TokenCounts & { incomplete: TokenField[] } }) {
-  return <dl className="session-metrics-counts">{labels.filter(([field]) => !field.startsWith('cache') || value[field] !== null).map(([field, label]) => <div key={field}><dt>{label}</dt><dd aria-label={value[field] === null ? '未上报' : undefined}>{exactTokens(value[field], value.incomplete.includes(field))}</dd></div>)}</dl>;
+  const input=uncachedInput(value);
+  return <dl className="session-metrics-counts">{labels.map(([field, label]) => <div key={field}><dt>{label}</dt><dd aria-label={value[field] === null ? '未上报' : undefined}>{field==='inputTokens'?(input.upperBound?'≤ ':'')+exactTokens(input.value):exactTokens(value[field], value.incomplete.includes(field))}</dd></div>)}</dl>;
 }
 function Source({ runtime, model }: { runtime: string; model: string }) {
   return <span className="session-metrics-identity" title={`${runtimeName(runtime)} · ${model || '模型未上报'}`}><span>{runtimeName(runtime)}</span><strong>{model || '模型未上报'}</strong></span>;
@@ -78,7 +79,7 @@ export default function SessionMetrics({ session, snapshot }: { session?: Sessio
       <header><strong>本会话用量</strong><button type="button" className="session-metrics-close" aria-label="关闭用量明细" onClick={() => { dismiss(); anchor.current?.focus(); }}><svg viewBox="0 0 16 16" aria-hidden="true"><path d="m4 4 8 8M12 4l-8 8"/></svg></button></header>
       <div className="session-metrics-overview"><div className="session-metrics-total" aria-label={value.totalTokens === null ? '总量未上报' : '会话累计'}>{exactTokens(value.totalTokens, partial)}<small> tokens</small></div><span className="session-metrics-rounds">{value.rounds} 轮 · {value.partialHistory && value.steps !== null ? '≥ ' : ''}{value.steps ?? '—'} 步</span></div>
       <Counts value={value}/>
-      <dl className="session-metrics-rates"><div title={value.rateBasis === 'turn' ? '最近回合输出均速，包含工具与等待时间' : '最近一次请求的输出速度，不代表已选模型的速度'}><dt>{value.rateBasis === 'turn' ? '回合均速' : '请求速度'}</dt><dd>{speed}{value.tokensPerSecond !== null && <small> tok/s</small>}</dd></div><div className="session-metrics-cache"><dt>缓存命中</dt><dd title={value.cacheHitRate === null ? '尚无可计算的输入与缓存读取记录' : '缓存读取 ÷ 输入，按已上报两项计数的记录统计'}>{percent(value.cacheHitRate)}</dd></div></dl>
+      <dl className="session-metrics-rates"><div title={value.rateBasis === 'turn' ? '最近回合输出均速，包含工具与等待时间' : '最近一次请求的输出速度，不代表已选模型的速度'}><dt>{value.rateBasis === 'turn' ? '回合均速' : '请求速度'}</dt><dd>{speed}{value.tokensPerSecond !== null && <small> tok/s</small>}</dd></div><div className="session-metrics-cache"><dt>缓存命中</dt><dd title={value.cacheHitRate === null ? '尚无可计算的输入与缓存读取记录' : '缓存读取 ÷ 全部输入（含缓存），按已上报两项计数的记录统计'}>{percent(value.cacheHitRate)}</dd></div></dl>
       {(value.groups.length > 0 || pendingSelection) && <div className="session-metrics-sources">
         {pendingSelection && <div className="session-metrics-pending" data-testid="session-metrics-selection"><span className="session-metrics-selected-label">已选</span><Source {...pendingSelection}/><span title="该运行时与模型尚无同名用量回执；别名不自动合并">暂无记录</span></div>}
         {!breakdown && value.groups[0] && <div className="session-metrics-source"><Source {...value.groups[0]}/></div>}
@@ -87,6 +88,7 @@ export default function SessionMetrics({ session, snapshot }: { session?: Sessio
           <div className="session-metrics-group-body"><div className="session-metrics-group-name">{runtimeName(group.runtime)} · {group.model || '模型未上报'}</div><div className="session-metrics-group-meta"><span>{group.steps} 步 · 命中 {percent(group.cacheHitRate)}</span><span>{exactTokens(group.totalTokens, group.incomplete.includes('totalTokens'))} tok</span></div><Counts value={group}/></div>
         </RememberedDetails>)}</div>}
       </div>}
+      <div className="session-metrics-note">输入不含缓存读取与写入；总量含缓存及输出。≤ 表示缓存分类未完整上报时的输入上限；— 表示未知。</div>
       {(partial || value.totalTokens === null) && <div className="session-metrics-note">{value.totalTokens === null ? '尚未收到用量回执' : '部分记录，仅统计已收到的用量'}</div>}
     </div>, document.body)}
   </div>;
