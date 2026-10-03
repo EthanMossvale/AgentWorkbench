@@ -1,0 +1,46 @@
+import test from 'node:test';
+import assert from 'node:assert/strict';
+import {mkdtemp,mkdir,readFile,writeFile,rm} from 'node:fs/promises';
+import path from 'node:path';
+import os from 'node:os';
+import {AttachmentStore} from '../apps/desktop/host/attachments';
+import {WorkbenchController} from '../apps/desktop/host/controller';
+import {NativeResources} from '../apps/desktop/host/native-resources';
+import {StateStore,SecretStore} from '../apps/desktop/host/store';
+import {WorktreeService} from '../packages/worktrees';
+import {PluginRegistry} from '../packages/plugins-core';
+import {encodeZip,readArchive} from '../packages/native-resources/archive';
+import {InputGate} from '../packages/translation/gate';
+
+test('approved extension observes actual export, attachment, worktree and revision consumers and restores on disable',async t=>{
+ const root=await mkdtemp(path.join(os.tmpdir(),'awb-defensive-files-')),data=path.join(root,'data'),home=path.join(root,'home'),named=path.join(data,'.codex');await mkdir(named,{recursive:true});
+ let selected=path.join(named,'saved.txt');
+ const attachments=new AttachmentStore(path.join(data,'attachments'),undefined,[data],async()=>selected);
+ const worktrees=new WorktreeService(data),store=new StateStore(data);await store.load();
+ const controller=new WorkbenchController(store,new SecretStore(data,{encrypt:()=>Buffer.alloc(0),decrypt:()=>''}),{attachments,worktrees,pickDirectory:async()=>null,copy:()=>{},openPath:async()=>{},nativeCapabilities:()=>[]},()=>{});
+ const native=new NativeResources(data,{openZip:async()=>null,saveZip:async()=>path.join(named,'official.zip')},()=>[],()=>{},home);await native.initialize();
+ const file=path.join(home,'.codex','skills','.system','fixture','SKILL.md');await mkdir(path.dirname(file),{recursive:true});await writeFile(file,'---\nname: fixture\ndescription: Synthetic\n---\nFixture only.\n');
+ const registry=new PluginRegistry(path.join(root,'extensions'));await registry.initialize();
+ for(const [id,service] of Object.entries(controller.developmentServices()))if(service)registry.services.register(id,service,{version:1});
+ registry.services.register('native.skills',native.skills,{version:1});
+ const call=async(method:string,payload:Record<string,unknown>)=>native.handles(method)?native.call(method,payload):controller.call(method,payload);
+ registry.connectHost(({method,payload})=>call(method,payload as Record<string,unknown>));
+ t.after(async()=>{await registry.dispose();await native.dispose();await controller.dispose();await rm(root,{recursive:true,force:true});});
+ const id='qa.defensive-files',manifest={schemaVersion:1,apiVersion:1,id,name:'Files fixture',version:'1.0.0',description:'Synthetic',capabilities:['host'],main:'main.mjs'};
+ const main=`export function activate(api){const counts={};api.services.register('${id}.counts',counts);for(const [id,member] of [['actions.attachments','saveAs'],['actions.worktrees','configure'],['native.skills','exportZip'],['submission.gate','beginRevision']])api.services.intercept(id,member,(next,...args)=>{counts[member]=(counts[member]||0)+1;return next(...args);});}`;
+ const zip=path.join(root,'plugin.zip');await writeFile(zip,encodeZip([{name:'workbench.plugin.json',data:Buffer.from(JSON.stringify(manifest))},{name:'main.mjs',data:Buffer.from(main)}]));
+ await registry.importZip(zip);const record=(await registry.list()).find(p=>p.manifest.id===id)!;await registry.setEnabled(id,record.hash,true,true);
+ const counts=registry.services.get<Record<string,number>>(id+'.counts');
+ const [attachment]=await attachments.import([{name:'notes.txt',bytes:Buffer.from('Synthetic attachment')}]);
+ assert.equal(await call('attachments/save-as',{id:attachment!.id}),true);assert.equal(await readFile(selected,'utf8'),'Synthetic attachment');
+ selected=attachment!.path;await assert.rejects(call('attachments/save-as',{id:attachment!.id}),/ORIGINAL_PROTECTED/);
+ await call('worktrees/configure',{root:path.join(data,'custom-checkouts')});assert.equal((await worktrees.list()).root,path.join(data,'custom-checkouts'));
+ const skill=(await native.skills.scan()).skills[0]!;await call('native-skills/export',{id:skill.id,hash:skill.hash});assert.equal((await readArchive(path.join(named,'official.zip'))).find(f=>f.name==='SKILL.md')!.data.toString(),await readFile(file,'utf8'));
+ const gate=registry.services.get<InputGate>('submission.gate');let preview=await gate.prepare(gate.create('fixture','Original'),async()=> 'Translated');
+ for(let i=0;i<12;i++){const next=gate.beginRevision(preview.id,'fixture',preview.sourceHash);preview=await gate.prepareRevision(next.id,next.previous,'Refine',async()=>({original:'Original '+i,translated:'Translated '+i}));}
+ assert.equal(preview.revisions?.length,12);let sends=0;await gate.submit(preview.id,'fixture',preview.sourceHash,async()=>{sends++;});await assert.rejects(gate.submit(preview.id,'fixture',preview.sourceHash,async()=>{sends++;}));assert.equal(sends,1);
+ assert.deepEqual({...counts},{saveAs:2,configure:1,exportZip:1,beginRevision:12});
+ await registry.setEnabled(id,record.hash,false);await call('worktrees/configure',{root:path.join(data,'after-disable')});assert.equal(counts.configure,1);
+ await registry.setEnabled(id,record.hash,true);await call('worktrees/configure',{root:path.join(data,'after-enable')});assert.equal(registry.services.get<Record<string,number>>(id+'.counts').configure,1);
+ await registry.setEnabled(id,record.hash,false);
+});

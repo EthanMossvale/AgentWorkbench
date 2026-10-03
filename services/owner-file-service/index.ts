@@ -13,7 +13,9 @@ export interface FileSnapshot { realPath: string; content: string; version: stri
 export interface WritePreview { id: string; bindingHash: string; realPath: string; expectedVersion: string; nextVersion: string; bytes: number; expiresAt: string }
 export type OwnerVerifier = (resolvedPath: string, file: Stats) => Promise<boolean>;
 export interface OwnerFileOptions {
-  ownerId: string; deviceId: string; generation: string; controlPaths: string[];
+  ownerId: string; deviceId: string; generation: string;
+  /** Legacy argument, ignored. File access is authorized by owner/device grants and OS ownership. */
+  controlPaths: string[];
   /** On Windows a trusted ACL/owner adapter is mandatory. A renderer username is not proof. */
   verifyOwner?: OwnerVerifier;
   expectedUid?: number; maxBytes?: number; now?: () => number;
@@ -22,8 +24,6 @@ interface PendingWrite { context: FileContext; preview: WritePreview; content: s
 const hash = (data: string | Buffer) => createHash('sha256').update(data).digest('hex');
 function deny(code: string, message: string): never { throw new FileBoundaryError(code, message); }
 const canonical = (value: string) => process.platform === 'win32' ? path.normalize(value).toLowerCase() : path.normalize(value);
-const contains = (parent: string, child: string) => { const relative = path.relative(parent, child); return relative === '' || (!relative.startsWith(`..${path.sep}`) && relative !== '..' && !path.isAbsolute(relative)); };
-const credentialSegments = new Set(['.ssh', '.gnupg', '.aws', '.azure', '.kube', '.codex', '.claude', '.agent-workbench']);
 
 /** Server-owned service. Never expose issueGrant/confirmWrite/revokeGeneration to model tool dispatch. */
 export class OwnerFileService {
@@ -32,23 +32,16 @@ export class OwnerFileService {
   private readonly completed = new Map<string, FileSnapshot>();
   private readonly writeLocks = new Set<string>();
   private readonly revoked = new Set<string>();
-  private readonly controls: string[];
   private readonly now: () => number;
   private readonly maxBytes: number;
-  private constructor(private readonly options: OwnerFileOptions, controls: string[]) {
-    this.controls = controls; this.now = options.now ?? Date.now; this.maxBytes = options.maxBytes ?? 2 * 1024 * 1024;
+  private constructor(private readonly options: OwnerFileOptions) {
+    this.now = options.now ?? Date.now; this.maxBytes = options.maxBytes ?? 2 * 1024 * 1024;
   }
   static async create(options: OwnerFileOptions): Promise<OwnerFileService> {
     if (!options.ownerId || !options.deviceId || !options.generation || !Number.isInteger(options.maxBytes ?? 2 * 1024 * 1024) || (options.maxBytes ?? 1) < 1) deny('INVALID_POLICY', 'An owner/device/generation and bounded file policy are required.');
     if (process.platform === 'win32' && !options.verifyOwner) deny('OWNER_VERIFICATION_UNAVAILABLE', 'Windows owner/ACL verification needs a trusted native adapter; username and Node uid are insufficient.');
     if (!options.verifyOwner && (!Number.isInteger(options.expectedUid) || options.expectedUid! < 0)) deny('OWNER_VERIFICATION_UNAVAILABLE', 'A verified OS owner identity is required.');
-    const controls: string[] = [];
-    for (const location of options.controlPaths) {
-      if (!path.isAbsolute(location)) deny('INVALID_POLICY', 'Control paths must be absolute.');
-      controls.push(canonical(location));
-      try { controls.push(canonical(await realpath(location))); } catch (error) { if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error; }
-    }
-    return new OwnerFileService(options, controls);
+    return new OwnerFileService(options);
   }
   /** Called only by the trusted device authorization layer, never by renderer-provided roles. */
   issueGrant(input: Omit<FileGrant, 'id' | 'ownerId' | 'deviceId' | 'generation'>): FileGrant {
@@ -66,8 +59,6 @@ export class OwnerFileService {
   private checkPath(value: string): void {
     if (typeof value !== 'string' || !path.isAbsolute(value) || /[\0\r\n]/.test(value)) deny('INVALID_PATH', 'An absolute native path is required.');
     if (process.platform === 'win32' && (/^\\\\[.?]\\/.test(value) || /:/g.test(value.slice(2)))) deny('UNSUPPORTED_PATH', 'Device namespaces and alternate data streams are not ordinary files.');
-    const candidate = canonical(value);
-    if (this.controls.some(control => contains(control, candidate)) || candidate.split(/[\\/]/).some(segment => credentialSegments.has(segment))) deny('CONTROL_PLANE_DENIED', 'Credential and management paths are outside the ordinary owner file plane.');
   }
   private async resolveFile(filePath: string): Promise<{ target: string; metadata: Stats }> {
     this.checkPath(filePath);

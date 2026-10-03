@@ -23,7 +23,7 @@ export function composerSkills(scan: SkillScan, runtime: string, directory?: str
 
 export function resolveSkills(catalog: ComposerSkill[], requested: unknown): SkillInvocation[] {
   if (requested === undefined) return [];
-  if (!Array.isArray(requested) || requested.length > 6) throw Error('SKILL_SELECTION_INVALID');
+  if (!Array.isArray(requested)) throw Error('SKILL_SELECTION_INVALID');
   const ids = new Set<string>();
   const selected = requested.map(value => {
     if (!value || typeof value !== 'object' || Object.keys(value).some(k => !['id', 'hash'].includes(k)) || ids.has(value.id)) throw Error('SKILL_SELECTION_INVALID');

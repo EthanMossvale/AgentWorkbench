@@ -47,7 +47,7 @@ test('non repositories, unborn repositories, invalid roots and conflicting state
   const f=await fixture();try{
     const plain=await f.service.inspect(f.root);assert.equal(plain.available,false);assert.equal(plain.repositoryRoot,undefined);await assert.rejects(f.service.create(f.root));
     const empty=path.join(f.root,'empty');await mkdir(empty);await git(empty,'init');const unborn=await f.service.inspect(empty);assert.equal(unborn.available,false);assert.equal(unborn.repositoryRoot,empty);assert.match(unborn.reason!,/尚无提交/);
-    await assert.rejects(f.service.configure(path.join(f.data,'unsafe')),/CONTROL_DIRECTORY/);
+    await f.service.configure(path.join(f.data,'custom'));const custom=await f.service.create(f.repo);assert.equal(path.dirname(custom.path),path.join(f.data,'custom'));await f.service.abandon(custom);
     await f.service.configure(path.join(f.repo,'nested'));await assert.rejects(f.service.create(f.repo),/OUTSIDE_REPOSITORY/);
     assert.equal((await f.service.list()).records.length,0);
   }finally{await f.close();}

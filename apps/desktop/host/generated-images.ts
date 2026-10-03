@@ -7,12 +7,12 @@ import { AttachmentStore } from './attachments';
 
 const hash = (data: Uint8Array | string) => createHash('sha256').update(data).digest('hex');
 const same = (a: string, b: string) => process.platform === 'win32' ? a.toLowerCase() === b.toLowerCase() : a === b;
-const protectedPath = (value: string) => value.split(/[\\/]/).some(v => ['.ssh', '.codex', '.claude', '.aws', '.azure', '.kube', '.gnupg'].includes(v.toLowerCase()));
 
 /** A bounded local artifact sink. It never reads or fetches native savedPath. */
 export class WorkspaceGeneratedImages implements GeneratedImageService {
   private pending = new Map<string, Promise<Attachment>>();
-  constructor(private attachments: AttachmentStore, private controlPaths: string[] = [], private allowManagedWorkspace?: (sessionId:string,root:string)=>Promise<boolean>) {}
+  // Legacy directory-policy arguments are accepted for source compatibility only.
+  constructor(private attachments: AttachmentStore, _controlPaths: string[] = [], _allowManagedWorkspace?: (sessionId:string,root:string)=>Promise<boolean>) {}
   receive(input: GeneratedImageInput): Promise<Attachment> {
     const key = JSON.stringify([input.sessionId, input.threadId, input.turnId, input.itemId]);
     const previous = this.pending.get(key);
@@ -30,10 +30,8 @@ export class WorkspaceGeneratedImages implements GeneratedImageService {
     if (bytes.toString('base64') !== encoded) throw Error('GENERATED_IMAGE_ENCODING_INVALID');
     if (bytes.length > MAX_GENERATED_IMAGE_BYTES) throw Error('GENERATED_IMAGE_SIZE_LIMIT');
     if (bytes.length < 33 || !bytes.subarray(0, 8).equals(Buffer.from([137,80,78,71,13,10,26,10])) || bytes.subarray(12,16).toString() !== 'IHDR') throw Error('GENERATED_IMAGE_FORMAT_INVALID');
-    if (!path.isAbsolute(input.projectPath) || protectedPath(input.projectPath) || (process.platform === 'win32' && (input.projectPath.startsWith('\\\\') || input.projectPath.slice(2).includes(':')))) throw Error('GENERATED_IMAGE_WORKSPACE_INVALID');
+    if (!path.isAbsolute(input.projectPath) || (process.platform === 'win32' && (input.projectPath.startsWith('\\\\') || input.projectPath.slice(2).includes(':')))) throw Error('GENERATED_IMAGE_WORKSPACE_INVALID');
     const root = await realpath(input.projectPath);
-    const controlled=this.controlPaths.some(p => { const rel = path.relative(p, root); return !rel || rel !== '..' && !rel.startsWith('..' + path.sep) && !path.isAbsolute(rel); }) || root.split(/[\\/]/).some(p=>['.agent-workbench','.agentworkbench'].includes(p.toLowerCase()));
-    if (protectedPath(root) || controlled && !await this.allowManagedWorkspace?.(input.sessionId,root)) throw Error('GENERATED_IMAGE_WORKSPACE_INVALID');
     const directory = path.join(root, 'generated_images');
     await mkdir(directory, { recursive: true });
     const info = await lstat(directory);

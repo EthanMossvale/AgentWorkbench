@@ -155,7 +155,7 @@ export class NativeSkillsService {
       await installArchive(path.join(root, name), files); this.revision++; return this.scan();
     });
   }
-  async exportZip(id: string, expectedHash: string, destination: string) { const skill = await this.readMarkdown(id, expectedHash); if (skill.origins.some(origin => origin.kind === 'official')) throw Error('Only personal Skills can be exported.'); return exportArchive(skill.directory, destination); }
+  async exportZip(id: string, expectedHash: string, destination: string) { const skill = await this.readMarkdown(id, expectedHash); return exportArchive(skill.directory, destination); }
   async createDiscoverySnapshot(input: { sessionId: string; nativeRuntime?: string }) {
     // Native runtimes own discovery. Never duplicate their catalogs or inject the other runtime's skills.
     if (input.nativeRuntime === 'codex' || input.nativeRuntime === 'claude') return createFrameworkSnapshot([], { sessionId: input.sessionId, revision: this.revision, memoryEnabled: false, source: 'native-provider-files' });

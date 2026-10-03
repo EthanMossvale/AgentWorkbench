@@ -98,11 +98,13 @@ test('other owner/device/OS and revoked generations are denied independently of 
     f.service.revokeGeneration('g1'); await assert.rejects(f.service.read(f.context, f.file), /revoked/);
   } finally { await rm(f.directory, { recursive: true, force: true }); }
 });
-test('control directories and symlinks into them are denied', async () => {
+test('owner-wide reads do not classify directory names or legacy control roots', async () => {
   const f = await fileFixture(); try {
-    await assert.rejects(f.service.read(f.context, path.join(f.control, 'credential.txt')), /outside the ordinary/);
+    assert.equal((await f.service.read(f.context, path.join(f.control, 'credential.txt'))).content, 'fixture-not-a-real-secret');
     const link = path.join(f.a, 'ordinary-looking'); await symlink(f.control, link, process.platform === 'win32' ? 'junction' : 'dir');
-    await assert.rejects(f.service.read(f.context, path.join(link, 'credential.txt')), /outside the ordinary/);
+    assert.equal((await f.service.read(f.context, path.join(link, 'credential.txt'))).content, 'fixture-not-a-real-secret');
+    const named = path.join(f.b, '.codex'); await mkdir(named); await writeFile(path.join(named, 'notes.txt'), 'Ordinary fixture');
+    assert.equal((await f.service.read(f.context, path.join(named, 'notes.txt'))).content, 'Ordinary fixture');
   } finally { await rm(f.directory, { recursive: true, force: true }); }
 });
 test('approved writes bind exact context/content/version and read back the result', async () => {

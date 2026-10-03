@@ -109,6 +109,7 @@ test('missing, corrupt, linked, oversized and stale credential sources are rejec
 test('save cancellation and protected destination perform no write', async t => {
   const f = await fixture(t), before = await readFile(f.file, 'utf8');
   f.target(null); assert.deepEqual(await f.service.save(request), { status: 'cancelled' });
+  const exportPath=path.join(f.directory,'export.json'); f.target(exportPath); assert.deepEqual(await f.service.save(request), {status:'saved'}); assert.deepEqual(JSON.parse(await readFile(exportPath,'utf8')),JSON.parse(before));
   f.target(f.file); await assert.rejects(f.service.save(request), /DESTINATION_PROTECTED/); assert.equal(await readFile(f.file, 'utf8'), before);
   let finish!: (path: string) => void;
   const service = new LocalAccountExport(f.directory, { account: () => f.a, copy: () => {}, pickSave: () => new Promise(resolve => { finish = resolve; }) });

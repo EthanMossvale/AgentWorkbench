@@ -6,7 +6,6 @@ import { MAX_ATTACHMENT_BYTES, MAX_ATTACHMENT_TOTAL, MAX_ATTACHMENTS, type Attac
 
 const digest = (data: Uint8Array) => createHash('sha256').update(data).digest('hex');
 const validId = (id: string) => /^[0-9a-f-]{36}$/.test(id);
-const credentialPath=(value:string)=>value.split(/[\\/]/).some(part=>['.ssh','.gnupg','.aws','.azure','.kube','.codex','.claude','.agent-workbench','.agentworkbench'].includes(part.toLowerCase()));
 const specialPath=(value:string)=>process.platform==='win32'&&(value.startsWith('\\\\')||value.slice(2).includes(':'));
 const samePath=(a:string,b:string)=>process.platform==='win32'?a.toLowerCase()===b.toLowerCase():a===b;
 const generatedPath=(item:Pick<Attachment,'id'|'path'|'generatedRoot'>)=>typeof item.generatedRoot==='string'&&path.isAbsolute(item.generatedRoot)&&samePath(item.path,path.join(item.generatedRoot,'generated_images','image-'+item.id.replaceAll('-','')+'.png'));
@@ -66,11 +65,9 @@ export class AttachmentStore {
     let data=Buffer.from(original.data),name=original.attachment.name;
     if(png!==undefined){if(!(png instanceof Uint8Array)||png.length>MAX_ATTACHMENT_BYTES||!original.attachment.mime.startsWith('image/')||mime(Buffer.from(png),'')!=='image/png')throw Error('ATTACHMENT_EDIT_INVALID');data=Buffer.from(png);name=path.parse(name).name+'-marked.png';}
     const selected=await this.pickSave(name);if(!selected)return false;
-    if(!path.isAbsolute(selected)||specialPath(selected)||credentialPath(selected))throw Error('ATTACHMENT_SAVE_PATH_INVALID');
+    if(!path.isAbsolute(selected)||specialPath(selected))throw Error('ATTACHMENT_SAVE_PATH_INVALID');
     const parent=await realpath(path.dirname(selected)),destination=path.join(parent,path.basename(selected));
     if(samePath(destination,original.attachment.path))throw Error('ATTACHMENT_ORIGINAL_PROTECTED');
-    const protectedRoots=[this.directory,...this.controlPaths];
-    if(credentialPath(parent)||protectedRoots.some(root=>{const relative=path.relative(root,destination);return relative===''||relative!=='..'&&!relative.startsWith('..'+path.sep)&&!path.isAbsolute(relative);}))throw Error('ATTACHMENT_SAVE_PROTECTED');
     const existing=await lstat(destination).catch((e:NodeJS.ErrnoException)=>{if(e.code!=='ENOENT')throw e;return null;});
     if(existing&&(!existing.isFile()||existing.isSymbolicLink()||existing.nlink>1))throw Error('ATTACHMENT_SAVE_PATH_INVALID');
     const temporary=path.join(parent,'.awb-image-'+randomUUID()+'.tmp');

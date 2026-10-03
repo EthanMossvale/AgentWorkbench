@@ -96,9 +96,9 @@ export class LocalAccountExport implements AccountExportService {
     try { target = await this.hooks.pickSave(doc.fileName); } catch { throw Error('ACCOUNT_EXPORT_SAVE_FAILED'); }
     if (!target) return { status: 'cancelled' };
     doc.assertCurrent();
-    // The picker is the only path authority; do not allow replacing native account data.
-    const relative = path.relative(path.resolve(this.directory), path.resolve(target));
-    if (!relative || !relative.startsWith('..' + path.sep) && relative !== '..' && !path.isAbsolute(relative)) throw Error('ACCOUNT_EXPORT_DESTINATION_PROTECTED');
+    // Only actual managed credential destinations are excluded, not the data directory.
+    const relative = path.relative(path.resolve(this.directory, 'native-accounts'), path.resolve(target));
+    if (/^[^\\/]+[\\/](?:codex[\\/]auth\.json|claude[\\/]\.credentials\.json)$/i.test(relative)) throw Error('ACCOUNT_EXPORT_DESTINATION_PROTECTED');
     try { await atomicWrite(target, doc.content, async () => doc.assertCurrent()); }
     catch (error) { if (/^(ACCOUNT_EXPORT_(DISPOSED|FORMAT_UNAVAILABLE)|LOCAL_ACCOUNT_)/.test((error as Error).message)) throw error; throw Error('ACCOUNT_EXPORT_SAVE_FAILED'); }
     return { status: 'saved' };

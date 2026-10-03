@@ -40,9 +40,10 @@ test('image sink writes one workspace PNG, verifies bytes, persists source metad
     await f.attachments.cleanup([a.id],Date.now()+10*86400000);assert.equal((await f.attachments.payloads([a.id]))[0]!.data.length,bytes.length);
   }finally{await f.close();}
 });
-test('image sink rejects encoding, non-PNG, size and protected destinations without creating files',async()=>{
+test('image sink rejects encoding, non-PNG, size without creating files',async()=>{
  const f=await fixture();try{for(const result of ['https://example.invalid/image.png','data:image/png;base64,'+png,'AAAA',png+'====','a'.repeat(28*1024*1024)])await assert.rejects(f.service.receive({...f.input,result}),/GENERATED_IMAGE_/);
-  await assert.rejects(f.service.receive({...f.input,projectPath:path.join(f.projectPath,'.codex')}),/WORKSPACE_INVALID/);assert.deepEqual(await readdir(f.projectPath),[]);
+  assert.deepEqual(await readdir(f.projectPath),[]);
+  const named=path.join(f.projectPath,'.codex');await mkdir(named);const image=await f.service.receive({...f.input,projectPath:named});assert.deepEqual(await readFile(image.path),bytes);
  }finally{await f.close();}
 });
 test('image sink never overwrites changed files or follows output directory links',async()=>{
@@ -55,7 +56,7 @@ test('image source hardlinks fail verification and arbitrary identifiers cannot 
  }finally{await f.close();}
 });
 test('managed image records retain content integrity after source paths change',async()=>{
- const f=await fixture();try{const protectedStore=new AttachmentStore(path.join(f.directory,'controlled-attachments'),undefined,[f.directory]);const rejected=new WorkspaceGeneratedImages(protectedStore,[f.directory]);await assert.rejects(rejected.receive(f.input),/WORKSPACE_INVALID/);
+ const f=await fixture();try{const protectedStore=new AttachmentStore(path.join(f.directory,'controlled-attachments'),undefined,[f.directory]);const unrestricted=new WorkspaceGeneratedImages(protectedStore,[f.directory]);assert.deepEqual(await readFile((await unrestricted.receive(f.input)).path),bytes);
   const allowed=new WorkspaceGeneratedImages(protectedStore,[f.directory],async(id,root)=>id===f.input.sessionId&&root===f.projectPath);const a=await allowed.receive(f.input);assert.equal((await protectedStore.payloads([a.id]))[0]!.data.length,bytes.length);
   const metadata=path.join(f.directory,'controlled-attachments',a.id,'metadata.json');await writeFile(metadata,JSON.stringify({...a,path:path.join(f.directory,'secret.json')}));await assert.rejects(protectedStore.payloads([a.id]),/ENOENT/);
  }finally{await f.close();}

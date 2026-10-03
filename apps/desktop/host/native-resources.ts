@@ -69,7 +69,7 @@ export class NativeResources {
         if (path.extname(file).toLowerCase() !== '.zip') throw Error('Select a ZIP archive.');
         return this.skills.importZip(file, p.provider);
       }
-      case 'native-skills/export': { const id = required(p.id, 'Skill ID'), hash = required(p.hash, 'Skill revision', 64), skill = await this.skills.readMarkdown(id, hash); if (skill.origins.some(origin => origin.kind === 'official')) throw Error('Only personal Skills can be exported.'); const file = await this.dialogs.saveZip(`${skill.name.replace(/[^\p{L}\p{N}_.-]/gu, '-')}.zip`); return file ? this.skills.exportZip(id, hash, file) : null; }
+      case 'native-skills/export': { const id = required(p.id, 'Skill ID'), hash = required(p.hash, 'Skill revision', 64), skill = await this.skills.readMarkdown(id, hash); const file = await this.dialogs.saveZip(`${skill.name.replace(/[^\p{L}\p{N}_.-]/gu, '-')}.zip`); return file ? this.skills.exportZip(id, hash, file) : null; }
       case 'extensions/list': return this.plugins.list();
       case 'extensions/storage/read': return this.plugins.readStorage(required(p.id, 'Plugin ID'), required(p.hash, 'Plugin revision', 64));
       case 'extensions/storage/write': return this.plugins.writeStorage(required(p.id, 'Plugin ID'), required(p.hash, 'Plugin revision', 64), p.revision as string | null, p.values as Parameters<PluginRegistry['writeStorage']>[3]);

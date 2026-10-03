@@ -41,6 +41,13 @@ test('linked runtime availability and bundled invocation are independent from ex
   assert.deepEqual(composerSkills(scan,'claude').map(s=>s.id),['builtin']);
   assert.deepEqual(composerSkills(scan,'codex').map(s=>s.id),['shared']);
 });
+test('Codex selections have no workbench count limit and still reject duplicate identities',()=>{
+  const skills=Array.from({length:12},(_,i)=>skill('codex',{id:'skill-'+i}));
+  const catalog=composerSkills({skills,roots:[],errors:[]},'codex'),requested=catalog.map(({id,hash})=>({id,hash}));
+  assert.equal(resolveSkills(catalog,requested).length,12);
+  assert.throws(()=>resolveSkills(catalog,[...requested,requested[0]]),/INVALID/);
+});
+
 test('selection preserves sanitized display icons and Claude accepts only one native slash invocation',()=>{
   const first=skill('claude',{icon:'data:image/svg+xml;base64,fixture'}),second=skill('claude',{id:'second',origins:[{provider:'claude',kind:'personal',root:path.resolve('skills'),nativeName:'second'}]}),catalog=composerSkills({skills:[first,second],roots:[],errors:[]},'claude');
   assert.equal(resolveSkills(catalog,[{id:first.id,hash:first.hash}])[0]?.icon,first.icon);

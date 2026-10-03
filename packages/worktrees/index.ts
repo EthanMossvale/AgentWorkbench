@@ -70,7 +70,6 @@ export class WorktreeService {
   async configure(root?: string,settings:{autoDelete?:boolean;limit?:number}={}) {
     await this.load();if(this.busy)throw Error('WORKTREE_BUSY');
     if(root!==undefined&&(!path.isAbsolute(root)||root.includes('\0')))throw Error('WORKTREE_ROOT_INVALID');
-    if(root&&path.resolve(root)!==path.join(this.directory,'worktrees')&&contained(this.directory,path.resolve(root)))throw Error('WORKTREE_ROOT_IS_CONTROL_DIRECTORY');
     if(settings.autoDelete!==undefined&&typeof settings.autoDelete!=='boolean'||settings.limit!==undefined&&(!Number.isSafeInteger(settings.limit)||settings.limit<1||settings.limit>100))throw Error('WORKTREE_SETTINGS_INVALID');
     this.saved.root=root?path.resolve(root):undefined;if(settings.autoDelete!==undefined)this.saved.autoDelete=settings.autoDelete;if(settings.limit!==undefined)this.saved.limit=settings.limit;await this.save();return this.list();
   }
@@ -108,7 +107,7 @@ export class WorktreeService {
       const info=await this.inspect(sourceDirectory);if(!info.available)throw Error(info.reason);
       const source=info.repositoryRoot!,head=info.head!,snapshot=await this.snapshot(source);
       const root=this.saved.root??path.join(this.directory,'worktrees');await mkdir(root,{recursive:true});const resolvedRoot=await realpath(root);
-      if(contained(source,resolvedRoot)||contained(this.directory,resolvedRoot)&&resolvedRoot!==await realpath(path.join(this.directory,'worktrees')).catch(()=>''))throw Error('WORKTREE_ROOT_MUST_BE_OUTSIDE_REPOSITORY');
+      if(contained(source,resolvedRoot))throw Error('WORKTREE_ROOT_MUST_BE_OUTSIDE_REPOSITORY');
       const id=randomUUID(),target=path.join(resolvedRoot,id),cwd=path.join(target,path.relative(source,info.cwd!));
       record={id,path:target,cwd,sourceDirectory:info.cwd!,repositoryRoot:source,head,createdAt:new Date().toISOString(),status:'failed',copiedTrackedChanges:!!(snapshot.staged.length||snapshot.unstaged.length),copiedUntrackedFiles:snapshot.untracked.length};
       this.saved.records.push(record);await this.save();

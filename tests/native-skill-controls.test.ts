@@ -5,6 +5,7 @@ import os from 'node:os';
 import { mkdtemp, mkdir, readFile, writeFile, rm, symlink } from 'node:fs/promises';
 import { NativeSkillsService } from '../packages/native-skills';
 import { NativeSkillControls } from '../packages/native-skills/controls';
+import { readArchive } from '../packages/native-resources/archive';
 import { NativeResources } from '../apps/desktop/host/native-resources';
 
 const markdown = (name: string) => `---\nname: ${name}\ndescription: A test skill.\n---\nTest instructions.\n`;
@@ -64,9 +65,10 @@ test('bundled global override stays blocked while a disabled Codex parent requir
   const plugin = { ...base, origins: [{ provider: 'codex' as const, kind: 'official' as const, root: '', pluginId: 'fixture@openai-bundled' }], control: undefined as any }; controls.decorate(plugin); assert.equal(plugin.enabled, false); assert.equal(plugin.control.canToggle, true); assert.equal(plugin.control.enableParent, true); await assert.rejects(controls.write(plugin, true), /explicit confirmation/);
 });
 
-test('official Skill export is rejected before opening a save dialog', async t => {
+test('official Skill files export through the same native dialog as personal Skills', async t => {
   const f = await fixture(t); await put(path.join(f.codexHome, 'skills/.system/official-fixture/SKILL.md'), markdown('official-fixture'));
   let dialogs = 0; const host = new NativeResources(f.data, { openZip: async () => null, saveZip: async () => { dialogs++; return path.join(f.root, 'no.zip'); } }, () => [], () => {}, f.home); await host.initialize(); t.after(() => host.dispose());
-  const item = (await host.skills.scan()).skills[0]!; await assert.rejects(host.call('native-skills/export', { id: item.id, hash: item.hash }), /Only personal/); assert.equal(dialogs, 0);
-  await assert.rejects(host.skills.exportZip(item.id, item.hash, path.join(f.root, 'no.zip')), /Only personal/); await assert.rejects(readFile(path.join(f.root, 'no.zip')));
+  const item = (await host.skills.scan()).skills[0]!; await host.call('native-skills/export', { id: item.id, hash: item.hash }); assert.equal(dialogs, 1);
+  const files = await readArchive(path.join(f.root, 'no.zip')); assert.equal(files.find(v => v.name === 'SKILL.md')!.data.toString(), markdown('official-fixture'));
+  await host.skills.exportZip(item.id, item.hash, path.join(f.root, 'direct.zip')); assert.equal((await readArchive(path.join(f.root, 'direct.zip'))).length, files.length);
 });
