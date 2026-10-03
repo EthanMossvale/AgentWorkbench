@@ -554,3 +554,9 @@ New adjustable node: the original conversation pane's reading position per sessi
 Deliberate exclusion from restart persistence: the position is an offset into rendered content whose height depends on fonts, width, translation layout, disclosure state and messages that arrive after exit. Restoring a stale offset after a restart would land on unrelated text, so positions last for the application process and a restart opens each session at its newest output, as before. No user-profile key, shipped default or migration is added. Extension overrides never erase saved positions; disabling an override restores the core policy. Streamed state and the store's write scheduling are transient runtime state, not preferences.
 
 Verification: TypeScript, the shared UI preference inventory and plugin contract checks, and `scripts/test-reading-position-ui.mjs` in hidden production windows for Codex and Claude (mid-history restore, resumed following, plugin override and disable). No physical-desktop, real-profile or post-restart behavior is claimed; restart intentionally opens at the newest output.
+
+
+
+## D039: static history and composer sizing (2026-10-04)
+
+No adjustable node, key, default or storage changes. Disclosure choices (`disclosure.open`) still belong to their mounted `RememberedDetails` owners, which subscribe to the shared preference store themselves, so restoring, overriding and resetting them works for memoized history as before. The composer's height remains derived state, not a preference: it follows its content between the shipped minimum and the registered sizing ceiling. The reading context and per-turn identity signatures are transient render state and are not persisted.

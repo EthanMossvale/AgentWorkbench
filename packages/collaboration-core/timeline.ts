@@ -18,13 +18,20 @@ export function sessionTimeline(session: Session, peers: PeerMessage[] = []): Ti
     entries.push({type:'child',id:child.nativeChildId+':start',child,at:start,...(terminal&&start!==child.updatedAt?{lifecycle:'started' as const}:{})});
     if(terminal&&start!==child.updatedAt)entries.push({type:'child',id:child.nativeChildId+':end',child,at:child.updatedAt,lifecycle:'finished'});
   }
-  return entries.sort((a, b) => (Date.parse(a.at) || 0) - (Date.parse(b.at) || 0) || (a.order ?? 0) - (b.order ?? 0));
+  return chronological(entries);
+}
+/** Stable chronological order; each timestamp is parsed once rather than in every comparison. */
+function chronological<T extends {at:string;order?:number}>(entries:T[]):T[]{
+  const keyed=entries.map(entry=>({entry,time:Date.parse(entry.at)||0,order:entry.order??0}));
+  keyed.sort((a,b)=>a.time-b.time||a.order-b.order);
+  keyed.forEach((item,index)=>{entries[index]=item.entry;});
+  return entries;
 }
 
 export type ConversationEntry = TimelineEntry | {type:'changes';id:string;changes:TurnFileChanges} | {type:'interaction';id:string;item:import('../native-interactions').NativeInteraction;at:string};
 /** Cards finish the corresponding user turn; later turns never inherit earlier file edits. */
 export function conversationTimeline(session:Session,peers:PeerMessage[]=[],children:Session[]=[]):ConversationEntry[] {
-  const entries:TimelineEntry[]=[...sessionTimeline(session,peers),...children.filter(child=>child.agentParent?.sessionId===session.id).map(child=>({type:'delegated' as const,id:child.id,childSession:child,at:child.createdAt}))];entries.sort((a,b)=>(Date.parse(a.at)||0)-(Date.parse(b.at)||0)||(a.order??0)-(b.order??0));const groups=turnFileChanges(session);
+  const entries:TimelineEntry[]=[...sessionTimeline(session,peers),...children.filter(child=>child.agentParent?.sessionId===session.id).map(child=>({type:'delegated' as const,id:child.id,childSession:child,at:child.createdAt}))];chronological(entries);const groups=turnFileChanges(session);
   const groupUser=new Map(groups.map(group=>[group.id,group.userMessageId??session.messages.findLast(message=>message.role==='user'&&message.nativeTurnId===group.id)?.id]));
   // Legacy unbound records stay visible before bound turns, never on a fresh live turn.
   const result:ConversationEntry[]=groups.filter(group=>!groupUser.get(group.id)).map(changes=>({type:'changes',id:changes.id,changes}));

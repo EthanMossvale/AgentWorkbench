@@ -173,12 +173,13 @@ export default function App() {
     const invoke=(id:string)=>{void shortcuts.invoke(id).catch(report);};
     const stopCommands = window.workbench?.onCommand?.(command=>shortcuts.getSnapshot().some(item=>item.id===command)?invoke(command):commandRef.current(command));
     const shortcut=(event:KeyboardEvent)=>{
-      if(event.defaultPrevented||document.querySelector('[role="dialog"]'))return;
+      if(event.defaultPrevented)return;
       const target=event.target instanceof Element?event.target:null;
       if(target?.closest('[data-shortcut-composing="true"]'))return;
       const local=target?.closest('[data-shortcut-scope]')?.getAttribute('data-shortcut-scope');
       const command=shortcuts.match(event,local==='composer'||local==='sidebar'?local:'global');
-      if(command){event.preventDefault();event.stopPropagation();invoke(command);}
+      // Only a bound key pays for the document-wide dialog check; typing stays cheap.
+      if(command&&!document.querySelector('[role="dialog"]')){event.preventDefault();event.stopPropagation();invoke(command);}
     };
     window.addEventListener('keydown',shortcut,true);
     refresh().then(async () => { const initial = await api<{ sessionId: string | null }>('navigation/get'); if (live && navigationEpoch === 0 && initial.sessionId) await navigate(initial.sessionId); if(live)setNavigationReady(true); }).catch(e => { if (live) report(e); });
