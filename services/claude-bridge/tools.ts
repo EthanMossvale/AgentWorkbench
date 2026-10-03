@@ -7,8 +7,17 @@ import {ProcessSupervisor, type NativeFrame, type ProcessSpec} from '../remote-s
 import {normalizeClaudeToolResult} from './results';
 import {claudeMcpPolicy,ClaudeToolError,claudeToolFailure,type ClaudeMcpPolicy,type ClaudeToolDiagnostic} from './policy';
 
-/** No Agent, WebFetch, Skill, scheduler or model endpoint runs on this server. */
+/** Legacy file/process names remain exported for plugin compatibility, not admission. */
 export const LOCAL_CLAUDE_TOOLS = ['Read','Write','Edit','Glob','Grep','Bash','PowerShell','NotebookEdit','TaskOutput','TaskStop'] as const;
+export interface ClaudeToolCatalogSource {id:`plugin:${string}`;select(tools:readonly Record<string,unknown>[]):readonly Record<string,unknown>[]|undefined}
+/** Native model/lifecycle operations stay with the bound remote runtime. */
+const nativeRuntimeTools=new Set(['Agent','Task','Skill','ScheduleWakeup','CronCreate','CronDelete','CronList']);
+export class ClaudeLocalToolCatalog {
+ private sources=new Map<string,ClaudeToolCatalogSource>();
+ register(source:ClaudeToolCatalogSource):()=>void{if(this.sources.has(source.id))throw Error('CLAUDE_LOCAL_CATALOG_DUPLICATE');const entry={...source};this.sources.set(entry.id,entry);return()=>{if(this.sources.get(entry.id)===entry)this.sources.delete(entry.id);};}
+ select(tools:readonly Record<string,unknown>[]):readonly Record<string,unknown>[]{for(const source of [...this.sources.values()].reverse()){const value=source.select(tools);if(value!==undefined)return value;}return tools.filter(tool=>!nativeRuntimeTools.has(String(tool.name)));}
+}
+export const claudeLocalToolCatalog=new ClaudeLocalToolCatalog();
 const readOnly = new Set(['Read','Glob','Grep','TaskOutput','LocalContext','LoadLocalSkill','LocalTaskOutput','ListLocalTasks','ReadLocalToolResult','workbench_list_projects','workbench_list_sessions','workbench_read_session','workbench_list_model_targets','workbench_read_agent','workbench_read_messages','workbench_wait_messages']);
 export interface ClaudeToolServer {
   readonly definitions: readonly Record<string, unknown>[];
@@ -93,26 +102,25 @@ export async function openOfficialClaudeTools(options:ClaudeToolServerOptions, f
     await process.write({jsonrpc:'2.0',method:'notifications/initialized'});
     let definitions:Record<string,unknown>[]=[],listing:Promise<readonly Record<string,unknown>[]>|undefined;
     const listTools=():Promise<readonly Record<string,unknown>[]>=>{
-      if(listedRevision===catalogRevision)return Promise.resolve(definitions);
+      if(listedRevision===catalogRevision)return Promise.resolve(claudeLocalToolCatalog.select(definitions));
       return listing??=(async()=>{
         const revision=catalogRevision,found:Record<string,unknown>[]=[],cursors=new Set<string>(),names=new Set<string>();let cursor:string|undefined;
         for(let page=0;;page++){
           if(page>=policy.catalogPages)throw Error('CLAUDE_LOCAL_TOOL_CATALOG_LIMIT');
           const listed=await request('tools/list',cursor?{cursor}:{},undefined,20000);
           if(!Array.isArray(listed?.tools))throw Error('CLAUDE_LOCAL_TOOL_CATALOG_INVALID');
-          for(const tool of listed.tools){if(typeof tool?.name!=='string'||names.has(tool.name)||names.size>=policy.catalogTools)throw Error('CLAUDE_LOCAL_TOOL_CATALOG_INVALID');names.add(tool.name);if((LOCAL_CLAUDE_TOOLS as readonly string[]).includes(tool.name))found.push(tool);}
+          for(const tool of listed.tools){if(typeof tool?.name!=='string'||names.has(tool.name)||names.size>=policy.catalogTools)throw Error('CLAUDE_LOCAL_TOOL_CATALOG_INVALID');names.add(tool.name);found.push(tool);}
           if(listed.nextCursor===undefined)break;
           if(typeof listed.nextCursor!=='string'||!listed.nextCursor||cursors.has(listed.nextCursor))throw Error('CLAUDE_LOCAL_TOOL_CATALOG_INVALID');
           cursor=listed.nextCursor as string;cursors.add(cursor);
         }
-        if(!['Read','Write','Edit','Glob','Grep'].every(name=>found.some(tool=>tool.name===name))||!found.some(tool=>['Bash','PowerShell'].includes(String(tool.name))))throw Error('CLAUDE_LOCAL_TOOL_CATALOG_INCOMPLETE');
-        definitions=found;listedRevision=revision;return definitions;
+        definitions=found;listedRevision=revision;return claudeLocalToolCatalog.select(definitions);
       })().finally(()=>{listing=undefined;});
     };
     await listTools();
-    return {get definitions(){return definitions;},listTools,call:async(name,args,signal)=>{
-      await listTools();
-      if(!definitions.some((tool:any)=>tool.name===name))throw Error('CLAUDE_LOCAL_TOOL_FORBIDDEN');
+    return {get definitions(){return claudeLocalToolCatalog.select(definitions);},listTools,call:async(name,args,signal)=>{
+      const available=await listTools();
+      if(!available.some((tool:any)=>tool.name===name))throw Error('CLAUDE_LOCAL_TOOL_FORBIDDEN');
       const requested=(args as any)?.timeout;
       const timeout=['Bash','PowerShell'].includes(name)&&Number.isFinite(requested)&&requested>0?Math.min(600000,requested)+30000:180000;
       return normalize(name,await request('tools/call',{name,arguments:args},signal,timeout));

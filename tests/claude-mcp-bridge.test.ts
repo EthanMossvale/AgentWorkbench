@@ -32,7 +32,7 @@ test('official tool adapter isolates credentials and forwards only native file/p
   });
   assert.equal(native.spec.env!.HOME,'real-local-home');assert.equal(native.spec.env!.ANTHROPIC_BASE_URL,'http://127.0.0.1:1');assert.equal(native.spec.env!.CLAUDE_CODE_OAUTH_TOKEN,undefined);assert.equal(native.spec.env!.CLAUDECODE,undefined);assert.ok(!native.spec.args.includes('--print'));assert.deepEqual(native.spec.args.slice(-2),['mcp','serve']);
   assert.equal(native.spec.env!.CLAUDE_CODE_GIT_BASH_PATH,'C:\\fixture\\bash.exe');assert.equal(native.spec.env!.CLAUDE_CODE_USE_POWERSHELL_TOOL,'1');
-  assert.equal(tools.definitions.length,LOCAL_CLAUDE_TOOLS.length);await assert.rejects(tools.call('Agent',{}),/FORBIDDEN/);await tools.call('Read',{file_path:'fixture'});
+  assert.equal(tools.definitions.length,LOCAL_CLAUDE_TOOLS.length+1);assert.ok(tools.definitions.some(t=>t.name==='WebFetch'));await assert.rejects(tools.call('Agent',{}),/FORBIDDEN/);await tools.call('Read',{file_path:'fixture'});
   native.frame({jsonrpc:'2.0',id:'roots',method:'roots/list'});assert.deepEqual(native.writes.at(-1),{jsonrpc:'2.0',id:'roots',result:{roots:[{uri:pathToFileURL(directory).href,name:'project'}]}});
   native.frame({jsonrpc:'2.0',id:'sampling',method:'sampling/create'});assert.equal(native.writes.at(-1)?.error?.code,-32601);
   assert.equal(native.writes.filter(v=>v.method==='tools/call').length,1);assert.ok(!native.writes.some(v=>v.type==='user'));

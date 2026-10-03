@@ -2420,3 +2420,7 @@ Translation retains queued work beyond 64 requests, reads responses beyond 2 MB,
 ## D032 native transport capacity delivery (2026-10-03)
 
 Removed artificial native model frame/output defaults, both SSH relay/owner input limits, gateway request 32 MiB and API JSON/SSE/tool-count/argument caps. Native JSONL now accumulates chunks without repeatedly copying an unfinished large frame. The production runtime.native-streams factory supports approved call/register/replace through actual local, SSH and translation process consumers. Explicit caller transport policies and data/permission/duplicate integrity remain. 214 focused cases and the full production build pass; bundle revision 6 records source migration only. No new UI state; no live SSH, real model, installed update or remote deployment.
+
+## D033 discovered local tools (2026-10-03)
+
+Claude local tools follow the actual native catalog, including new ordinary names and partial installations. A typed production selection registry reaches cached/new listings and real calls; approved plugin disable/reenable restores selection immediately. Native model/lifecycle ownership and action permissions remain. 25 focused synthetic cases pass; documentation and contract snapshot record the additive API. This has no UI preference change and does not claim live CLI, model, SSH or installed desktop acceptance.

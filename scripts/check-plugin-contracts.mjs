@@ -20,7 +20,7 @@ files.push('packages/model-api/runtime-target.ts');
 files.push('packages/session-core/recovery.ts','packages/translation/layouts.ts');
 files.push('packages/model-api/context-state.ts');
 files.push('apps/desktop/host/workspace-management.ts');
-files.push('services/claude-bridge/policy.ts','services/claude-bridge/result-store.ts','services/claude-bridge/local-tasks.ts');
+files.push('services/claude-bridge/tools.ts','services/claude-bridge/policy.ts','services/claude-bridge/result-store.ts','services/claude-bridge/local-tasks.ts');
 files.push('apps/desktop/host/api-command.ts','packages/model-api/turn-budget.ts','packages/model-api/context-planning.ts','packages/model-api/reasoning-options.ts','packages/model-api/endpoints.ts','packages/translation/output.ts','packages/translation/queue.ts');
 files.push('services/owner-file-service/index.ts','apps/desktop/host/api-local-tools.ts');
 files.push('packages/generated-images/types.ts','packages/attachments/paste.ts','packages/attachments/types.ts','packages/attachments/payload.ts');
