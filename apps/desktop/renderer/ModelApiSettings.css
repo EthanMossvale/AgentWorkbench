@@ -86,3 +86,6 @@
 .model-api-editor .model-api-effort-options label{margin:0;color:var(--text)}
 .model-api-editor label.model-api-manual-default{display:flex;flex-direction:row;align-items:center;gap:12px;margin:12px 0 8px;font-size:0.846154rem}
 .model-api-manual-default select{width:110px;min-height:30px;padding:5px 8px}
+
+.model-api-custom-effort { display:flex; gap:8px; align-items:center; margin-top:8px; }
+.model-api-custom-effort input { flex:1; min-width:0; }

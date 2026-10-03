@@ -1,4 +1,5 @@
-import { reasoningEfforts } from './reasoning-info';
+import {isModelId} from '../translation/config';
+import { reasoningEfforts,orderReasoningEfforts } from './reasoning-info';
 
 const effortField = /reasoning[_ .-]?effort|output_config(?:[.\s_\[\]'"-]*effort)?|\beffort\b|思考档位|推理(?:档位|等级|强度)/i;
 const rejection = /invalid|unsupported|not support|not allowed|must be|should be|expected|permitted|allowed|unknown|literal_error|enum|不支持|无效|必须|应为|允许/i;
@@ -19,12 +20,12 @@ export function reasoningRejection(data:unknown):{rejected:boolean;declared:stri
     const generic=!location||/^(?:body|request|input)(?:\.body)?$/.test(location);
     if(!effortField.test(generic?message:location))continue;
     const lists=[node.allowed_values,node.supported_values,node.allowed,node.enum,node.supported_efforts,record(node.ctx).permitted];
-    for(const list of lists)if(Array.isArray(list))for(const effort of reasoningEfforts)if(list.includes(effort))allowed.add(effort);
+    for(const list of lists)if(Array.isArray(list))for(const effort of list)if(isModelId(effort))allowed.add(effort);
     const expected=typeof record(node.ctx).expected==='string'?record(node.ctx).expected:'';
     const suffix=/\b(?:supported|allowed|permitted|valid)\s+(?:values|efforts)(?:\s+(?:are|is))?\s*:?\s*(.{1,512})|\b(?:must|should)\s+be\s*(.{1,512})|\bexpected\s+(?:one of\s+)?(.{1,512})|(?:支持|允许)(?:的)?(?:值|档位)(?:为|是)?[：:]?\s*(.{1,512})/i.exec(message);
     const declared=[expected,...(suffix?suffix.slice(1).filter(Boolean):[])].join(' ').slice(0,2048);
     for(const effort of reasoningEfforts)if(new RegExp(`(?:^|[\\s,'"\\x60\\[\\]、：:])${effort}(?=$|[\\s,'"\\x60\\[\\]、.])`).test(declared))allowed.add(effort);
     if(rejection.test(message)||allowed.size)rejected=true;
   }
-  return {rejected,declared:reasoningEfforts.filter(effort=>allowed.has(effort))};
+  return {rejected,declared:orderReasoningEfforts([...allowed])};
 }

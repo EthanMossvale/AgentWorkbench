@@ -82,14 +82,14 @@ test('all explicitly rejected candidates produce unsupported and still allow ser
   assert.equal(result.models[0]?.reasoningProbe?.status,'unsupported');assert.equal(result.models[0]?.efforts,undefined);
 });
 
-test('explicit candidates must all pass and are canonicalized; aliases and extra levels are rejected',async()=>{
+test('explicit candidates retain diagnostics without preventing saving custom values',async()=>{
   const c=connection();c.models=[{...model,effortCandidates:['ultra','low']}];
   const f=strict(['ultra','low']),result=await verifyConnectionReasoning(c,'',undefined,f.fetcher);
   assert.deepEqual(result.models[0]?.efforts,['low','ultra']);assert.equal(f.calls.length,2);
-  await assert.rejects(verifyConnectionReasoning(c,'',undefined,strict(['low']).fetcher),/ultra.*移除/);
+  assert.deepEqual((await verifyConnectionReasoning(c,'',undefined,strict(['low']).fetcher)).models[0]?.reasoningProbe?.rejected,['ultra']);
   assert.deepEqual((await verifyConnectionReasoning(c,'',undefined,async()=>json(good()))).models[0]?.efforts,['low','ultra']);
-  await assert.rejects(verifyConnectionReasoning(c,'',undefined,async()=>json({},422)),/未能验证/);
-  for(const effort of ['minimal','none','extreme'])assert.throws(()=>validateConnection({...c,models:[{...model,effortCandidates:[effort]}]}),/仅支持/);
+  assert.equal((await verifyConnectionReasoning(c,'',undefined,async()=>json({},422))).models[0]?.reasoningProbe?.status,'inconclusive');
+  for(const effort of ['minimal','none','extreme'])assert.deepEqual(validateConnection({...c,models:[{...model,effortCandidates:[effort]}]}).models[0]?.effortCandidates,[effort]);
   assert.equal(validateConnection({...c,models:[{...model,reasoningProbe:{status:'verified',accepted:['ultra']}}]}).models[0]?.reasoningProbe,undefined);
 });
 
@@ -128,7 +128,7 @@ test('batch has a global request budget and at most two active probes; disabled 
   assert.ok(f.calls.length<=96);assert.equal(peak,2);assert.ok(result.models.some(m=>m.reasoningProbe?.reason==='budget'));assert.equal(result.models.at(-1)?.reasoningProbe,undefined);
 });
 
-test('host save against local synthetic HTTP server rejects unsupported selection atomically and survives restart',async()=>{
+test('host save keeps rejected detection diagnostics, custom choices and credentials across restart',async()=>{
   let posts=0;const requests:any[]=[];
   const server=createServer(async(req,res)=>{let body='';for await(const chunk of req)body+=chunk;const data=body?JSON.parse(body):{};requests.push({url:req.url,body:data});res.setHeader('content-type','application/json');
     if(req.method==='GET'){res.end(JSON.stringify({data:[{id:model.model}]}));return;}posts++;
@@ -141,13 +141,11 @@ test('host save against local synthetic HTTP server rejects unsupported selectio
   try{
     const config={...connection(),baseUrl:`http://127.0.0.1:${(server.address() as any).port}/v1`};
     let saved=await host.call('model-api/save',{connection:config,key:'synthetic-key-a',verifyReasoning:true,allowInference:true}) as ModelConnection;assert.equal(posts,7);assert.deepEqual(saved.models[0]?.efforts,['light','xhigh']);
-    const oldRef=saved.credentialRef,oldRevision=saved.revision;
-    await assert.rejects(host.call('model-api/save',{id:saved.id,revision:saved.revision,connection:{...saved,models:[{...model,effortCandidates:['ultra']}]},key:'synthetic-key-b',verifyReasoning:true,allowInference:true}),/ultra.*移除/);
-    assert.equal(host.connection(saved.id).revision,oldRevision);assert.equal(host.connection(saved.id).credentialRef,oldRef);assert.equal(await host.key(saved),'synthetic-key-a');
-    const before=posts;saved=await host.call('model-api/save',{id:saved.id,revision:saved.revision,connection:{...saved,models:[{...saved.models[0],efforts:['ultra'],defaultEffort:'ultra',reasoningProbe:{status:'verified'}}]},verifyReasoning:true,allowInference:true}) as ModelConnection;
-    assert.equal(posts,before);assert.deepEqual(saved.models[0]?.efforts,['light','xhigh']);
-    await assert.rejects(host.call('model-api/save',{id:saved.id,revision:saved.revision,connection:{...saved,models:[{...model,effortCandidates:['ultra']}]}}),/必须.*验证/);
-    const reopened=new StateStore(dir);await reopened.load();assert.deepEqual(reopened.snapshot().modelConnections?.[0]?.models[0]?.efforts,['light','xhigh']);
+    saved=await host.call('model-api/save',{id:saved.id,revision:saved.revision,connection:{...saved,models:[{...model,effortCandidates:['ultra']}]},key:'synthetic-key-b',verifyReasoning:true,allowInference:true}) as ModelConnection;
+    assert.deepEqual(saved.models[0]?.reasoningProbe?.rejected,['ultra']);assert.equal(await host.key(saved),'synthetic-key-b');
+    const before=posts;saved=await host.call('model-api/save',{id:saved.id,revision:saved.revision,connection:{...saved,models:[{...model,manualEfforts:['vendor-depth'],defaultEffort:'vendor-depth'}]}}) as ModelConnection;
+    assert.equal(posts,before);assert.deepEqual(saved.models[0]?.manualEfforts,['vendor-depth']);
+    const reopened=new StateStore(dir);await reopened.load();assert.deepEqual(reopened.snapshot().modelConnections?.[0]?.models[0]?.manualEfforts,['vendor-depth']);
     assert.doesNotMatch(JSON.stringify(reopened.snapshot()),/synthetic-key-|synthetic-private-server-message/);
     assert.ok(requests.every(r=>!JSON.stringify(r.body).includes('chat history')));
   }finally{server.closeAllConnections();await new Promise<void>(r=>server.close(()=>r()));await rm(dir,{recursive:true,force:true});}

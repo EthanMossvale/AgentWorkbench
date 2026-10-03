@@ -1,7 +1,8 @@
 import type { ApiModel } from './types';
 
 export const reasoningEfforts = ['light', 'low', 'medium', 'high', 'xhigh', 'max', 'ultra'] as const;
-export const reasoningCandidates = (model: ApiModel): string[] => reasoningEfforts.filter(effort => !model.effortCandidates?.length || model.effortCandidates.includes(effort));
+export const orderReasoningEfforts=(values:string[]):string[]=>[...reasoningEfforts.filter(effort=>values.includes(effort)),...new Set(values.filter(effort=>!reasoningEfforts.includes(effort as any)))];
+export const reasoningCandidates = (model: ApiModel): string[] => orderReasoningEfforts(model.effortCandidates?.length?model.effortCandidates:[...reasoningEfforts,...(model.manualEfforts??[])]);
 export const availableReasoningEfforts=(model:ApiModel):string[]=>model.manualEfforts?.length?model.manualEfforts:model.reasoningProbe?.status==='verified'?model.reasoningProbe.accepted:model.reasoningProbe?.status==='declared'?model.reasoningProbe.declared??[]:model.reasoningProbe?.status==='unsupported'?[]:model.efforts??[];
 // Retain the exported name for existing callers; explicit manual choices are also usable.
 export const defaultVerifiedEffort=(model:ApiModel)=>{const levels=availableReasoningEfforts(model);return levels.includes(model.defaultEffort??'')?model.defaultEffort:levels.includes('medium')?'medium':levels[0];};

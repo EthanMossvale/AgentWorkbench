@@ -1,3 +1,4 @@
+import {ReasoningOptionCatalog} from '../../../packages/model-api/reasoning-options';
 import { randomUUID } from 'node:crypto';
 import type { AppState } from '../../../packages/contracts';
 import type { ModelConnection } from '../../../packages/model-api/types';
@@ -15,12 +16,14 @@ interface Hooks { snapshot():AppState; update(change:(state:AppState)=>void):Pro
 export class ModelConnections {
   private queue:Promise<unknown>=Promise.resolve();
   readonly reasoning:ReasoningJobs;
+  readonly reasoningOptions=new ReasoningOptionCatalog();
   private disposed=false;private deferred=new Set<ReturnType<typeof setTimeout>>();
   constructor(private hooks:Hooks,private secrets:SecretStore,private fetcher:typeof fetch=fetch){this.reasoning=new ReasoningJobs(fetcher);}
   dispose(){this.disposed=true;for(const timer of this.deferred)clearTimeout(timer);this.deferred.clear();this.reasoning.dispose();}
   connection(id:unknown){const connection=this.hooks.snapshot().modelConnections?.find(item=>item.id===id);if(!connection)throw Error('模型连接已不存在，请重新选择。');return connection;}
   async key(connection:ModelConnection){return connection.auth==='none'?'':this.secrets.getModel(connection.credentialRef,modelCredentialScope(connection));}
   call(method:string,p:Record<string,unknown>):Promise<unknown>{
+    if(method==='model-api/reasoning/options')return Promise.resolve(this.reasoningOptions.list(p.model as ModelConnection['models'][number]));
     if(method.startsWith('model-api/reasoning/'))return this.reasoningCall(method,p);
     const action=()=>this.perform(method,p);
     // Serialize credentials with metadata CAS, including refresh/delete.
@@ -75,7 +78,6 @@ export class ModelConnections {
     if(p.forceReasoning!==undefined&&(typeof p.forceReasoning!=='boolean'||p.forceReasoning===true&&p.verifyReasoning!==true))throw Error('重新检测须同时开启思考档位验证。');
     if(previous&&method==='model-api/save'&&this.hooks.busy(previous.id)&&!this.safeWhileBusy(previous,candidate,p))throw Error('此连接正在使用，暂不能修改地址、密钥或已启用模型；可以添加新模型。');
     const same=previous&&modelCredentialScope(previous)===modelCredentialScope(candidate);
-    if(method==='model-api/save'&&candidate.models.some(model=>model.enabled&&model.effortCandidates?.length)&&p.verifyReasoning!==true)throw Error('自定义思考档位必须在保存时验证。');
     if(same&&p.key===undefined)candidate.models=candidate.models.map(model=>{const old=previous.models.find(item=>item.id===model.id&&item.model===model.model);return old?.reasoningProbe&&!!model.adaptiveThinking===!!old.adaptiveThinking&&JSON.stringify(reasoningCandidates(model))===JSON.stringify(reasoningCandidates(old))?applyReasoning(model,{efforts:old.reasoningProbe.status==='declared'?old.reasoningProbe.declared:old.reasoningProbe.status==='verified'?old.reasoningProbe.accepted:undefined,defaultEffort:old.defaultEffort,reasoningProbe:old.reasoningProbe}):model;});
     if(previous&&!same){candidate.discoveredModels=[];candidate.discoveredAt=undefined;candidate.models=candidate.models.map(retainManualModelSettings);}
     const supplied=typeof p.key==='string'?p.key.trim():'';

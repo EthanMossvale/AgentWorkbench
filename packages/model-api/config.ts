@@ -2,7 +2,7 @@ import { randomUUID } from 'node:crypto';
 import { isModelId } from '../translation/config';
 import { isEmptyModelDraft, normalizeModelApiUrl } from './settings';
 import type { ApiModel, ModelConnection } from './types';
-import { mergeReasoning, reasoningEfforts } from './reasoning-info';
+import { mergeReasoning, orderReasoningEfforts } from './reasoning-info';
 
 const obj = (value: unknown): Record<string, any> => value && typeof value === 'object' && !Array.isArray(value) ? value as Record<string, any> : {};
 const clean = (value: unknown, max = 255) => typeof value === 'string' && value.trim().length <= max && !/[\u0000-\u001f\u007f]/.test(value) ? value.trim() : '';
@@ -15,7 +15,7 @@ export function modelMetadata(value: unknown): Partial<ApiModel> {
   const contextWindow = positive(v.context_window ?? v.contextWindow ?? v.context_length ?? v.max_context_tokens ?? v.context_window_tokens ?? v.max_input_tokens ?? limits.context ?? limits.context_window ?? top.context_length);
   const maxOutputTokens = positive(v.max_output_tokens ?? v.max_tokens ?? limits.output ?? limits.max_output_tokens ?? top.max_completion_tokens);
   const raw = v.supported_reasoning_efforts ?? v.supportedReasoningEfforts ?? v.supported_reasoning_levels ?? v.reasoning_efforts ?? reasoning.efforts ?? reasoning.levels ?? thinking.levels ?? effort.supported_efforts ?? effort.levels ?? (effort.supported === true ? Object.entries(effort).filter(([key,value]) => key !== 'supported' && obj(value).supported === true).map(([key]) => key) : undefined);
-  const efforts = Array.isArray(raw) ? [...new Set(raw.map(item => typeof item === 'string' ? item : obj(item).reasoningEffort ?? obj(item).reasoning_effort ?? obj(item).effort ?? obj(item).level ?? obj(item).value).filter(isModelId))].slice(0, 20) : undefined;
+  const efforts = Array.isArray(raw) ? [...new Set(raw.map(item => typeof item === 'string' ? item : obj(item).reasoningEffort ?? obj(item).reasoning_effort ?? obj(item).effort ?? obj(item).level ?? obj(item).value).filter(isModelId))] : undefined;
   const defaultEffort = clean(v.default_reasoning_effort ?? v.defaultReasoningEffort ?? reasoning.default_effort ?? reasoning.default ?? thinking.default ?? effort.default_effort ?? effort.default);
   return { ...(contextWindow ? { contextWindow, contextWindowSource: 'upstream' as const } : {}), ...(maxOutputTokens ? { maxOutputTokens } : {}), ...(efforts?.length ? { efforts, ...(efforts.includes(defaultEffort) ? { defaultEffort } : {}) } : {}), ...(obj(obj(capabilities.thinking).types).adaptive?.supported === true ? { adaptiveThinking:true } : {}), metadataSource: 'upstream' };
 }
@@ -32,16 +32,16 @@ export function validateApiModel(value: unknown): ApiModel {
   const name = typeof v.name === 'string' && !v.name.trim() ? model : v.name;
   if (!isModelId(v.id) || !isModelId(model) || !clean(name) || typeof v.enabled !== 'boolean') throw Error('请填写有效的映射名称和上游模型 ID。');
   for (const key of ['contextWindow', 'maxOutputTokens']) if (v[key] !== undefined && !positive(v[key])) throw Error('上下文与输出上限须为正整数。');
-  if (v.efforts !== undefined && (!Array.isArray(v.efforts) || v.efforts.length > 20 || v.efforts.some((item: unknown) => !isModelId(item)))) throw Error('思考档位格式不正确。');
+  if (v.efforts !== undefined && (!Array.isArray(v.efforts) || v.efforts.some((item: unknown) => !isModelId(item)))) throw Error('思考档位格式不正确。');
   const selectedLevels=Array.isArray(v.manualEfforts)&&v.manualEfforts.length?v.manualEfforts:v.efforts;
   if (v.defaultEffort !== undefined && (!Array.isArray(selectedLevels) || !selectedLevels.includes(v.defaultEffort))) throw Error('默认思考档位不在所选档位中。');
-  if(v.effortCandidates!==undefined&&(!Array.isArray(v.effortCandidates)||v.effortCandidates.length>7||v.effortCandidates.some((item:unknown)=>!reasoningEfforts.includes(item as any))))throw Error('待测档位仅支持 light、low、medium、high、xhigh、max、ultra。');
-  if(v.manualEfforts!==undefined&&(!Array.isArray(v.manualEfforts)||v.manualEfforts.length>7||v.manualEfforts.some((item:unknown)=>!reasoningEfforts.includes(item as any))))throw Error('MODEL_MANUAL_EFFORTS_INVALID');
-  const manualEfforts=v.manualEfforts?.length?reasoningEfforts.filter(effort=>v.manualEfforts.includes(effort)):undefined;
+  if(v.effortCandidates!==undefined&&(!Array.isArray(v.effortCandidates)||v.effortCandidates.some((item:unknown)=>!isModelId(item))))throw Error('待测思考档位格式不正确。');
+  if(v.manualEfforts!==undefined&&(!Array.isArray(v.manualEfforts)||v.manualEfforts.some((item:unknown)=>!isModelId(item))))throw Error('MODEL_MANUAL_EFFORTS_INVALID');
+  const manualEfforts=v.manualEfforts?.length?orderReasoningEfforts(v.manualEfforts):undefined;
   if(manualEfforts&&v.effortCandidates?.length)throw Error('MODEL_REASONING_MODES_CONFLICT');
   const efforts=manualEfforts??(v.efforts?.length?[...new Set<string>(v.efforts)]:undefined);
   const defaultEffort=manualEfforts?(manualEfforts.includes(v.defaultEffort)?v.defaultEffort:manualEfforts.includes('medium')?'medium':manualEfforts[0]):v.defaultEffort;
-  return { ...(v.effortCandidates?.length ? {effortCandidates:reasoningEfforts.filter(effort=>v.effortCandidates.includes(effort))} : {}), ...(manualEfforts?{manualEfforts}:{}), ...(v.adaptiveThinking === true ? {adaptiveThinking:true} : {}), id: v.id, name: clean(name), model, enabled: v.enabled, ...(v.contextWindow ? { contextWindow: v.contextWindow, ...(v.contextWindowSource==='manual'||v.contextWindowSource==='upstream'?{contextWindowSource:v.contextWindowSource}:{}) } : {}), ...(v.maxOutputTokens ? { maxOutputTokens: v.maxOutputTokens } : {}), ...(efforts?.length ? { efforts, ...(defaultEffort ? { defaultEffort } : {}) } : {}), ...(v.metadataSource === 'upstream' || v.metadataSource === 'manual' ? { metadataSource: v.metadataSource } : {}) };
+  return { ...(v.effortCandidates?.length ? {effortCandidates:orderReasoningEfforts(v.effortCandidates)} : {}), ...(manualEfforts?{manualEfforts}:{}), ...(v.adaptiveThinking === true ? {adaptiveThinking:true} : {}), id: v.id, name: clean(name), model, enabled: v.enabled, ...(v.contextWindow ? { contextWindow: v.contextWindow, ...(v.contextWindowSource==='manual'||v.contextWindowSource==='upstream'?{contextWindowSource:v.contextWindowSource}:{}) } : {}), ...(v.maxOutputTokens ? { maxOutputTokens: v.maxOutputTokens } : {}), ...(efforts?.length ? { efforts, ...(defaultEffort ? { defaultEffort } : {}) } : {}), ...(v.metadataSource === 'upstream' || v.metadataSource === 'manual' ? { metadataSource: v.metadataSource } : {}) };
 }
 export function validateConnection(value: unknown, previous?: ModelConnection): ModelConnection {
   const v = obj(value);

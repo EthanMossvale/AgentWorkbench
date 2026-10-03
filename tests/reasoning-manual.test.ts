@@ -4,7 +4,8 @@ import {mkdtemp,rm} from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import {setTimeout as wait} from 'node:timers/promises';
-import {validateConnection,mergeDirectory} from '../packages/model-api/config';
+import {validateConnection,mergeDirectory,modelMetadata} from '../packages/model-api/config';
+import {ApiConversationClient} from '../packages/model-api/provider';
 import {reasoningRejection} from '../packages/model-api/reasoning-errors';
 import {availableReasoningEfforts,defaultVerifiedEffort,reasoningStatus} from '../packages/model-api/reasoning-info';
 import {verifyConnectionReasoning} from '../packages/model-api/reasoning-probe';
@@ -19,8 +20,8 @@ const enumError=()=>({error:{param:'reasoning.effort',type:'invalid_request_erro
 async function until(check:()=>boolean){for(let i=0;i<100;i++){if(check())return;await wait(10);}throw Error('fixture timeout');}
 
 test('OpenAI-style, Messages-style and nested validation errors expose only declared effort tokens',()=>{
-  for(const data of [enumError(),{error:{message:"output_config.effort: Input should be 'low', 'medium', 'high' or 'xhigh'",type:'invalid_request_error'}},{detail:[{loc:['body','reasoning_effort'],msg:"Input should be 'low', 'medium', 'high' or 'xhigh'",type:'literal_error',input:'private-input',ctx:{expected:"'low', 'medium', 'high' or 'xhigh'"}}]},{error:{param:'reasoning_effort',message:'Invalid value',allowed_values:['xhigh','high','medium','low','private-value']}}]){
-    assert.deepEqual(reasoningRejection(data),{rejected:true,declared:['low','medium','high','xhigh']});
+  for(const data of [enumError(),{error:{message:"output_config.effort: Input should be 'low', 'medium', 'high' or 'xhigh'",type:'invalid_request_error'}},{detail:[{loc:['body','reasoning_effort'],msg:"Input should be 'low', 'medium', 'high' or 'xhigh'",type:'literal_error',input:'private-input',ctx:{expected:"'low', 'medium', 'high' or 'xhigh'"}}]},{error:{param:'reasoning_effort',message:'Invalid value',allowed_values:['xhigh','high','medium','low','vendor-depth']}}]){
+    assert.deepEqual(reasoningRejection(data),{rejected:true,declared:['low','medium','high','xhigh',...(JSON.stringify(data).includes('vendor-depth')?['vendor-depth']:[])]});
   }
   assert.deepEqual(reasoningRejection({error:{param:'temperature',message:"Invalid effort input. Supported values are: 'low', 'high'"}}),{rejected:false,declared:[]});
   assert.deepEqual(reasoningRejection({error:{param:'reasoning_effort',message:'Unsupported effort high'}}),{rejected:true,declared:[]});
@@ -66,17 +67,34 @@ test('one unavailable model does not prevent another model from returning a decl
 });
 
 test('manual choices remain distinct from verification and survive metadata, unknown probes and both native wire adapters',async()=>{
-  const c=validateConnection({...config(),models:[{...config().models[0],manualEfforts:['ultra','medium'],defaultEffort:'ultra'}]});
+  const c=validateConnection({...config(),models:[{...config().models[0],manualEfforts:['vendor-depth','medium'],defaultEffort:'vendor-depth'}]});
   const result=await verifyConnectionReasoning(c,'',undefined,async()=>Response.json({},{status:429}));const model=result.models[0]!;
-  assert.deepEqual(model.efforts,['medium','ultra']);assert.equal(defaultVerifiedEffort(model),'ultra');assert.match(reasoningStatus(model),/手动选择，尚未验证/);
+  assert.deepEqual(model.efforts,['medium','vendor-depth']);assert.equal(defaultVerifiedEffort(model),'vendor-depth');assert.match(reasoningStatus(model),/手动选择，尚未验证/);
   const refreshed=mergeDirectory(result,[{...model,manualEfforts:undefined,efforts:['low'],defaultEffort:'low',metadataSource:'upstream'}]);
-  assert.deepEqual(refreshed.models[0]?.efforts,['medium','ultra']);assert.equal(refreshed.models[0]?.defaultEffort,'ultra');
+  assert.deepEqual(refreshed.models[0]?.efforts,['medium','vendor-depth']);assert.equal(refreshed.models[0]?.defaultEffort,'vendor-depth');
   for(const from of ['responses','anthropic-messages'] as const)for(const to of ['responses','chat-completions','anthropic-messages'] as const){
     const body=from==='responses'?{input:'OK',reasoning:{effort:'low'}}:{messages:[{role:'user',content:'OK'}],output_config:{effort:'low'}};
-    const wire=nativeWireRequest(body,from,to,model,'ultra');assert.equal(wire.reasoning?.effort??wire.reasoning_effort??wire.output_config?.effort,'ultra');
+    const wire=nativeWireRequest(body,from,to,model,'vendor-depth');assert.equal(wire.reasoning?.effort??wire.reasoning_effort??wire.output_config?.effort,'vendor-depth');
   }
-  assert.throws(()=>validateConnection({...c,models:[{...model,manualEfforts:['invented']}]}),/档位|MANUAL_EFFORTS/);
+  assert.deepEqual(validateConnection({...c,models:[{...model,manualEfforts:['invented'],defaultEffort:'invented'}]}).models[0]?.manualEfforts,['invented']);
   assert.throws(()=>validateConnection({...c,models:[{...model,effortCandidates:['medium']}]}),/MODES_CONFLICT/);
+});
+
+test('provider catalogs retain more than twenty custom reasoning values and explicit error enums',()=>{
+ const levels=Array.from({length:32},(_,i)=>'vendor-depth-'+i);
+ const c=validateConnection({...config(),models:[{...config().models[0],manualEfforts:levels,defaultEffort:levels[31]}]});
+ assert.deepEqual(c.models[0]!.manualEfforts,levels);
+ assert.deepEqual(modelMetadata({supported_reasoning_efforts:levels}).efforts,levels);
+ assert.deepEqual(reasoningRejection({error:{param:'reasoning.effort',message:'Unsupported effort',allowed_values:levels}}).declared,levels);
+});
+
+test('all standalone API protocols transmit an explicit custom effort unchanged',async()=>{
+ for(const protocol of ['chat-completions','responses','anthropic-messages'] as const){
+  const c=validateConnection({...config(),protocol,models:[{...config().models[0],manualEfforts:['vendor-depth'],defaultEffort:'vendor-depth'}]});let body:any;
+  const reply=protocol==='chat-completions'?{choices:[{finish_reason:'stop',message:{role:'assistant',content:'OK'}}]}:protocol==='responses'?{status:'completed',output:[{type:'message',content:[{type:'output_text',text:'OK'}]}]}:{stop_reason:'end_turn',content:[{type:'text',text:'OK'}]};
+  const client=new ApiConversationClient({connection:c,model:c.models[0]!,effort:'vendor-depth',system:'',history:[{role:'user',content:'Test'}],tools:[]},'',async(_url,init)=>{body=JSON.parse(String(init!.body));return Response.json(reply);});await client.next(new AbortController().signal,()=>{});
+  assert.equal(body.reasoning_effort??body.reasoning?.effort??body.output_config?.effort,'vendor-depth');
+ }
 });
 
 test('a completed inconclusive job is not reused on the next explicitly requested detection',async()=>{

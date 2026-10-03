@@ -81,9 +81,5 @@ export async function verifyConnectionReasoning(connection:ModelConnection,key:s
     const result=await inspect(connection,model,key,previous?.models.find(item=>item.id===model.id&&item.model===model.model),budget,fetcher,force);models[index]=result;options.onModel?.(result);
   }};
   await Promise.all([worker(),worker()]);
-  for(const model of models){if(!model.enabled||!model.effortCandidates?.length)continue;const rejected=model.reasoningProbe?.rejected??[];
-    if(rejected.length)throw Error(`模型 ${model.name} 不接受思考档位 ${rejected.join('、')}；请移除这些档位后保存。`);
-    if(model.reasoningProbe?.status!=='verified'||model.effortCandidates.some(effort=>!model.reasoningProbe!.accepted.includes(effort)))throw Error(`模型 ${model.name} 的自定义思考档位未能验证；请稍后重试，或清空自定义档位使用服务默认。`);
-  }
   return {...connection,models};
 }
