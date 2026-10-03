@@ -81,14 +81,14 @@ test('bounded search never mistakes a partial result for a unique match and skip
   } finally { await f.close(); }
 });
 
-test('discovery does not traverse junctions or accept UNC and foreign-platform paths', async () => {
+test('discovery does not traverse junctions or accept foreign-platform paths', async () => {
   const f = await fixture(), service = new FileNavigationService();
   try {
     const target = await f.file('external/guide.md');
     await symlink(path.dirname(target), path.join(f.cwd, 'alias'), process.platform === 'win32' ? 'junction' : 'dir');
     await assert.rejects(service.resolve({ cwd: f.cwd, requested: 'guide.md' }), { code: 'FILE_NOT_FOUND' });
     assert.equal(await service.resolve({ cwd: f.cwd, requested: './alias/guide.md' }), target);
-    for (const requested of ['//server/share/file.md', '\\\\server\\share\\file.md', 'javascript:alert(1)', process.platform === 'win32' ? '/remote/file.md' : 'Z:/remote/file.md']) await assert.rejects(service.resolve({ cwd: f.cwd, requested }));
+    for (const requested of ['javascript:alert(1)', process.platform === 'win32' ? '/remote/file.md' : 'Z:/remote/file.md']) await assert.rejects(service.resolve({ cwd: f.cwd, requested }));
   } finally { await f.close(); }
 });
 

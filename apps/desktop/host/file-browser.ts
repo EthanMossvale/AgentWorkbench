@@ -5,15 +5,16 @@ import { fileReference } from '../../../packages/navigation/file-links';
 export interface FileView { path: string; parent: string; kind: 'directory' | 'text' | 'unsupported'; entries?: { name: string; path: string; directory: boolean }[]; content?: string; truncated?: boolean; line?: number; size?: number }
 /** Interactive local UI only, not a model tool or an authority grant. No writes or execution. */
 export async function resolveBrowsePath(cwd: string, requested?: string): Promise<string> {
+  return realpath(normalizeBrowsePath(cwd, requested));
+}
+/** Pure path mapping, shared by local and network-share navigation. */
+export function normalizeBrowsePath(cwd: string, requested?: string): string {
   const ref = fileReference(requested ?? cwd); if (!ref) throw Error('无法识别此文件路径。');
   const value = /^~[\\/]/.test(ref.path) ? path.join(os.homedir(), ref.path.slice(2)) : ref.path;
-  if (/^\\\\|^\/\//.test(value)) throw Error('此文件浏览器不连接网络共享。');
-  if (process.platform === 'win32' && value.startsWith('/')) throw Error('这是 POSIX 路径，不能映射为本机 Windows 路径。');
+  if (process.platform === 'win32' && value.startsWith('/')&&!value.startsWith('//')) throw Error('这是 POSIX 路径，不能映射为本机 Windows 路径。');
   if (process.platform !== 'win32' && /^[a-z]:/i.test(value)) throw Error('此 Windows 路径不属于当前设备。');
   if (!path.isAbsolute(value) && !path.isAbsolute(cwd)) throw Error('此任务尚未选择工作目录。');
-  const target = await realpath(path.resolve(cwd, value));
-  if (/^\\\\|^\/\//.test(target)) throw Error('此文件浏览器不连接网络共享。');
-  return target;
+  return path.resolve(cwd, value);
 }
 export async function browseFile(cwd: string, requested?: string): Promise<FileView> {
   const target = await resolveBrowsePath(cwd, requested), metadata = await stat(target), parent = path.dirname(target);

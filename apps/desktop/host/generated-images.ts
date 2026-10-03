@@ -30,7 +30,7 @@ export class WorkspaceGeneratedImages implements GeneratedImageService {
     if (bytes.toString('base64') !== encoded) throw Error('GENERATED_IMAGE_ENCODING_INVALID');
     if (bytes.length > MAX_GENERATED_IMAGE_BYTES) throw Error('GENERATED_IMAGE_SIZE_LIMIT');
     if (bytes.length < 33 || !bytes.subarray(0, 8).equals(Buffer.from([137,80,78,71,13,10,26,10])) || bytes.subarray(12,16).toString() !== 'IHDR') throw Error('GENERATED_IMAGE_FORMAT_INVALID');
-    if (!path.isAbsolute(input.projectPath) || (process.platform === 'win32' && (input.projectPath.startsWith('\\\\') || input.projectPath.slice(2).includes(':')))) throw Error('GENERATED_IMAGE_WORKSPACE_INVALID');
+    if (!path.isAbsolute(input.projectPath) || (process.platform === 'win32' && (/^(?:\\\\|\/\/)[.?][\\/]/.test(input.projectPath) || input.projectPath.slice(2).includes(':')))) throw Error('GENERATED_IMAGE_WORKSPACE_INVALID');
     const root = await realpath(input.projectPath);
     const directory = path.join(root, 'generated_images');
     await mkdir(directory, { recursive: true });

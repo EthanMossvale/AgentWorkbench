@@ -25,7 +25,7 @@ export class SharedDataRoot {
     const target = this.resolve(relative); await assertNoLinks(target);
     const handle = await open(target, 'r');
     try {
-      const before = await handle.stat(); if (!before.isFile() || before.nlink > 1 || before.size > maximum) throw new Error('Shared data must be a bounded, non-hardlinked regular file.');
+      const before = await handle.stat(); if (!before.isFile() || before.size > maximum) throw new Error('Shared data must be a bounded regular file.');
       const buffer = Buffer.alloc(Math.min(maximum + 1, before.size + 1)); let length = 0;
       while (length < buffer.length) { const result = await handle.read(buffer, length, buffer.length - length, length); if (!result.bytesRead) break; length += result.bytesRead; }
       if (length > maximum) throw new Error('Shared data exceeded the size limit.');
@@ -47,7 +47,7 @@ export class SharedDataRoot {
 export async function readExplicitSkillFile(selectedPath: string, maximum = 128 * 1024): Promise<string> {
   if (!path.isAbsolute(selectedPath) || path.basename(selectedPath) !== 'SKILL.md' || /[\0\r\n]/.test(selectedPath)) throw new Error('Select an explicit absolute SKILL.md file.');
   await assertNoLinks(selectedPath); const resolved = await realpath(selectedPath);
-  const item = await lstat(resolved); if (!item.isFile() || item.nlink > 1 || item.size > maximum) throw new Error('SKILL.md must be a bounded, non-hardlinked regular file.');
+  const item = await lstat(resolved); if (!item.isFile() || item.size > maximum) throw new Error('SKILL.md must be a bounded regular file.');
   const handle = await open(resolved, 'r');
   try { const buffer = Buffer.alloc(Math.min(maximum + 1, item.size + 1)); let length = 0; while (length < buffer.length) { const read = await handle.read(buffer, length, buffer.length - length, length); if (!read.bytesRead) break; length += read.bytesRead; } if (length > maximum) throw new Error('SKILL.md is too large.'); const after = await handle.stat(); if (after.size !== item.size || after.mtimeMs !== item.mtimeMs || length !== after.size) throw new Error('SKILL.md changed while reading.'); await assertNoLinks(selectedPath); return new TextDecoder('utf-8', { fatal: true, ignoreBOM: true }).decode(buffer.subarray(0, length)); }
   finally { await handle.close(); }

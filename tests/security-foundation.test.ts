@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { mkdtemp, mkdir, readFile, rm, symlink, writeFile } from 'node:fs/promises';
+import { mkdtemp, mkdir, readFile, rm, symlink, writeFile, link } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import { spawnSync } from 'node:child_process';
@@ -90,6 +90,16 @@ async function fileFixture() {
 }
 test('owner-wide read crosses workspace siblings without content projection', async () => {
   const f = await fileFixture(); try { const result = await f.service.read(f.context, f.file); assert.equal(result.content, 'original computer-name stays unchanged'); assert.equal(result.realPath, await import('node:fs/promises').then(fs => fs.realpath(f.file))); } finally { await rm(f.directory, { recursive: true, force: true }); }
+});
+test('hardlinked files can be read, while shared-content writes explain how to proceed', async () => {
+  const f = await fileFixture(); try {
+    const alias = path.join(f.a, 'alias.txt'); await link(f.file, alias);
+    const original = await f.service.read(f.context, alias);
+    const preview = await f.service.prepareWrite(f.context, alias, original.version, 'changed');
+    f.service.confirmWrite(preview.id, preview.bindingHash);
+    await assert.rejects(f.service.write(f.context, preview.id, preview.bindingHash), /Save a separate copy/);
+    assert.equal(await readFile(f.file, 'utf8'), original.content);
+  } finally { await rm(f.directory, { recursive: true, force: true }); }
 });
 test('other owner/device/OS and revoked generations are denied independently of workspace', async () => {
   const f = await fileFixture(); try {

@@ -17,7 +17,7 @@ export async function scanCheckout(root:string):Promise<ArchiveManifest>{
   for(const item of (await readdir(directory,{withFileTypes:true})).sort((a,b)=>a.name.localeCompare(b.name))){
    if(!prefix&&item.name==='.git')continue;
    const name=prefix+item.name,file=path.join(directory,item.name);if(!safe(name))throw Error('WORKTREE_ARCHIVE_UNSAFE_PATH');
-   const stat=await lstat(file);if(stat.isSymbolicLink()||stat.isFile()&&stat.nlink>1||(!stat.isFile()&&!stat.isDirectory()))throw Error('WORKTREE_ARCHIVE_UNSUPPORTED_FILE');
+   const stat=await lstat(file);if(stat.isSymbolicLink()||(!stat.isFile()&&!stat.isDirectory()))throw Error('WORKTREE_ARCHIVE_UNSUPPORTED_FILE');
    if(entries.length>=maxFiles||(bytes+=stat.isFile()?stat.size:0)>maxBytes)throw Error('WORKTREE_ARCHIVE_LIMIT');
    entries.push({name,kind:stat.isDirectory()?'directory':'file',size:stat.isFile()?stat.size:0,mode:stat.mode&0o777,hash:stat.isFile()?await fileHash(file):''});
    if(stat.isDirectory())await walk(file,name+'/');

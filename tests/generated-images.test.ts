@@ -51,8 +51,8 @@ test('image sink never overwrites changed files or follows output directory link
   const other=path.join(f.directory,'other');await mkdir(other);await rm(path.join(f.projectPath,'generated_images'),{recursive:true});await symlink(other,path.join(f.projectPath,'generated_images'),process.platform==='win32'?'junction':'dir');await assert.rejects(f.service.receive({...f.input,itemId:'new'}),/DIRECTORY_CHANGED/);assert.deepEqual(await readdir(other),[]);
  }finally{await f.close();}
 });
-test('image source hardlinks fail verification and arbitrary identifiers cannot escape the workspace',async()=>{
- const f=await fixture();try{const a=await f.service.receive({...f.input,itemId:'../../escaped'});assert.equal(path.dirname(a.path),path.join(f.projectPath,'generated_images'));await link(a.path,path.join(f.directory,'linked'));await assert.rejects(f.service.receive({...f.input,itemId:'../../escaped'}),/FILE_CHANGED/);
+test('image source hardlinks preserve verified replay and arbitrary identifiers cannot escape the workspace',async()=>{
+ const f=await fixture();try{const a=await f.service.receive({...f.input,itemId:'../../escaped'});assert.equal(path.dirname(a.path),path.join(f.projectPath,'generated_images'));await link(a.path,path.join(f.directory,'linked'));assert.equal((await f.service.receive({...f.input,itemId:'../../escaped'})).id,a.id);await writeFile(path.join(f.directory,'linked'),Buffer.alloc(bytes.length));await assert.rejects(f.service.receive({...f.input,itemId:'../../escaped'}),/FILE_CHANGED/);
  }finally{await f.close();}
 });
 test('managed image records retain content integrity after source paths change',async()=>{

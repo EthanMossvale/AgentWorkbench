@@ -6,7 +6,7 @@ import { MAX_ATTACHMENT_BYTES, MAX_ATTACHMENT_TOTAL, MAX_ATTACHMENTS, type Attac
 
 const digest = (data: Uint8Array) => createHash('sha256').update(data).digest('hex');
 const validId = (id: string) => /^[0-9a-f-]{36}$/.test(id);
-const specialPath=(value:string)=>process.platform==='win32'&&(value.startsWith('\\\\')||value.slice(2).includes(':'));
+const specialPath=(value:string)=>process.platform==='win32'&&(/^(?:\\\\|\/\/)[.?][\\/]/.test(value)||value.slice(2).includes(':'));
 const samePath=(a:string,b:string)=>process.platform==='win32'?a.toLowerCase()===b.toLowerCase():a===b;
 const generatedPath=(item:Pick<Attachment,'id'|'path'|'generatedRoot'>)=>typeof item.generatedRoot==='string'&&path.isAbsolute(item.generatedRoot)&&samePath(item.path,path.join(item.generatedRoot,'generated_images','image-'+item.id.replaceAll('-','')+'.png'));
 function mime(data: Buffer, name: string): string {
@@ -36,7 +36,7 @@ export class AttachmentStore {
     const id=`${identity.slice(0,8)}-${identity.slice(8,12)}-${identity.slice(12,16)}-${identity.slice(16,20)}-${identity.slice(20,32)}`;
     const item:Attachment={id,name:path.basename(filePath),path:filePath,size,mime:'image/png',sha256,storage:'source',generatedRoot:path.dirname(path.dirname(filePath)),createdAt:new Date().toISOString()};
     if(!generatedPath(item))throw Error('GENERATED_IMAGE_RECORD_INVALID');
-    const handle=await open(filePath,'r');try{const stat=await handle.stat();if(!stat.isFile()||stat.nlink!==1||stat.size!==size)throw Error('GENERATED_IMAGE_FILE_CHANGED');const bytes=Buffer.alloc(size);let offset=0;while(offset<size){const result=await handle.read(bytes,offset,size-offset,offset);if(!result.bytesRead)break;offset+=result.bytesRead;}const after=await handle.stat();if(offset!==size||after.size!==size||after.mtimeMs!==stat.mtimeMs||after.ctimeMs!==stat.ctimeMs||digest(bytes)!==sha256||mime(bytes,'')!=='image/png'||!samePath(await realpath(filePath),filePath))throw Error('GENERATED_IMAGE_FILE_CHANGED');}finally{await handle.close();}
+    const handle=await open(filePath,'r');try{const stat=await handle.stat();if(!stat.isFile()||stat.size!==size)throw Error('GENERATED_IMAGE_FILE_CHANGED');const bytes=Buffer.alloc(size);let offset=0;while(offset<size){const result=await handle.read(bytes,offset,size-offset,offset);if(!result.bytesRead)break;offset+=result.bytesRead;}const after=await handle.stat();if(offset!==size||after.size!==size||after.mtimeMs!==stat.mtimeMs||after.ctimeMs!==stat.ctimeMs||digest(bytes)!==sha256||mime(bytes,'')!=='image/png'||!samePath(await realpath(filePath),filePath))throw Error('GENERATED_IMAGE_FILE_CHANGED');}finally{await handle.close();}
     await mkdir(path.join(this.directory,id),{recursive:true,mode:0o700});
     const metadata=path.join(this.directory,id,'metadata.json');
     try{await writeFile(metadata,JSON.stringify(item),{flag:'wx',mode:0o600});}
@@ -89,12 +89,12 @@ export class AttachmentStore {
       let data:Buffer, name:string,originalPath:string|undefined;
       if (typeof input.filePath === 'string' && input.filePath) {
         if (!path.isAbsolute(input.filePath)) throw Error('附件必须是本机文件。');
-        // Reject remote/device paths; the OS still enforces access permissions.
-        if(specialPath(input.filePath))throw Error('不支持网络共享、设备路径或备用数据流附件。');
+        // Ordinary network shares use OS access; device namespaces and streams need distinct readers.
+        if(specialPath(input.filePath))throw Error('不支持设备路径或备用数据流附件。');
         const source=await realpath(input.filePath);originalPath=source;
-        if(specialPath(source))throw Error('不支持网络共享、设备路径或备用数据流附件。');
+        if(specialPath(source))throw Error('不支持设备路径或备用数据流附件。');
         const file=await open(source,'r');
-        try { const info=await file.stat(); if(!info.isFile()||info.nlink>1)throw Error('请添加普通文件，不能直接添加文件夹或硬链接。'); if(info.size>MAX_ATTACHMENT_BYTES)throw Error('单个附件不能超过 20 MB。分析本机大文件时，可将完整文件路径粘贴到输入框，由原生运行时读取；文件不会作为附件上传。'); data=Buffer.alloc(info.size);let offset=0;while(offset<data.length){const result=await file.read(data,offset,data.length-offset,offset);if(!result.bytesRead)throw Error('附件正在变化，请重新添加。');offset+=result.bytesRead;}const after=await file.stat();if(after.size!==info.size||after.mtimeMs!==info.mtimeMs||after.ctimeMs!==info.ctimeMs||await realpath(input.filePath)!==source)throw Error('附件正在变化，请重新添加。'); } finally { await file.close(); }
+        try { const info=await file.stat(); if(!info.isFile())throw Error('请添加普通文件，不能直接添加文件夹。'); if(info.size>MAX_ATTACHMENT_BYTES)throw Error('单个附件不能超过 20 MB。分析本机大文件时，可将完整文件路径粘贴到输入框，由原生运行时读取；文件不会作为附件上传。'); data=Buffer.alloc(info.size);let offset=0;while(offset<data.length){const result=await file.read(data,offset,data.length-offset,offset);if(!result.bytesRead)throw Error('附件正在变化，请重新添加。');offset+=result.bytesRead;}const after=await file.stat();if(after.size!==info.size||after.mtimeMs!==info.mtimeMs||after.ctimeMs!==info.ctimeMs||await realpath(input.filePath)!==source)throw Error('附件正在变化，请重新添加。'); } finally { await file.close(); }
         name=path.basename(source);
       } else {
         if (!(input.bytes instanceof Uint8Array) || input.bytes.byteLength>MAX_ATTACHMENT_BYTES) throw Error('附件数据无效或超过 20 MB。');
@@ -129,7 +129,7 @@ export class AttachmentStore {
   async payloads(ids: unknown): Promise<AttachmentPayload[]> {
     const payloads=await Promise.all((await this.resolve(ids)).map(async attachment=>{
       if(!samePath(await realpath(attachment.path),attachment.path))throw Error('附件快照路径已变化，请重新添加。');
-      const handle=await open(attachment.path,'r');try{const info=await handle.stat();if(!info.isFile()||info.nlink>1||info.size!==attachment.size)throw Error('附件快照已变化，请重新添加。');const data=Buffer.alloc(attachment.size);let offset=0;while(offset<data.length){const result=await handle.read(data,offset,data.length-offset,offset);if(!result.bytesRead)break;offset+=result.bytesRead;}if(offset!==data.length||digest(data)!==attachment.sha256)throw Error(`附件“${attachment.name}”已变化，请重新添加。`);return {attachment,data};}finally{await handle.close();}
+      const handle=await open(attachment.path,'r');try{const info=await handle.stat();if(!info.isFile()||info.size!==attachment.size)throw Error('附件快照已变化，请重新添加。');const data=Buffer.alloc(attachment.size);let offset=0;while(offset<data.length){const result=await handle.read(data,offset,data.length-offset,offset);if(!result.bytesRead)break;offset+=result.bytesRead;}if(offset!==data.length||digest(data)!==attachment.sha256)throw Error(`附件“${attachment.name}”已变化，请重新添加。`);return {attachment,data};}finally{await handle.close();}
     }));
     for(const {attachment} of payloads)this.retained.add(attachment.id);
     return payloads;

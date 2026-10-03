@@ -56,14 +56,14 @@ export function unwrapArchive(files: ArchiveFile[], marker: string): ArchiveFile
   const stripped = clean.map(f => ({ ...f, name: f.name.slice(prefix.length + 1) }));
   if (!stripped.some(f => f.name === marker)) throw Error(`Archive is missing ${marker}.`); return stripped;
 }
-export async function readArchive(file: string) { await noLinks(file); const info = await lstat(file); if (!info.isFile() || info.size > LIMIT + 2 * 1024 * 1024) throw Error('Archive file is too large.'); return decodeZip(await readFile(file)); }
+export async function readArchive(file: string) { await noLinks(file, true); const info = await lstat(file); if (!info.isFile() || info.size > LIMIT + 2 * 1024 * 1024) throw Error('Archive file is too large.'); return decodeZip(await readFile(file)); }
 export async function collectDirectory(directory: string): Promise<ArchiveFile[]> {
   const files: ArchiveFile[] = []; let total = 0;
   async function visit(current: string, prefix: string) {
-    await noLinks(current);
+    await noLinks(current, true);
     for (const item of await readdir(current, { withFileTypes: true })) {
       if (['.git', 'node_modules', '.DS_Store', 'Thumbs.db'].includes(item.name)) continue;
-      const name = prefix + item.name, file = childPath(directory, name); await noLinks(file); const info = await lstat(file);
+      const name = prefix + item.name, file = childPath(directory, name); await noLinks(file, true); const info = await lstat(file);
       if (item.isDirectory()) await visit(file, `${name}/`);
       else if (info.isFile()) { total += info.size; if (total > LIMIT || files.length >= MAX_FILES) throw Error('Resource package exceeds export limits.'); files.push({ name, data: await readFile(file) }); }
       else throw Error('Only regular files may be exported.');

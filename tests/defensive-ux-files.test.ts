@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import {mkdtemp,mkdir,readFile,writeFile,rm} from 'node:fs/promises';
+import {mkdtemp,mkdir,readFile,writeFile,rm,link} from 'node:fs/promises';
 import path from 'node:path';
 import os from 'node:os';
 import {AttachmentStore} from '../apps/desktop/host/attachments';
@@ -19,7 +19,7 @@ test('approved extension observes actual export, attachment, worktree and revisi
  const worktrees=new WorktreeService(data),store=new StateStore(data);await store.load();
  const controller=new WorkbenchController(store,new SecretStore(data,{encrypt:()=>Buffer.alloc(0),decrypt:()=>''}),{attachments,worktrees,pickDirectory:async()=>null,copy:()=>{},openPath:async()=>{},nativeCapabilities:()=>[]},()=>{});
  const native=new NativeResources(data,{openZip:async()=>null,saveZip:async()=>path.join(named,'official.zip')},()=>[],()=>{},home);await native.initialize();
- const file=path.join(home,'.codex','skills','.system','fixture','SKILL.md');await mkdir(path.dirname(file),{recursive:true});await writeFile(file,'---\nname: fixture\ndescription: Synthetic\n---\nFixture only.\n');
+ const file=path.join(home,'.codex','skills','.system','fixture','SKILL.md');await mkdir(path.dirname(file),{recursive:true});await writeFile(file,'---\nname: fixture\ndescription: Synthetic\n---\nFixture only.\n');await link(file,path.join(root,'skill-alias.md'));
  const registry=new PluginRegistry(path.join(root,'extensions'));await registry.initialize();
  for(const [id,service] of Object.entries(controller.developmentServices()))if(service)registry.services.register(id,service,{version:1});
  registry.services.register('native.skills',native.skills,{version:1});

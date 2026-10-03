@@ -12,11 +12,11 @@ export function childPath(root: string, name: string): string {
   return target;
 }
 /** Native skill roots may be symlinks. Mutations and archive descendants may not be. */
-export async function noLinks(target: string): Promise<void> {
+export async function noLinks(target: string, allowHardlinks = false): Promise<void> {
   const absolute = path.resolve(target), parsed = path.parse(absolute); let current = parsed.root;
   for (const part of absolute.slice(parsed.root.length).split(path.sep).filter(Boolean)) {
     current = path.join(current, part);
-    try { const info = await lstat(current); if (info.isSymbolicLink() || (info.isFile() && info.nlink > 1)) throw Error('Linked resources cannot be changed or exported.'); }
+    try { const info = await lstat(current); if (info.isSymbolicLink() || (!allowHardlinks && info.isFile() && info.nlink > 1)) throw Error('Linked resources cannot be changed; export supports regular hardlinked files.'); }
     catch (error) { if (!missing(error)) throw error; }
   }
 }

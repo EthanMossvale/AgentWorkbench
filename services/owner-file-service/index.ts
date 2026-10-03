@@ -64,7 +64,7 @@ export class OwnerFileService {
     this.checkPath(filePath);
     const target = await realpath(filePath); this.checkPath(target);
     const metadata = await stat(target);
-    if (!metadata.isFile() || metadata.nlink > 1) deny('UNSUPPORTED_FILE', 'Only regular, non-hardlinked files are supported.');
+    if (!metadata.isFile()) deny('UNSUPPORTED_FILE', 'A regular file is required.');
     const owned = this.options.verifyOwner ? await this.options.verifyOwner(target, metadata) : metadata.uid === this.options.expectedUid;
     if (!owned) deny('OTHER_OWNER', 'The real file is not verified as belonging to this owner.');
     if (metadata.size > this.maxBytes) deny('FILE_TOO_LARGE', 'The file exceeds the configured bound.');
@@ -75,7 +75,7 @@ export class OwnerFileService {
     const handle = await open(target, constants.O_RDONLY | (constants.O_NOFOLLOW ?? 0));
     try {
       const before = await handle.stat();
-      if (!before.isFile() || before.ino !== metadata.ino || before.dev !== metadata.dev || before.nlink > 1) deny('PATH_CHANGED', 'The file target changed during authorization.');
+      if (!before.isFile() || before.ino !== metadata.ino || before.dev !== metadata.dev) deny('PATH_CHANGED', 'The file target changed during authorization.');
       const buffer = Buffer.alloc(this.maxBytes + 1); let length = 0;
       while (length < buffer.length) { const read = await handle.read(buffer, length, buffer.length - length, length); if (!read.bytesRead) break; length += read.bytesRead; }
       if (length > this.maxBytes) deny('FILE_TOO_LARGE', 'The file exceeded its read bound.');
@@ -125,7 +125,8 @@ export class OwnerFileService {
       const handle = await open(target, constants.O_RDWR | (constants.O_NOFOLLOW ?? 0));
       try {
         const actual = await handle.stat();
-        if (actual.ino !== metadata.ino || actual.dev !== metadata.dev || actual.nlink > 1 || actual.size > this.maxBytes) deny('PATH_CHANGED', 'The write target changed during authorization.');
+        if (actual.nlink > 1) deny('UNSUPPORTED_FILE', 'This file shares its contents with other paths. Save a separate copy before editing.');
+        if (actual.ino !== metadata.ino || actual.dev !== metadata.dev || actual.size > this.maxBytes) deny('PATH_CHANGED', 'The write target changed during authorization.');
         const original = Buffer.alloc(this.maxBytes + 1); let originalLength = 0;
         while (originalLength < original.length) { const read = await handle.read(original, originalLength, original.length - originalLength, originalLength); if (!read.bytesRead) break; originalLength += read.bytesRead; }
         if (originalLength > this.maxBytes) deny('FILE_TOO_LARGE', 'The file grew beyond the write baseline bound.');
