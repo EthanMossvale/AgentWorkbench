@@ -14,11 +14,11 @@ export default function ProjectFileTree({root,sessionId,selected,filter,refresh,
   const setExpanded=(update:(previous:Set<string>)=>Set<string>)=>setExpandedPaths(previous=>[...update(new Set(previous))]);
   const [errors,setErrors]=useState<Record<string,string>>({}), [loading,setLoading]=useState<Set<string>>(new Set());
   const generation=useRef(0), pending=useRef(new Set<string>());
-  const load=async(target:string)=>{
+  const load=async(target:string,more=false)=>{
     if(pending.current.has(target))return;
     const token=generation.current;pending.current.add(target);const cached=peek?.(target);if(cached)setDirectories(current=>({...current,[target]:cached}));else if(!directories[target])setLoading(current=>new Set(current).add(target));
     setErrors(current=>{const next={...current};delete next[target];return next;});
-    try{const view=await (browse?browse(target):api<FileView>('files/browse',{sessionId,path:target}));if(token===generation.current){if(view.kind!=='directory')throw Error('此目录已不可用。');setDirectories(current=>({...current,[target]:view}));}}
+    try{const view=await (browse?browse(target):api<FileView>('files/browse',{sessionId,path:target,...(more?{cursor:directories[target]?.next}:{})}));if(token===generation.current){if(view.kind!=='directory')throw Error('此目录已不可用。');setDirectories(current=>({...current,[target]:more?{...view,entries:[...(current[target]?.entries??[]),...(view.entries??[])].sort((a,b)=>Number(b.directory)-Number(a.directory)||a.name.localeCompare(b.name))}:view}));}}
     catch(error){if(token===generation.current)setErrors(current=>({...current,[target]:errorText(error)}));}
     finally{if(token===generation.current){pending.current.delete(target);setLoading(current=>{const next=new Set(current);next.delete(target);return next;});}}
   };
@@ -39,7 +39,7 @@ export default function ProjectFileTree({root,sessionId,selected,filter,refresh,
       if(entry.directory&&((event.key==='ArrowRight'&&!expanded.has(entry.path))||(event.key==='ArrowLeft'&&expanded.has(entry.path)))){event.preventDefault();toggle(entry.path);}
       if(event.key==='ArrowDown'||event.key==='ArrowUp'){event.preventDefault();const rows=[...event.currentTarget.closest('.file-tree')!.querySelectorAll<HTMLButtonElement>('.file-tree-row')];rows[rows.indexOf(event.currentTarget)+(event.key==='ArrowDown'?1:-1)]?.focus();}
     }}>{entry.directory?<span className={expanded.has(entry.path)?'tree-arrow expanded':'tree-arrow'}><Icon name="chevron" size={11}/></span>:<span className="tree-arrow"/>}<Icon name={entry.directory?'folder':'document'} size={14}/><span>{entry.name}</span></button>{entry.directory&&expanded.has(entry.path)&&depth<48&&<div className="file-tree-children">{render(entry.path,depth+1)}</div>}</div>)}
-    {view&&!entries.length&&<p className="file-tree-note">{filter?'没有匹配的文件':'此目录为空'}</p>}{view?.truncated&&<p className="file-tree-note">仅显示前 1000 项。</p>}</>;
+    {view&&!entries.length&&<p className="file-tree-note">{filter?'没有匹配的文件':'此目录为空'}</p>}{view?.truncated&&<div className="file-tree-note" data-workbench-file-pagination>{view.next&&!browse?<button className="text-button" disabled={loading.has(target)||pending.current.has(target)} onClick={()=>void load(target,true)}>继续加载目录项</button>:<span>此目录还有未显示的项目。</span>}</div>}</>;
   };
   return <div className="file-tree" aria-label="文件夹内容">{root?render(root,0):<p className="file-tree-note">请选择文件夹</p>}</div>;
 }

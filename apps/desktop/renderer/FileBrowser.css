@@ -10,7 +10,7 @@
 .file-open-button button:hover { background:var(--hover); }
 .file-dock-body { display:flex; flex:1; min-height:0; min-width:0; overflow:hidden; border-top:1px solid var(--line); }
 .file-dock .file-dock-body .file-preview { min-width:0; border:0; }
-.file-dock-body:not(.has-preview) .file-preview:has(+.file-explorer):not(:has([role=alert])) { display:none; }
+.file-dock-body:not(.has-preview) .file-preview:has(+.file-explorer):not(:has([role=alert])):not(:has([data-workbench-file-candidates])) { display:none; }
 .file-explorer { display:flex; flex-direction:column; min-height:0; min-width:0; flex:1; padding-top:7px; }
 .has-preview .file-explorer { flex:0 0 190px; border-left:1px solid var(--line); }
 .file-dock .file-explorer .file-browser-tools { padding:0 8px 6px; gap:5px; color:var(--muted); }
@@ -31,3 +31,6 @@
 .file-dock .file-tab-close:focus-visible { outline:1px solid var(--accent); outline-offset:-3px; }
 
 .file-dock[hidden] { display:none; }
+
+.file-page-controls{display:flex;align-items:center;gap:12px;flex-shrink:0;padding:7px 12px;color:var(--muted);font-size:12px;border-top:1px solid var(--line)}
+.file-page-controls[hidden]{display:none}

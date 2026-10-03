@@ -2,7 +2,7 @@ import {useUiPreference} from './ui-preferences';
 import { lazy, Suspense, useEffect, useRef, useState } from 'react';
 import type { FileView } from '../host/file-browser';
 import { fileReference, isShortFileReference, type FileReference, type LinkedText } from '../../../packages/navigation/file-links';
-import type { FileResolutionResult } from '../../../packages/navigation/file-resolution';
+import type { FileResolutionResult, FileSearchBudget } from '../../../packages/navigation/file-resolution';
 import { api } from './App';
 import { Icon, errorText } from './ui';
 import { LinkMenu, type LinkActions } from './MessageText';
@@ -37,12 +37,12 @@ export default function FileBrowser({ reference, roots = [], onClose, backend, a
   const panel=useRef<HTMLElement>(null), sequence=useRef(0), lastReference=useRef('');
   useEffect(()=>{if(!active){setMenu(null);return;}const previous=document.activeElement as HTMLElement|null;panel.current?.focus({preventScroll:true});return()=>{if(previous?.isConnected)previous.focus({preventScroll:true});};},[active]);
   const chooseRoot=(path:string,parent:string)=>[...roots].sort((a,b)=>b.length-a.length).find(folder=>contains(folder,path))??parent;
-  const browse=async(target:FileReference,asRoot=false)=>{
+  const browse=async(target:FileReference,asRoot=false,budget?:FileSearchBudget)=>{
     const request=++sequence.current;const cached=backend?.peek?.(target.path);setBusy(!cached);setError('');setChoices(null);setLocation(target.path);setView(cached??null);
     if(!target.path&&!actions.sessionId){setBusy(false);return;}
     try{
       if(!backend&&isShortFileReference(target.path)){
-        const resolution=await api<FileResolutionResult>('files/resolve',{sessionId:actions.sessionId,path:target.path?target.path+(target.line?':'+target.line:''):undefined});
+        const resolution=await api<FileResolutionResult>('files/resolve',{sessionId:actions.sessionId,budget,path:target.path?target.path+(target.line?':'+target.line:''):undefined});
         if(sequence.current!==request)return;
         if(resolution.status!=='resolved'){setChoices(resolution);return;}
         target={path:resolution.path,line:resolution.line??target.line};
@@ -73,6 +73,18 @@ export default function FileBrowser({ reference, roots = [], onClose, backend, a
       else{setView(null);showDirectory();}
     }
   };
+  const loadMore=async()=>{
+    if(!view?.next||busy||backend)return;
+    const previous=view,request=++sequence.current;setBusy(true);setError('');
+    try{
+      const next=await api<FileView>('files/browse',{sessionId:actions.sessionId,path:previous.path,cursor:previous.next});
+      if(sequence.current!==request)return;
+      if(next.kind!=='text')throw Error('后续内容不是 UTF-8 文本，可使用“打开”菜单查看。');
+      const merged={...next,content:(previous.content??'')+(next.content??''),startLine:previous.startLine,line:undefined};
+      setView(merged);setTabs(current=>current.map(tab=>tab.path===merged.path?merged:tab));
+    }catch(e){if(sequence.current===request)setError(errorText(e));}
+    finally{if(sequence.current===request)setBusy(false);}
+  };
   const selectedFile=view&&view.kind!=='directory'?view:null;
   return <aside className="file-browser file-dock" aria-label={backend?.label??'文件浏览器'} data-testid="file-dock" ref={panel} tabIndex={-1} onKeyDown={event=>{if(event.key==='Escape'&&!menu){event.stopPropagation();closeBrowser();}}}>
     <header className="file-dock-header"><div className="file-dock-tabs" role="tablist" aria-label="文件标签页">
@@ -94,10 +106,11 @@ export default function FileBrowser({ reference, roots = [], onClose, backend, a
     <div className={'file-dock-body '+(selectedFile?'has-preview':'')} aria-busy={busy}>
       <div className={'file-browser-content file-preview '+(view?.kind==='text'?'is-code':'')} data-testid="file-browser-content">
         {busy&&<p role="status">读取中…</p>}{error&&<p className="inline-error" role="alert">{error}</p>}
-        {choices&&<section className="file-resolution-choices" data-workbench-file-candidates aria-label="匹配的文件"><p role="status">{choices.message}</p>{choices.candidates.map(candidate=><button type="button" className="file-resolution-candidate" key={candidate} onClick={()=>void browse({path:candidate,line:fileReference(choices.requested)?.line})}><Icon name="document" size={15}/><span>{candidate}</span></button>)}</section>}
+        {choices&&<section className="file-resolution-choices" data-workbench-file-candidates aria-label="匹配的文件"><p role="status">{choices.message}</p>{choices.nextBudget&&<button className="text-button" onClick={()=>void browse({path:choices.requested},false,choices.nextBudget)}>扩大范围继续查找</button>}{choices.candidates.map(candidate=><button type="button" className="file-resolution-candidate" key={candidate} onClick={()=>void browse({path:candidate,line:fileReference(choices.requested)?.line})}><Icon name="document" size={15}/><span>{candidate}</span></button>)}</section>}
         {!busy&&!error&&!choices&&!view&&<div className="file-dock-empty"><Icon name="folder" size={28}/><p>选择文件夹，浏览本机文件</p><button className="button secondary" onClick={pickFolder}>选择文件夹</button></div>}
-        {view?.kind==='text'&&!error&&(/\.html?$/i.test(view.path)&&!sourceOnly&&!view.line&&!backend?<HtmlPreview sessionId={actions.sessionId} path={view.path} content={view.content!} onSource={()=>setSourceOnly(true)}/>:<><Suspense fallback={<p role="status">正在打开代码…</p>}><CodePreview path={view.path} content={view.content!} line={view.line} savedViews={savedViews.current}/></Suspense>{/\.html?$/i.test(view.path)&&!backend&&<button className="text-button" onClick={()=>{setSourceOnly(false);setView(current=>current?{...current,line:undefined}:current);}}>返回 HTML 预览</button>}</>)}
-        {view?.kind==='unsupported'&&!error&&<p>{backend?'此文件为二进制、非 UTF-8 文本或超过 1 MB，可使用上方“下载”保存到本机。':'此文件为二进制、非 UTF-8 文本或超过 1 MB，可使用上方的“打开”菜单。'}</p>}
+        {view?.kind==='text'&&!error&&(/\.html?$/i.test(view.path)&&!sourceOnly&&!view.line&&!backend&&!view.truncated&&(view.startLine??1)===1?<HtmlPreview sessionId={actions.sessionId} path={view.path} content={view.content!} onSource={()=>setSourceOnly(true)}/>:<><Suspense fallback={<p role="status">正在打开代码…</p>}><CodePreview path={view.path} content={view.content!} line={view.line} startLine={view.startLine} savedViews={savedViews.current}/></Suspense>{/\.html?$/i.test(view.path)&&!backend&&!view.truncated&&(view.startLine??1)===1&&<button className="text-button" onClick={()=>{setSourceOnly(false);setView(current=>current?{...current,line:undefined}:current);}}>返回 HTML 预览</button>}</>)}
+        {view?.kind==='text'&&!backend&&(view.next||(view.startLine??1)>1)&&<div className="file-page-controls" data-workbench-file-pagination><span>{view.next?'已显示部分内容':'已读到文件末尾'}</span>{(view.startLine??1)>1&&<button className="text-button" disabled={busy} onClick={()=>void browse({path:view.path})}>从头查看</button>}{view.next&&<button className="text-button" disabled={busy} onClick={()=>void loadMore()}>继续读取</button>}</div>}
+        {view?.kind==='unsupported'&&!error&&<p>{backend?'此文件为二进制、非 UTF-8 文本或超过 1 MB，可使用上方“下载”保存到本机。':'此文件为二进制或非 UTF-8 文本，可使用上方的“打开”菜单。'}</p>}
       </div>
       {root&&<section className="file-explorer" aria-label="项目目录"><div className="file-browser-tools"><Icon name="search" size={14}/><input aria-label="筛选文件" placeholder="筛选文件…" value={filter} onChange={event=>setFilter(event.target.value)}/></div><ProjectFileTree root={root} sessionId={actions.sessionId} selected={selectedFile?.path} filter={filter} refresh={treeRefresh} open={fileActions.openFile} menu={(path,x,y,directory)=>showMenu(path,x,y,undefined,directory)} browse={backend?.browse} peek={backend?.peek} subscribe={backend?.subscribe} prefetch={backend?.prefetch} active={active}/></section>}
     </div>

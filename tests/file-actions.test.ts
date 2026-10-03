@@ -18,7 +18,7 @@ test('file actions copy exact UTF-8 text and bytes, preserve source, and respect
     await mkdir(path.join(root,'folder'));await assert.rejects(service.saveAs(root,'./folder'),/请选择文件/);
     await writeFile(path.join(root,'binary.bin'),Buffer.from([1,0,2]));await assert.rejects(service.copyContent(root,'binary.bin'),/UTF-8/);
     saved=path.join(root,'binary-copy.bin');assert.equal(await service.saveAs(root,'binary.bin'),true);assert.deepEqual(await readFile(saved),Buffer.from([1,0,2]));
-    await writeFile(path.join(root,'large.txt'),Buffer.alloc(1024*1024+1,65));await assert.rejects(service.copyContent(root,'large.txt'),/1 MB/);
+    await writeFile(path.join(root,'large.txt'),Buffer.alloc(1024*1024+1,65));await service.copyContent(root,'large.txt');assert.equal(copied,'A'.repeat(1024*1024+1));
   }finally{await rm(root,{recursive:true,force:true});}
 });
 test('open targets use a host-owned executable allowlist and literal arguments, never shell commands',async()=>{

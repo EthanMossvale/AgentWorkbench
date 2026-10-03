@@ -58,7 +58,7 @@ test('explicit file browsing reads UTF8 lines and parent directories without eva
  const listing=await browseFile(root);assert.equal(listing.entries?.[0]?.directory,true);
  const result=await browseFile(root,'a.txt:2');assert.equal(result.kind,'text');assert.equal(result.line,2);assert.match(result.content!,/<script>/);
  if(process.platform==='win32'){const nativeLink=await browseFile(root,'/'+root.replaceAll('\\','/')+'/a.txt:2');assert.equal(nativeLink.path,result.path);assert.equal(nativeLink.line,2);assert.equal(nativeLink.content,result.content);}
- assert.equal((await browseFile(root,'binary.bin')).kind,'unsupported');assert.equal((await browseFile(root,'large.txt')).kind,'unsupported');
+ assert.equal((await browseFile(root,'binary.bin')).kind,'unsupported');assert.equal((await browseFile(root,'large.txt')).kind,'text');assert.equal((await browseFile(root,'large.txt')).next?.offset,1024*1024);
  await assert.rejects(browseFile(root,'missing.txt'));
  }finally{await rm(root,{recursive:true,force:true});}
 });

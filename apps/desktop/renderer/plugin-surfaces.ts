@@ -27,6 +27,7 @@ export const workbenchSurfaces = Object.freeze({
   'project-preview': '[data-workbench-project-preview]', 'project-folder': '[data-workbench-project-folder]',
   main: '.main-panel', workspace: '.workspace', composer: '.composer-area',
   'file-link': '[data-workbench-file-link]', 'file-link-menu': '[data-workbench-file-menu]', 'file-reader': '[data-testid="file-dock"]',
+  'file-pagination': '[data-workbench-file-pagination]',
   'file-link-candidates': '[data-workbench-file-candidates]',
   'workspace-header': '.workspace-header', conversation: '.conversation-column',
   'reply-memory': '[data-testid="reply-memory"]',

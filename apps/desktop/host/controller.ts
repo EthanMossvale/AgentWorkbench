@@ -37,7 +37,7 @@ import { NativeInteractionFlow } from './interaction-flow';
 import { asyncQuestionState, currentAsyncQuestion, prepareAsyncQuestion, questionContext, type AsyncQuestionReference } from '../../../packages/native-interactions/inbox';
 import type { NativeResources } from './native-resources';
 import {retireDeletedWorkspace,retireSshOnlyConnections} from './workspace-connections';
-import { browseFile, resolveBrowsePath } from './file-browser';
+import { FileBrowserService, resolveBrowsePath } from './file-browser';
 import { FileNavigationService, fileResolutionContext } from './file-navigation';
 import { fileReference } from '../../../packages/navigation/file-links';
 import type { FileActionService } from './file-actions';
@@ -312,7 +312,7 @@ export class WorkbenchController {
       'sessions.follow-ups': this.followUps,
       'composer.annotations': this.annotations,
       'sessions.follow-up-modes': this.followUps.modes,
-      'files.navigation': this.fileNavigation,
+      'files.navigation': this.fileNavigation, 'files.browser': this.fileBrowser,
       'sessions.recovery': this.sessionRecovery,
       'translation.layouts': this.translationLayouts,
       'translation.workflow': this.translationWorkflow,
@@ -343,6 +343,7 @@ export class WorkbenchController {
   }
   readonly pluginRuntimes: PluginRuntimeHost;
   readonly fileNavigation = new FileNavigationService();
+  readonly fileBrowser = new FileBrowserService();
   readonly translationLayouts = new TranslationLayouts();
   readonly translationWorkflow:import('../../../packages/translation/layouts').TranslationWorkflowApi = {
     seamless:async()=>{
@@ -1565,13 +1566,13 @@ export class WorkbenchController {
         let cwd=session?.projectPath??'';
         if(session&&cwd&&(!requested||samePath(path.resolve(cwd,requested),cwd)))cwd=await this.sessionWorkspace(session);
         const project=session?.projectId?this.store.snapshot().projects.find(item=>item.id===session.projectId):undefined;
-        return this.fileNavigation.locate({...fileResolutionContext(session,project),cwd,requested});
+        return this.fileNavigation.locate({...fileResolutionContext(session,project),cwd,requested,budget:p.budget as import('../../../packages/navigation/file-resolution').FileResolutionRequest['budget']});
       }
       case 'files/browse':{
         const session=p.sessionId===undefined?undefined:this.session(p.sessionId),requested=p.path===undefined?undefined:required(p.path,'文件路径',4096);
         let cwd=session?.projectPath??'';
         if(session&&cwd&&(!requested||samePath(path.resolve(cwd,requested),cwd)))cwd=await this.sessionWorkspace(session);
-        return browseFile(cwd,await this.fileTarget(session,requested,cwd));
+        return this.fileBrowser.browse(cwd,await this.fileTarget(session,requested,cwd),{cursor:p.cursor as import('../../../packages/navigation/file-browser').FileBrowseCursor|undefined,pageSize:p.pageSize as number|undefined});
       }
       case 'files/reveal':{const session=p.sessionId===undefined?undefined:this.session(p.sessionId);const target=await this.fileTarget(session,required(p.path,'文件路径',4096));if(!this.actions.revealPath)throw Error('文件定位不可用。');return this.actions.revealPath(await resolveBrowsePath('',target));}
       case 'files/info': case 'files/open': case 'files/copy-content': case 'files/save-as': {

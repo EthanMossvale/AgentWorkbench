@@ -2,14 +2,14 @@ import path from 'node:path';
 import { opendir, stat } from 'node:fs/promises';
 import type { Project, Session } from '../../../packages/contracts';
 import { fileReference } from '../../../packages/navigation/file-links';
-import type { FileNavigationApi, FileResolutionRequest, FileResolutionSource, FileResolutionErrorCode, FileResolutionResult } from '../../../packages/navigation/file-resolution';
+import type { FileNavigationApi, FileResolutionRequest, FileResolutionSource, FileResolutionErrorCode, FileResolutionResult, FileSearchBudget } from '../../../packages/navigation/file-resolution';
 import { resolveBrowsePath } from './file-browser';
 
 const key = (value: string) => process.platform === 'win32' ? value.replaceAll('\\', '/').toLowerCase() : value;
 const missing = (error: unknown) => ['ENOENT', 'ENOTDIR'].includes((error as NodeJS.ErrnoException)?.code ?? '');
 const ignored = new Set(['.git', '.hg', '.svn', 'node_modules', '__pycache__', '.cache']);
 export class FileResolutionError extends Error {
-  constructor(readonly code: FileResolutionErrorCode, message: string, readonly candidates: string[] = []) { super(`${code}: ${message}`); }
+  constructor(readonly code: FileResolutionErrorCode, message: string, readonly candidates: string[] = [], readonly nextBudget?:FileSearchBudget) { super(`${code}: ${message}`); }
 }
 /** Inspect only already-loaded structured public paths; never parse commands or read chat databases. */
 export function fileResolutionContext(session?: Session, project?: Project): Omit<FileResolutionRequest, 'requested'> {
@@ -48,11 +48,16 @@ export class FileNavigationService implements FileNavigationApi {
   async locate(request: FileResolutionRequest): Promise<FileResolutionResult> {
     try { return { status: 'resolved', path: await this.resolve(request), ...(fileReference(request.requested ?? '')?.line ? { line: fileReference(request.requested!)!.line } : {}) }; }
     catch (error) {
-      if (error instanceof FileResolutionError && ['FILE_PATH_AMBIGUOUS', 'FILE_SEARCH_INCOMPLETE'].includes(error.code)) return { status: error.code === 'FILE_PATH_AMBIGUOUS' ? 'ambiguous' : 'incomplete', requested: request.requested ?? '', candidates: error.candidates, message: error.message.replace(/^[A-Z_]+: /,'') };
+      if (error instanceof FileResolutionError && ['FILE_PATH_AMBIGUOUS', 'FILE_SEARCH_INCOMPLETE'].includes(error.code)) return { status: error.code === 'FILE_PATH_AMBIGUOUS' ? 'ambiguous' : 'incomplete', requested: request.requested ?? '', candidates: error.candidates, message: error.message.replace(/^[A-Z_]+: /,''), ...(error.nextBudget?{nextBudget:error.nextBudget}:{}) };
       throw error;
     }
   }
   async resolve(request: FileResolutionRequest): Promise<string> {
+    const budget={...this.limits,...request.budget};
+    if(Object.values(budget).some(value=>!Number.isSafeInteger(value)||value<0))throw Error('FILE_SEARCH_BUDGET_INVALID');
+    const limit={entries:budget.entries||Infinity,directories:budget.directories||Infinity,milliseconds:budget.milliseconds||Infinity};
+    const expand=(value:number)=>value>Number.MAX_SAFE_INTEGER/2?0:value*2;
+    const nextBudget={entries:expand(budget.entries),directories:expand(budget.directories),milliseconds:expand(budget.milliseconds)};
     const ref = fileReference(request.requested ?? request.cwd);
     if (!ref) throw Error('无法识别此文件路径。');
     const value = ref.path;
@@ -92,20 +97,21 @@ export class FileNavigationService implements FileNavigationApi {
           Promise.resolve().then(() => source.candidates(structuredClone(request), invocation.signal)),
           new Promise<readonly string[]>((resolve, reject) => {
             onAbort = () => { invocation.abort(); resolve([]); }; abort.signal.addEventListener('abort', onAbort, { once: true });
-            timer = setTimeout(() => { invocation.abort(); reject(Error('timeout')); }, 2_000);
+            if(budget.milliseconds)timer = setTimeout(() => { invocation.abort(); reject(new FileResolutionError('FILE_SEARCH_INCOMPLETE', `路径扩展 ${source.id} 尚未完成，可扩大范围继续查找。`, [], nextBudget)); }, Math.min(budget.milliseconds,2147483647));
           }),
         ]);
         if (abort.signal.aborted || this.sources.get(source.id) !== entry) continue;
-        if (!Array.isArray(result) || result.length > 256 || result.some(item => typeof item !== 'string')) throw Error('invalid candidates');
+        if (!Array.isArray(result) || result.some(item => typeof item !== 'string')) throw Error('invalid candidates');
         contributed.push(...result);
-      } catch {
+      } catch (error) {
+        if(!abort.signal.aborted&&error instanceof FileResolutionError)throw error;
         if (!abort.signal.aborted) throw new FileResolutionError('FILE_SOURCE_FAILED', `文件路径扩展 ${source.id} 未能完成定位，请使用完整路径或停用该扩展。`);
       } finally { clearTimeout(timer); abort.signal.removeEventListener('abort', onAbort); invocation.abort(); }
     }
     const extra = await unique(contributed, false); if (extra) return extra;
     const queue: string[] = [], visited = new Set<string>(), found: string[] = [];
     let entries = 0, directories = 0, incomplete = false;
-    const deadline = Date.now() + this.limits.milliseconds;
+    const deadline = Date.now() + limit.milliseconds;
     for (const root of roots) {
       try {
         const canonical = await resolveBrowsePath('', root);
@@ -115,21 +121,21 @@ export class FileNavigationService implements FileNavigationApi {
       } catch (error) { if (!missing(error)) incomplete = true; }
     }
     while (queue.length) {
-      if (++directories > this.limits.directories || Date.now() >= deadline) { incomplete = true; break; }
+      if (++directories > limit.directories || Date.now() >= deadline) { incomplete = true; break; }
       const directory = queue.shift()!; if (visited.has(key(directory))) continue; visited.add(key(directory));
       try {
         const handle = await opendir(directory);
         for await (const entry of handle) {
-          if (++entries > this.limits.entries || Date.now() >= deadline) { incomplete = true; break; }
+          if (++entries > limit.entries || Date.now() >= deadline) { incomplete = true; break; }
           const candidate = path.join(directory, entry.name);
           if (matches(candidate) && (entry.isFile() || entry.isDirectory())) found.push(candidate);
           // Do not follow symlinks/junctions, including links to network shares.
           if (entry.isDirectory() && !entry.isSymbolicLink() && !ignored.has(entry.name)) queue.push(candidate);
         }
       } catch { incomplete = true; }
-      if (entries > this.limits.entries) break;
+      if (entries > limit.entries) break;
     }
-    if (incomplete) throw new FileResolutionError('FILE_SEARCH_INCOMPLETE', `查找范围未完整检查，请从已找到的文件中选择，或输入更具体的路径。`, await canonicalCandidates(found));
+    if (incomplete) throw new FileResolutionError('FILE_SEARCH_INCOMPLETE', `尚未查找完毕，可选择已找到的文件、扩大范围继续查找或输入完整路径。`, await canonicalCandidates(found), nextBudget);
     const discovered = await unique(found); if (discovered) return discovered;
     throw notFound();
   }

@@ -55,9 +55,14 @@ export class FileActionService {
     await (this.dependencies.launch ?? launchApplication)(exe, args, directory);
   }
   async copyContent(cwd: string, requested: string): Promise<void> {
-    const view = await browseFile(cwd, requested);
-    if (view.kind !== 'text') throw Error('仅支持复制 1 MB 以内的 UTF-8 文本文件。');
-    this.dependencies.copy(view.content!);
+    const target = await resolveBrowsePath(cwd, requested);
+    let view = await browseFile('', target);const chunks:string[]=[];
+    for(;;){
+      if(view.kind!=='text')throw Error('仅支持复制 UTF-8 文本文件。');
+      chunks.push(view.content!);if(!view.next)break;
+      view=await browseFile('',target,{cursor:view.next});
+    }
+    this.dependencies.copy(chunks.join(''));
   }
   async saveAs(cwd: string, requested: string): Promise<boolean> {
     const source = await resolveBrowsePath(cwd, requested), before = await stat(source);
