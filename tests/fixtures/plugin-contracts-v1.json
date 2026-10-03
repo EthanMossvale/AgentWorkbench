@@ -494,7 +494,8 @@
     ],
     "services/claude-bridge/policy.ts": [
       "export interface ClaudeMcpPolicy {\n    frameBytes: number;\n    outputWindowBytes: number;\n    resultBytes: number;\n    inlineBytes: number;\n    storedBytes: number;\n    catalogPages: number;\n    catalogTools: number;\n    commandConcurrency: number;\n}",
-      "export interface ClaudeToolDiagnostic {\n    code: string;\n    tool?: string;\n    callId?: string;\n    stage: 'catalog' | 'execute' | 'transport' | 'delivery';\n    elapsedMs?: number;\n    bytes?: number;\n    outcome: 'not-started' | 'unknown' | 'returned';\n}"
+      "export interface ClaudeToolDiagnostic {\n    code: string;\n    tool?: string;\n    callId?: string;\n    stage: 'catalog' | 'execute' | 'transport' | 'delivery';\n    elapsedMs?: number;\n    bytes?: number;\n    outcome: 'not-started' | 'unknown' | 'returned';\n}",
+      "export interface ClaudeToolPolicySource {\n    id: `plugin:${string}`;\n    resolve(input: Partial<ClaudeMcpPolicy>): Partial<ClaudeMcpPolicy> | undefined;\n}"
     ],
     "services/claude-bridge/result-store.ts": [
       "export interface ClaudeResultPage {\n    id: string;\n    offset: number;\n    nextOffset: number;\n    bytes: number;\n    text: string;\n    eof: boolean;\n}",

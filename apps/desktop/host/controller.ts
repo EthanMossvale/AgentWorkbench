@@ -1,3 +1,4 @@
+import {claudeToolPolicies} from '../../../services/claude-bridge/policy';
 import {claudeLocalToolCatalog} from '../../../services/claude-bridge/tools';
 import {nativeStreams} from '../../../services/remote-supervisor';
 import {apiEndpoints} from '../../../packages/model-api/endpoints';
@@ -326,7 +327,7 @@ export class WorkbenchController {
       'models.account-export': this.accountExport, 'models.account-names': this.accountNames, 'models.accounts': this.localAccounts, 'models.account-access': this.localAccounts.access, 'model.connections': this.modelConnections, 'models.endpoints':apiEndpoints, 'models.reasoning-options':this.modelConnections.reasoningOptions, 'runtime.api': this.apiRunner, 'runtime.api.budgets':this.apiRunner.budgets, 'runtime.api.context':this.apiRunner.contextPlanning, 'runtime.api.tools': this.apiRunner.local, 'runtime.extensions': this.pluginRuntimes,
       'remote.configurations': this.remoteConfigurations,
       'models.targets': this.targetCatalog,
-      'runtime.claude-tool-catalog':claudeLocalToolCatalog, 'runtime.native-streams':nativeStreams, 'runtime.native-provider': this.nativeProvider, 'runtime.codex': this.nativeCodex,
+      'runtime.claude-tool-policies':claudeToolPolicies, 'runtime.claude-tool-catalog':claudeLocalToolCatalog, 'runtime.native-streams':nativeStreams, 'runtime.native-provider': this.nativeProvider, 'runtime.codex': this.nativeCodex,
       'runtime.native-completion': nativeCompletionCodec,
       'runtime.native-request': nativeRequestCodec,
       'runtime.mcp-sessions': nativeMcpSessionPolicy,

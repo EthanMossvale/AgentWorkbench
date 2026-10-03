@@ -24,7 +24,7 @@ class NativeFixture extends ProcessSupervisor{
   async stop(){this.stops++;this.state='closed';const result={code:0,signal:null,reason:'fixture'};this.emit('disconnect',result);return result;}
 }
 
-test('catalog pagination, refresh and correlated progress keep allowlist and bounded cursor handling',async()=>{
+test('catalog pagination, refresh and correlated progress keep native ownership and cursor integrity',async()=>{
   const directory=await mkdtemp(path.join(os.tmpdir(),'awb-catalog-'));let native!:NativeFixture,pages=0,loop=false;const progress:any[]=[];
   try{
     const tools=await openOfficialClaudeTools({...options(directory),progress:v=>progress.push(v)},spec=>{
@@ -118,7 +118,7 @@ test('completed large async commands retain execution outcome and surface output
 });
 
 test('Read text size uses UTF-8 bytes and ordinary structured results stay intact',()=>{
-  const result:any=normalizeClaudeToolResult('Read',{content:[{type:'text',text:'中'.repeat(3*1024*1024)}]});assert.equal(result.isError,true);
+  const result:any=normalizeClaudeToolResult('Read',{content:[{type:'text',text:'中'.repeat(3*1024*1024)}]});assert.equal(result.content[0].text.length,3*1024*1024);
   const normal={content:[{type:'text',text:'ordinary'}],structuredContent:{text:'ordinary'}};assert.deepEqual(normalizeClaudeToolResult('Read',normal),normal);
 });
 

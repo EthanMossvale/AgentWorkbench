@@ -28,7 +28,7 @@ export class LocalClaudeResultStore implements ClaudeResultStore {
     if(this.closed)throw Error('LOCAL_RESULT_STORE_CLOSED');
     const text=JSON.stringify(value);if(text===undefined)throw Error('LOCAL_RESULT_INVALID');
     const data=Buffer.from(text,'utf8');
-    if(data.length>this.policy.resultBytes||this.used+data.length>this.policy.storedBytes)throw Error('LOCAL_RESULT_STORAGE_LIMIT');
+    if(this.policy.resultBytes>0&&data.length>this.policy.resultBytes||this.policy.storedBytes>0&&this.used+data.length>this.policy.storedBytes)throw Error('LOCAL_RESULT_STORAGE_LIMIT');
     const id=randomUUID(),reference:ClaudeResultReference={id,bytes:data.length,sha256:createHash('sha256').update(data).digest('hex'),encoding:'utf8-json',preview:text.slice(0,2048)};
     this.used+=data.length;
     const writing=writeFile(path.join(this.directory,id+'.json'),data,{flag:'wx',mode:0o600});this.writes.add(writing);
@@ -37,7 +37,7 @@ export class LocalClaudeResultStore implements ClaudeResultStore {
   async read(id:string,offset=0,maxBytes=64*1024){
     if(this.closed)throw Error('LOCAL_RESULT_STORE_CLOSED');const ref=this.entries.get(id);
     if(!ref)throw Error('LOCAL_RESULT_UNAVAILABLE');
-    if(!Number.isSafeInteger(offset)||offset<0||offset>ref.bytes||!Number.isSafeInteger(maxBytes)||maxBytes<4||maxBytes>256*1024)throw Error('LOCAL_RESULT_RANGE_INVALID');
+    if(!Number.isSafeInteger(offset)||offset<0||offset>ref.bytes||!Number.isSafeInteger(maxBytes)||maxBytes<4)throw Error('LOCAL_RESULT_RANGE_INVALID');
     const file=path.join(this.directory,id+'.json'),stat=await lstat(file);
     if(!stat.isFile()||stat.isSymbolicLink()||stat.size!==ref.bytes)throw Error('LOCAL_RESULT_CHANGED');
     const handle=await open(file,'r');
@@ -53,14 +53,14 @@ export class LocalClaudeResultStore implements ClaudeResultStore {
 }
 export function resultReferenceContent(reference:ClaudeResultReference){return {content:[{type:'text',text:JSON.stringify({output:reference,instructions:'The complete native result is stored for this session. Use ReadLocalToolResult with this id and byte offset to retrieve it. Do not repeat the command to retrieve output.'})}],structuredContent:{output:reference}};}
 export function withClaudeResultStore(tools:ClaudeToolServer,store:ClaudeResultStore):ClaudeToolServer {
-  const reader={name:'ReadLocalToolResult',description:'Read a bounded UTF-8 JSON page from an owned completed local tool result. Use nextOffset for the next page. Handles expire when this connection closes. This never executes the original tool again.',inputSchema:{type:'object',properties:{id:{type:'string'},offset:{type:'integer',minimum:0},maxBytes:{type:'integer',minimum:4,maximum:262144}},required:['id'],additionalProperties:false},annotations:{readOnlyHint:true}};
+  const reader={name:'ReadLocalToolResult',description:'Read a bounded UTF-8 JSON page from an owned completed local tool result. Use nextOffset for the next page. Handles expire when this connection closes. This never executes the original tool again.',inputSchema:{type:'object',properties:{id:{type:'string'},offset:{type:'integer',minimum:0},maxBytes:{type:'integer',minimum:4}},required:['id'],additionalProperties:false},annotations:{readOnlyHint:true}};
   let closing:Promise<void>|undefined;
   return {...tools,get definitions(){return [...tools.definitions,reader];},listTools:async()=>[...await tools.listTools?.()??tools.definitions,reader],
     call:async(name,args:any,signal)=>{
       signal?.throwIfAborted();if(name==='ReadLocalToolResult'){const page=await store.read(args?.id,args?.offset,args?.maxBytes);return {content:[{type:'text',text:JSON.stringify(page)}],structuredContent:page};}
       const result:any=await tools.call(name,args,signal);
       const bytes=Buffer.byteLength(JSON.stringify(result)??'');
-      if(bytes>store.maxResultBytes)return {isError:true,content:[{type:'text',text:'LOCAL_RESULT_SIZE_LIMIT: The native tool returned a result exceeding the delivery limit. It was not retried. For file reads, request a smaller range.'}],structuredContent:{error:'LOCAL_RESULT_SIZE_LIMIT',bytes,outcome:'returned',retried:false}};
+      if(store.maxResultBytes>0&&bytes>store.maxResultBytes)return {isError:true,content:[{type:'text',text:'LOCAL_RESULT_SIZE_LIMIT: The native tool returned a result exceeding the delivery limit. It was not retried. For file reads, request a smaller range.'}],structuredContent:{error:'LOCAL_RESULT_SIZE_LIMIT',bytes,outcome:'returned',retried:false}};
       if(bytes<=store.inlineBytes||result?.content?.some((c:any)=>c.type==='image'))return result;
       try{return {...resultReferenceContent(await store.put(result)),...(result?.isError?{isError:true}:{})};}
       catch(error){throw new ClaudeToolError({code:claudeToolFailure(error).code,stage:'delivery',outcome:'returned',bytes});}

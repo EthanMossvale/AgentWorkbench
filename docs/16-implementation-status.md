@@ -2424,3 +2424,7 @@ Removed artificial native model frame/output defaults, both SSH relay/owner inpu
 ## D033 discovered local tools (2026-10-03)
 
 Claude local tools follow the actual native catalog, including new ordinary names and partial installations. A typed production selection registry reaches cached/new listings and real calls; approved plugin disable/reenable restores selection immediately. Native model/lifecycle ownership and action permissions remain. 25 focused synthetic cases pass; documentation and contract snapshot record the additive API. This has no UI preference change and does not claim live CLI, model, SSH or installed desktop acceptance.
+
+## D034 local tool capacity delivery (2026-10-03)
+
+Removed default Claude tool wire/result/store/catalog and pending-request ceilings, fixed host request timers and Read image/text size rejection. Existing full-result storage now accepts larger results/pages; occupied command slots queue instead of failing. A typed production policy registry supports explicit limits, scheduling and approved plugin restoration. Duplicate IDs, exact output, cancellation, native read/edit state and real permissions remain. All 29 focused synthetic tests pass; type/plugin/docs/preference gates apply. No UI preference change or live native/remote/installed desktop acceptance is claimed.

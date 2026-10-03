@@ -11,7 +11,7 @@ import {ClaudeToolMcpSession,openOfficialClaudeTools,type ClaudeToolServer,type 
 import {LocalClaudeContext,withClaudeLocalContext,type ClaudeLocalContext} from './local-context';
 import {LocalClaudeTasks,withClaudeLocalTasks} from './local-tasks';
 import {normalizeClaudeToolResult} from './results';
-import {claudeMcpPolicy,type ClaudeMcpPolicy} from './policy';
+import {claudeToolPolicies,type ClaudeMcpPolicy} from './policy';
 import {openIsolatedClaudeTools} from './isolation';
 import {LocalClaudeResultStore,withClaudeResultStore,type ClaudeResultStore} from './result-store';
 
@@ -45,7 +45,7 @@ export class ClaudeBridgeService implements NativeClaudeService {
   defaultDirectory(sessionId:string){if(!/^[a-f0-9-]{36}$/.test(sessionId))throw Error('CLAUDE_SESSION_ID_INVALID');return path.join(this.directory,'workspaces',sessionId);}
   openContext(options:ClaudeToolServerOptions):Promise<ClaudeLocalContext>{return Promise.resolve(new LocalClaudeContext(options));}
   normalizeToolResult(name:string,result:unknown){return normalizeClaudeToolResult(name,result);}
-  toolPolicy(options:ClaudeToolServerOptions){return claudeMcpPolicy(options.policy);}
+  toolPolicy(options:ClaudeToolServerOptions){return claudeToolPolicies.resolve(options.policy);}
   openToolProcess(options:ClaudeToolServerOptions){return openOfficialClaudeTools(options,this.factory,(name,result)=>this.normalizeToolResult(name,result));}
   openResultStore(options:ClaudeToolServerOptions):Promise<ClaudeResultStore>{return LocalClaudeResultStore.open(options);}
   async openTools(options:ClaudeToolServerOptions){

@@ -46,7 +46,7 @@ export async function openOfficialClaudeTools(options:ClaudeToolServerOptions, f
   // Preserve explicit local shell selection and policy, without inheriting auth or model routing.
   for(const key of ['CLAUDE_CODE_GIT_BASH_PATH','CLAUDE_CODE_SHELL','CLAUDE_CODE_SHELL_PREFIX','CLAUDE_CODE_USE_POWERSHELL_TOOL','CLAUDE_CODE_POWERSHELL_RESPECT_EXECUTION_POLICY'])if(options.env[key]!==undefined)env[key]=options.env[key];
   Object.assign(env,{CLAUDE_CONFIG_DIR:profile,ANTHROPIC_CONFIG_DIR:profile,ANTHROPIC_API_KEY:'awb-tool-only-no-inference',ANTHROPIC_BASE_URL:'http://127.0.0.1:1',CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC:'1',CLAUDE_CODE_DISABLE_OFFICIAL_MARKETPLACE_AUTOINSTALL:'1',CLAUDE_CODE_DISABLE_AUTO_MEMORY:'1',CLAUDE_CODE_DISABLE_BACKGROUND_TASKS:'1',DISABLE_AUTOUPDATER:'1'});
-  const process=factory({executable:options.executable,args:['--setting-sources','','--settings','{"autoMemoryEnabled":false}','mcp','serve'],env,cwd:options.cwd,maxFrameBytes:policy.frameBytes,maxOutputBytes:policy.outputWindowBytes});
+  const process=factory({executable:options.executable,args:['--setting-sources','','--settings','{"autoMemoryEnabled":false}','mcp','serve'],env,cwd:options.cwd,maxFrameBytes:policy.frameBytes||undefined,maxOutputBytes:policy.outputWindowBytes||undefined});
   let closed=false,closing:Promise<void>|undefined;
   let catalogRevision=0,listedRevision=-1;
   const pending=new Map<string,{resolve(value:unknown):void;reject(error:Error):void}>();
@@ -77,7 +77,7 @@ export async function openOfficialClaudeTools(options:ClaudeToolServerOptions, f
   });
   const close=()=>closing??=(async()=>{closed=true;fail();options.signal.removeEventListener('abort',abort);await process.stop('claude-tools-close');await rm(profile,{recursive:true,force:true});})();
   const abort=()=>{void close().catch(()=>{});};options.signal.addEventListener('abort',abort,{once:true});
-  const request=async(method:string,params:unknown,signal?:AbortSignal,timeoutMs=180000):Promise<any>=>{
+  const request=async(method:string,params:unknown,signal?:AbortSignal):Promise<any>=>{
     if(closed)throw Error('CLAUDE_LOCAL_TOOLS_CLOSED');options.signal.throwIfAborted();signal?.throwIfAborted();
     const id=randomUUID();
     const started=Date.now();
@@ -85,19 +85,18 @@ export async function openOfficialClaudeTools(options:ClaudeToolServerOptions, f
     return new Promise((resolve,reject)=>{
       let settled=false;
       const finish=(error?:Error,value?:unknown)=>{
-        if(settled)return;settled=true;clearTimeout(timer);signal?.removeEventListener('abort',cancel);pending.delete(id);
+        if(settled)return;settled=true;signal?.removeEventListener('abort',cancel);pending.delete(id);
         if(error){const failure=claudeToolFailure(error),diagnostic:ClaudeToolDiagnostic={...failure.diagnostic,code:failure.code,stage:failure.diagnostic?.stage??(method==='tools/call'?'execute':'catalog'),outcome:failure.diagnostic?.outcome??'unknown',callId:id,...(method==='tools/call'?{tool:(params as any)?.name}:{}),elapsedMs:Date.now()-started};try{options.diagnostic?.(diagnostic);}catch{/* Diagnostics never change execution. */}reject(new ClaudeToolError(diagnostic));}else resolve(value);
       };
       // Unknown execution is never retried. End this owned server tree on cancellation.
       const cancel=()=>{void process.write({jsonrpc:'2.0',method:'notifications/cancelled',params:{requestId:id,reason:'Caller cancelled.'}}).catch(()=>{});finish(Error('CLAUDE_LOCAL_TOOL_CANCELLED'));void close().catch(()=>{});};
-      const timer=setTimeout(()=>{finish(Error('CLAUDE_LOCAL_TOOL_TIMEOUT'));void close().catch(()=>{});},timeoutMs);
       pending.set(id,{resolve:value=>finish(undefined,value),reject:error=>finish(error)});signal?.addEventListener('abort',cancel,{once:true});
       void process.write({jsonrpc:'2.0',id,method,params:{...(params as object),...(method==='tools/call'?{_meta:{progressToken:id}}:{})}}).catch(error=>finish(error));
     });
   };
   try{
     options.signal.throwIfAborted();await process.start();options.signal.throwIfAborted();
-    const initialized=await request('initialize',{protocolVersion:'2024-11-05',capabilities:{roots:{listChanged:false}},clientInfo:{name:'agent-workbench-local-tools',version:'1'}},undefined,20000);
+    const initialized=await request('initialize',{protocolVersion:'2024-11-05',capabilities:{roots:{listChanged:false}},clientInfo:{name:'agent-workbench-local-tools',version:'1'}});
     if(!(MCP_PROTOCOL_VERSIONS as readonly unknown[]).includes(initialized?.protocolVersion))throw Error('CLAUDE_LOCAL_MCP_VERSION_UNSUPPORTED');
     await process.write({jsonrpc:'2.0',method:'notifications/initialized'});
     let definitions:Record<string,unknown>[]=[],listing:Promise<readonly Record<string,unknown>[]>|undefined;
@@ -106,10 +105,10 @@ export async function openOfficialClaudeTools(options:ClaudeToolServerOptions, f
       return listing??=(async()=>{
         const revision=catalogRevision,found:Record<string,unknown>[]=[],cursors=new Set<string>(),names=new Set<string>();let cursor:string|undefined;
         for(let page=0;;page++){
-          if(page>=policy.catalogPages)throw Error('CLAUDE_LOCAL_TOOL_CATALOG_LIMIT');
-          const listed=await request('tools/list',cursor?{cursor}:{},undefined,20000);
+          if(policy.catalogPages>0&&page>=policy.catalogPages)throw Error('CLAUDE_LOCAL_TOOL_CATALOG_LIMIT');
+          const listed=await request('tools/list',cursor?{cursor}:{});
           if(!Array.isArray(listed?.tools))throw Error('CLAUDE_LOCAL_TOOL_CATALOG_INVALID');
-          for(const tool of listed.tools){if(typeof tool?.name!=='string'||names.has(tool.name)||names.size>=policy.catalogTools)throw Error('CLAUDE_LOCAL_TOOL_CATALOG_INVALID');names.add(tool.name);found.push(tool);}
+          for(const tool of listed.tools){if(typeof tool?.name!=='string'||names.has(tool.name)||policy.catalogTools>0&&names.size>=policy.catalogTools)throw Error('CLAUDE_LOCAL_TOOL_CATALOG_INVALID');names.add(tool.name);found.push(tool);}
           if(listed.nextCursor===undefined)break;
           if(typeof listed.nextCursor!=='string'||!listed.nextCursor||cursors.has(listed.nextCursor))throw Error('CLAUDE_LOCAL_TOOL_CATALOG_INVALID');
           cursor=listed.nextCursor as string;cursors.add(cursor);
@@ -121,9 +120,7 @@ export async function openOfficialClaudeTools(options:ClaudeToolServerOptions, f
     return {get definitions(){return claudeLocalToolCatalog.select(definitions);},listTools,call:async(name,args,signal)=>{
       const available=await listTools();
       if(!available.some((tool:any)=>tool.name===name))throw Error('CLAUDE_LOCAL_TOOL_FORBIDDEN');
-      const requested=(args as any)?.timeout;
-      const timeout=['Bash','PowerShell'].includes(name)&&Number.isFinite(requested)&&requested>0?Math.min(600000,requested)+30000:180000;
-      return normalize(name,await request('tools/call',{name,arguments:args},signal,timeout));
+      return normalize(name,await request('tools/call',{name,arguments:args},signal));
     },close};
   }catch(error){await close();throw error;}
 }
@@ -156,7 +153,7 @@ export class ClaudeToolMcpSession {
     if(input.method==='prompts/get'&&this.tools.getPrompt){try{return result(await this.tools.getPrompt(input.params?.name,input.params?.arguments));}catch{return error(-32602,'Local prompt is unavailable or unsupported; refresh discovery.');}}
     if(input.method!=='tools/call')return error(-32601,'Unsupported MCP method.');
     const name=input.params?.name,key=JSON.stringify(id);
-    if(this.pending.has(key)||this.pending.size>=64)return error(-32000,'Tool request is already pending or the transport is busy.');
+    if(this.pending.has(key))return error(-32000,'Tool request is already pending.');
     const abort=new AbortController();this.pending.set(key,abort);
     try{
       const definitions=await this.tools.listTools?.()??this.tools.definitions;
