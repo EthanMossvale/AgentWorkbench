@@ -6,7 +6,7 @@ import { mergeReasoning, reasoningEfforts } from './reasoning-info';
 
 const obj = (value: unknown): Record<string, any> => value && typeof value === 'object' && !Array.isArray(value) ? value as Record<string, any> : {};
 const clean = (value: unknown, max = 255) => typeof value === 'string' && value.trim().length <= max && !/[\u0000-\u001f\u007f]/.test(value) ? value.trim() : '';
-const positive = (value: unknown) => typeof value === 'number' && Number.isSafeInteger(value) && value > 0 && value <= 100_000_000 ? value : undefined;
+const positive = (value: unknown) => typeof value === 'number' && Number.isSafeInteger(value) && value > 0 ? value : undefined;
 /** Execution policy, not user-facing connection options. */
 export const API_DEFAULTS = { tools: true, timeoutMs: 120000, maxOutputTokens: 8192 } as const;
 export const outputTokenLimit = (model: ApiModel) => model.maxOutputTokens ?? API_DEFAULTS.maxOutputTokens;
@@ -62,5 +62,5 @@ export function mergeDirectory(connection: ModelConnection, directory: ApiModel[
 /** Trigger only when a window is actually known; this is a runtime policy, not an API parameter. */
 export function compactionBudget(model: ApiModel, outputBudget: number): number | undefined {
   if (!model.contextWindow) return;
-  return Math.max(1, Math.min(Math.floor(model.contextWindow * .8), model.contextWindow - Math.min(model.maxOutputTokens ?? outputBudget, outputBudget) - 2048));
+  return Math.max(1, model.contextWindow - outputBudget);
 }

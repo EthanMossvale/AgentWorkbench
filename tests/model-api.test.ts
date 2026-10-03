@@ -21,6 +21,7 @@ import { selectedSharedAccountRef } from '../packages/account-selection';
 import type { AccountCatalog, DraftPreview, Protocol, Session, SshHost } from '../packages/contracts';
 import { SharedMemoryStore } from '../packages/memory-core';
 import { SharedSkillsStore } from '../packages/skills-core';
+import {AttachmentStore} from '../apps/desktop/host/attachments';
 
 const model={id:'alias',name:'My writer',model:'upstream-v1',enabled:true};
 const input=(protocol:Protocol='chat-completions')=>({name:'Fixture API',baseUrl:'http://127.0.0.1:32123/v1',protocol,auth:'key',models:[model],tools:true,timeoutMs:5000,maxOutputTokens:1024});
@@ -110,7 +111,7 @@ test('model directory maps only actual metadata and leaves unknown capabilities 
   assert.deepEqual(modelMetadata({id:'gpt-any-name'}),{metadataSource:'upstream'});
   const known=modelMetadata({context_length:128000,top_provider:{max_completion_tokens:12000},reasoning:{efforts:['low','high'],default_effort:'high'}});
   assert.equal(known.contextWindow,128000);assert.deepEqual(known.efforts,['low','high']);assert.equal(known.defaultEffort,'high');assert.equal(known.maxOutputTokens,12000);assert.deepEqual(modelMetadata({capabilities:{effort:{supported:true,low:{supported:true},high:{supported:true},max:{supported:false}},thinking:{types:{adaptive:{supported:true}}}}}).efforts,['low','high']);
-  assert.equal(compactionBudget(model,1024),undefined);assert.equal(compactionBudget({...model,contextWindow:10000},1024),6928);
+  assert.equal(compactionBudget(model,1024),undefined);assert.equal(compactionBudget({...model,contextWindow:10000},1024),8976);
   assert.throws(()=>validateConnection({...input(),baseUrl:'https://example.com/?key=secret'}));
   assert.throws(()=>validateConnection({...input(),baseUrl:'https://claude.ai/v1'}));
 });
@@ -295,9 +296,9 @@ test('API to SSH to API restores distinct native lane identity and hands off onl
   }finally{await f.close();}
 });
 
-test('known context window triggers bounded summary during an explicit task and keeps original history',async()=>{
+test('known context window schedules summaries during an explicit task and keeps original history',async()=>{
   let summaries=0;const f=await fixture(async(_url,init)=>{const body=JSON.parse(String(init!.body));if(/Summarize/.test(body.messages[0].content)){summaries++;return json(finished('A concise summary of prior requests.'));}return json(finished('Final after compaction'));});
-  try{let c=await f.save();c=await f.controller.call('model-api/save',{id:c.id,revision:c.revision,connection:{...c,tools:false,maxOutputTokens:512,models:[{...model,metadataSource:'manual',contextWindow:20000,maxOutputTokens:512}]}}) as ModelConnection;const chat=await f.create(c);await f.store.update(s=>{s.sessions[0]!.messages=Array.from({length:24},(_,i)=>({id:'history-'+i,role:i%2?'assistant':'user',original:'history-'+i+' '+'x'.repeat(1000),demo:false,timestamp:new Date().toISOString()}));});await f.submit(chat.id,'Continue');await wait(()=>f.store.snapshot().sessions[0]!.status==='idle');assert.ok(summaries>0);assert.equal(f.store.snapshot().sessions[0]!.messages.length,26,JSON.stringify({error:f.store.snapshot().sessions[0]!.nativeError,activity:f.store.snapshot().sessions[0]!.activities}));assert.ok(f.store.snapshot().sessions[0]!.apiSummary);assert.equal(f.store.snapshot().sessions[0]!.messages[0]!.original.length,1010);assert.equal(f.store.snapshot().sessions[0]!.messages.at(-1)!.original,'Final after compaction');}finally{await f.close();}
+  try{let c=await f.save();c=await f.controller.call('model-api/save',{id:c.id,revision:c.revision,connection:{...c,tools:false,maxOutputTokens:512,models:[{...model,metadataSource:'manual',contextWindow:20000,maxOutputTokens:512}]}}) as ModelConnection;const chat=await f.create(c);await f.store.update(s=>{s.sessions[0]!.messages=Array.from({length:24},(_,i)=>({id:'history-'+i,role:i%2?'assistant':'user',original:'history-'+i+' '+'x'.repeat(4000),demo:false,timestamp:new Date().toISOString()}));});await f.submit(chat.id,'Continue');await wait(()=>f.store.snapshot().sessions[0]!.status==='idle');assert.ok(summaries>0);assert.equal(f.store.snapshot().sessions[0]!.messages.length,26,JSON.stringify({error:f.store.snapshot().sessions[0]!.nativeError,activity:f.store.snapshot().sessions[0]!.activities}));assert.ok(f.store.snapshot().sessions[0]!.apiSummary);assert.equal(f.store.snapshot().sessions[0]!.messages[0]!.original.length,4010);assert.equal(f.store.snapshot().sessions[0]!.messages.at(-1)!.original,'Final after compaction');}finally{await f.close();}
 });
 
 test('API tool execution reads actual owner files, requests write approval and never repeats a call ID',async()=>{
@@ -430,4 +431,26 @@ test('API budget is frozen for the active turn and pending steering remains unse
   const s=f.store.snapshot().sessions[0]!;assert.equal(calls,1);assert.equal(s.apiCallBudget,0);assert.equal(s.apiBudgetPause?.limit,1);assert.equal(s.messages.find(m=>m.id===extra.id)?.delivery,'not-sent');
   await f.submit(chat.id,'Explicit new task');await wait(()=>f.store.snapshot().sessions[0]!.status==='idle');assert.equal(calls,2);assert.ok(!String(f.requests.at(-1)!.init.body).includes('Unsent steering at boundary'));
  }finally{release?.(json(finished()));await f.close();}
+});
+
+test('approved context estimators schedule real history summaries and restore core estimation on disable',async()=>{
+ let summaries=0;const f=await fixture(async(_url,init)=>{const body=JSON.parse(String(init!.body));if(body.messages[0].content.startsWith('Summarize'))summaries++;return json(finished('Concise summary or final'));});const plugins=new PluginRegistry(path.join(f.directory,'plugins'));await plugins.initialize();
+ try{
+  for(const[id,service]of Object.entries(f.controller.developmentServices()))if(service)plugins.services.register(id,service,{version:1});
+  const id='test.context-estimator',manifest={schemaVersion:1,apiVersion:1,id,name:'Context fixture',version:'1.0.0',description:'Synthetic estimator',capabilities:['host'],main:'main.mjs'},source=`export function activate(api){api.onDispose(api.services.get('runtime.api.context').register({id:'plugin:'+api.id+'/estimate',estimate:text=>text.includes('ESTIMATE_THIS_HISTORY')?text.length:undefined}));}`;
+  const zip=path.join(f.directory,'context.zip');await writeFile(zip,encodeZip([{name:'workbench.plugin.json',data:Buffer.from(JSON.stringify(manifest))},{name:'main.mjs',data:Buffer.from(source)}]));await plugins.importZip(zip);const hash=(await plugins.list())[0]!.hash;await plugins.setEnabled(id,hash,true,true);await f.create(await f.save());
+  for(const enabled of [true,false,true]){
+   summaries=0;await plugins.setEnabled(id,hash,enabled);await f.store.update(s=>{Object.assign(s.modelConnections![0]!.models[0]!,{contextWindow:20000,maxOutputTokens:512});const session=s.sessions[0]!;delete session.apiSummary;session.messages=Array.from({length:24},(_,i)=>({id:'prior-'+i,role:i%2?'assistant':'user',original:'ESTIMATE_THIS_HISTORY '+i+' '+'x'.repeat(1000),timestamp:new Date().toISOString(),demo:false}));});
+   await f.submit(f.store.snapshot().sessions[0]!.id);await wait(()=>f.store.snapshot().sessions[0]!.status==='idle');assert.equal(summaries>0,enabled);assert.equal(f.store.snapshot().sessions[0]!.nativeError,undefined);
+  }
+ }finally{await plugins.dispose();await f.close();}
+});
+
+test('API history above the old 100 MiB attachment aggregate reaches inference with verified references',async()=>{
+ const directory=await mkdtemp(path.join(os.tmpdir(),'api-history-files-')),attachments=new AttachmentStore(path.join(directory,'attachments'),undefined,[],undefined,{nativePaths:true});
+ const file=path.join(directory,'large.txt');await writeFile(file,Buffer.alloc(51*1024*1024,65));const [first]=await attachments.import([{filePath:file}]);const [second]=await attachments.import([{filePath:file}]);const f=await fixture(async()=>json(finished()),{attachments});
+ try{
+  const chat=await f.create(await f.save());await f.store.update(s=>{s.sessions[0]!.messages=[first!,second!].map((a,i)=>({id:'attached-'+i,role:'user',original:'Read the verified local file',attachments:[a],demo:false,timestamp:new Date().toISOString()}));});await f.submit(chat.id);await wait(()=>f.store.snapshot().sessions[0]!.status==='idle');
+  assert.equal(f.store.snapshot().sessions[0]!.nativeError,undefined);const request=JSON.parse(String(f.requests.at(-1)!.init.body));assert.ok(JSON.stringify(request.messages).includes(first!.sha256));assert.ok(JSON.stringify(request).length<100000);
+ }finally{await f.close();await rm(directory,{recursive:true,force:true});}
 });

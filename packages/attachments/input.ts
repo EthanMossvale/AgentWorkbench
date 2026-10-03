@@ -25,10 +25,10 @@ export function apiAttachmentContent(text:string,files:AttachmentPayload[],proto
   return parts;
 }
 
-/** Binary bytes are not prose tokens. Keep a scheduling reserve and retain paths in summaries. */
+/** Binary bytes are not prose tokens; retain immutable paths in textual summaries. */
 export function publicContextJson(value:unknown,estimate=false):string {
   return JSON.stringify(value,function(key,item){
     const binary=typeof item==='string'&&(/^data:[^;]+;base64,/.test(item)||key==='data'&&this?.type==='base64'&&typeof this?.media_type==='string');
-    return binary?(estimate?'[binary attachment]'.repeat(1024):'[Binary attachment omitted from textual summary; refer to its immutable snapshot path.]'):item;
+    return binary?(estimate?'[binary attachment; token cost unknown]':'[Binary attachment omitted from textual summary; refer to its immutable snapshot path.]'):item;
   });
 }

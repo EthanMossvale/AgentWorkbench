@@ -88,7 +88,7 @@ test('API controller submits selected attachment bytes and refuses a tampered sn
 });
 test('context summaries remove image bytes without hiding ordinary tool data',()=>{
   const source={content:[{type:'image',source:{type:'base64',media_type:'image/png',data:png.toString('base64')}},{type:'text',data:'important ordinary tool data'}]};
-  const text=publicContextJson(source);assert.ok(!text.includes(png.toString('base64')));assert.match(text,/important ordinary tool data/);assert.ok(publicContextJson(source,true).length>10000);
+  const text=publicContextJson(source);assert.ok(!text.includes(png.toString('base64')));assert.match(text,/important ordinary tool data/);assert.match(publicContextJson(source,true),/token cost unknown/);assert.ok(publicContextJson(source,true).length<1000);
 });
 test('large UTF-8 JSON, INI and source attachments stay metadata references',async()=>{
   const f=await fixture();try{
