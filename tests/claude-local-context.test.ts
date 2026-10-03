@@ -1,3 +1,6 @@
+import {PluginRegistry} from '../packages/plugins-core';
+import {encodeZip} from '../packages/native-resources/archive';
+import {claudeSkillAdapters} from '../services/claude-bridge/skill-adapters';
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import os from 'node:os';
@@ -84,11 +87,11 @@ test('skills deliver full instructions, arguments, support paths and VPS fork me
  }finally{await f.close();}
 });
 
-test('skill effort substitution uses the bound selection and rejects unavailable effort values',async()=>{
+test('skill effort substitution uses the bound selection and preserves unavailable values for native handling',async()=>{
  const f=await fixture();try{
   await f.skill('effort','Current effort: ${CLAUDE_EFFORT}','description: Effort');
   const context=new LocalClaudeContext({...f.options,env:{...f.options.env,CLAUDE_EFFORT:'high'}});const request={...await (async()=>{const s=(await context.discover()).skills.find(s=>s.name==='effort');assert.ok(s);return {id:s.id,hash:s.hash};})()};assert.equal((await context.loadSkill(request)).instructions,'Current effort: high');await context.close();
-  await f.put(path.join(f.cwd,'.claude/skills/effort/SKILL.md'),'---\ndescription: Effort\n---\nCurrent effort: ${CLAUDE_EFFORT}');await assert.rejects(f.context.loadSkill(await f.get('effort')),/SUBSTITUTION_UNSUPPORTED/);
+  await f.put(path.join(f.cwd,'.claude/skills/effort/SKILL.md'),'---\ndescription: Effort\n---\nCurrent effort: ${CLAUDE_EFFORT}');assert.deepEqual((await f.context.loadSkill(await f.get('effort'))).execution.nativeRequirements,['${CLAUDE_EFFORT}']);
  }finally{await f.close();}
 });
 
@@ -132,11 +135,34 @@ test('MCP prompts preserve user-only/model-only skill policy and do not execute 
  }finally{await f.close();}
 });
 
-test('unsupported native lifecycle is explicit and cleanup revokes context handles',async()=>{
+test('native lifecycle source remains readable and cleanup revokes context handles',async()=>{
  const f=await fixture();try{
-  for(const metadata of ['hooks:\n  PreToolUse: []','background: true']){await f.skill('unsupported','Body',metadata);await assert.rejects(f.context.loadSkill(await f.get('unsupported')),/LIFECYCLE_UNSUPPORTED/);}
+  for(const metadata of ['hooks:\n  PreToolUse: []','background: true']){await f.skill('unsupported','Body',metadata);const plan=await f.context.loadSkill(await f.get('unsupported'));assert.equal(plan.instructions,'Body');assert.ok(plan.source?.includes(metadata));assert.ok(plan.execution.nativeRequirements?.length);}
   await f.tools.close();await f.tools.close();assert.equal(f.closed,1);await assert.rejects(f.context.discover(),/CLOSED/);assert.equal(f.calls.length,0);
  }finally{await f.close();}
+});
+
+test('sequence arguments and pwsh alias reach native commands while original lifecycle declarations remain visible',async()=>{
+ const f=await fixture();try{
+  await f.skill('sequence','$topic / $detail !`Write-Output fixture`','description: Sequence\narguments:\n  - topic\n  - detail\nshell: pwsh\nmodel: custom-model\nisolation: worktree\nbackground: true');
+  const request={...await f.get('sequence'),arguments:'one "two three"'},plan=await f.context.loadSkill(request);
+  assert.match(plan.instructions,/one \/ two three/);assert.equal(plan.commands[0]!.shell,'powershell');assert.deepEqual(plan.execution.nativeRequirements,['isolation','background','inline-model']);
+  await f.context.runSkillCommand({...request,index:0,command:'Write-Output fixture'},f.native);assert.equal(f.calls[0].args.timeout,undefined);
+  await f.skill('effort','${CLAUDE_EFFORT}','description: Custom effort');const context=new LocalClaudeContext({...f.options,env:{...f.options.env,CLAUDE_EFFORT:'future-effort'}});assert.equal((await context.loadSkill(await f.get('effort'))).instructions,'future-effort');await context.close();
+ }finally{await f.close();}
+});
+
+test('approved syntax adapter reaches real MCP loads and restores original native requirements on disable',async()=>{
+ const f=await fixture(),plugins=new PluginRegistry(path.join(f.root,'plugins'));await plugins.initialize();plugins.services.register('runtime.claude-skill-adapters',claudeSkillAdapters,{version:1});
+ const id='qa.skill-adapter',manifest={schemaVersion:1,apiVersion:1,id,name:'Skill syntax fixture',version:'1.0.0',description:'Synthetic only',capabilities:['host'],main:'main.mjs'};
+ const code=`export function activate(api){api.onDispose(api.services.get('runtime.claude-skill-adapters').register({id:'plugin:'+api.id+'/syntax',load:(input,core)=>input.skill.name==='adapted'?core().then(plan=>({...plan,instructions:plan.instructions.replaceAll('$'+'{CLAUDE_EXAMPLE}','adapted'),execution:{...plan.execution,nativeRequirements:[]}})):undefined}));}`;
+ try{
+  await f.skill('adapted','Value: ${CLAUDE_EXAMPLE}');const request=await f.get('adapted');const file=path.join(f.root,'fixture.zip');await writeFile(file,encodeZip([{name:'workbench.plugin.json',data:Buffer.from(JSON.stringify(manifest))},{name:'main.mjs',data:Buffer.from(code)}]));await plugins.importZip(file);const hash=(await plugins.list())[0]!.hash;
+  await plugins.setEnabled(id,hash,true,true);assert.equal(parsed(await f.tools.call('LoadLocalSkill',request)).instructions,'Value: adapted');
+  await plugins.setEnabled(id,hash,false);assert.deepEqual(parsed(await f.tools.call('LoadLocalSkill',request)).execution.nativeRequirements,['${CLAUDE_EXAMPLE}']);
+  await plugins.setEnabled(id,hash,true);assert.equal(parsed(await f.tools.call('LoadLocalSkill',request)).instructions,'Value: adapted');
+  await f.skill('adapted','Changed');await assert.rejects(f.tools.call('LoadLocalSkill',request),/CHANGED/);
+ }finally{await plugins.dispose();await f.close();}
 });
 
 test('native skill names, named arguments, literal tokens and shell policy remain authoritative',async()=>{

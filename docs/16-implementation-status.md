@@ -2432,3 +2432,7 @@ Removed default Claude tool wire/result/store/catalog and pending-request ceilin
 ## D035 asynchronous command delivery (2026-10-03)
 
 Local asynchronous commands retain arbitrary numbers of receipts and queue at the selected concurrency. Workbench command-duration/wait/length caps are removed; native timeout arguments remain exact and optional. Queued stop and late startup shutdown do not launch unwanted commands; duplicate request IDs keep once-only execution. Production approved policy and MCP consumers are verified, with 49 distinct focused cases across the relevant runs. Public queued state and remote source bundle revision 7 are documented. No new UI state or live deployment is included.
+
+## D036 skill-source access, partial delivery (2026-10-03)
+
+Skill source is readable even with native lifecycle declarations. Sequence arguments, pwsh and custom effort values are supported; actual resource loads consume a typed adapter registry with approved plugin restoration. Unknown declarations stay visible as unexecuted native requirements. 39 context/controller cases pass. Built-in hooks/isolation/background/inline-model execution is still outstanding; this is partial progress, not completion or native model acceptance. No UI persistence change applies.

@@ -1,3 +1,4 @@
+import {claudeSkillAdapters} from './skill-adapters';
 import os from 'node:os';
 import path from 'node:path';
 import {lstat,readdir,realpath} from 'node:fs/promises';
@@ -18,8 +19,8 @@ export interface LocalClaudeCatalog {
 }
 export interface LocalClaudeSkillRequest {id:string;hash:string;arguments?:string;directory?:string}
 export interface LocalClaudeSkillPlan {
-  skill:LocalClaudeSkill;instructions:string;
-  execution:{location:'vps';context:string;agent?:string;model?:string;allowedTools?:string};
+  skill:LocalClaudeSkill;instructions:string;source?:string;
+  execution:{location:'vps';context:string;agent?:string;model?:string;allowedTools?:string;nativeRequirements?:string[]};
   commands:{index:number;command:string;shell:'bash'|'powershell';completed:boolean}[];warnings:string[];
 }
 /** Session-scoped resource discovery. This is not a replacement auto-memory engine. */
@@ -120,17 +121,26 @@ export class LocalClaudeContext implements ClaudeLocalContext {
   }
   private key(request:LocalClaudeSkillRequest,index:number){return digest(JSON.stringify([request.id,request.hash,request.arguments??'',request.directory??this.options.cwd,index]));}
   async loadSkill(request:LocalClaudeSkillRequest,userInvoked=false):Promise<LocalClaudeSkillPlan>{
-    this.alive();if(typeof request?.id!=='string'||typeof request.hash!=='string'||request.arguments!==undefined&&(typeof request.arguments!=='string'||request.arguments.length>32768))throw Error('LOCAL_SKILL_REQUEST_INVALID');
+    this.alive();if(typeof request?.id!=='string'||typeof request.hash!=='string'||request.arguments!==undefined&&typeof request.arguments!=='string')throw Error('LOCAL_SKILL_REQUEST_INVALID');
     const skill=(await this.discover(request.directory)).skills.find(s=>s.id===request.id);if(!skill||skill.hash!==request.hash)throw Error('LOCAL_SKILL_CHANGED_OR_UNAVAILABLE');
     const invocation=this.key(request,-1);
     if(userInvoked?!skill.userInvocable:!skill.modelInvocable&&!this.userInvocations.has(invocation))throw Error('LOCAL_SKILL_INVOCATION_DISABLED');
-    if(userInvoked){if(this.userInvocations.size>=128)throw Error('LOCAL_SKILL_INVOCATION_LIMIT');this.userInvocations.add(invocation);}
+    if(userInvoked)this.userInvocations.add(invocation);
     const markdown=await textFile(skill.path,256*1024);if(digest(markdown)!==request.hash)throw Error('LOCAL_SKILL_CHANGED');
+    const plan=await claudeSkillAdapters.load({skill,request,markdown,cwd:this.options.cwd,effort:this.options.env.CLAUDE_EFFORT},()=>this.compileSkill(skill,request,markdown));
+    this.alive();return plan;
+  }
+  private async compileSkill(skill:LocalClaudeSkill,request:LocalClaudeSkillRequest,markdown:string):Promise<LocalClaudeSkillPlan>{
     const {front,body}=parts(markdown),warnings:string[]=[];
-    if(/^hooks:|^disable-bypass-permissions-mode:|^isolation:|^effort:|^max-turns:/m.test(front)||scalar(front,'background')==='true')throw Error('LOCAL_SKILL_NATIVE_LIFECYCLE_UNSUPPORTED');
+    const nativeRequirements:string[]=[];
+    for(const key of ['hooks','disable-bypass-permissions-mode','isolation','effort','max-turns'])if(new RegExp('^'+key+':','m').test(front))nativeRequirements.push(key);
+    if(scalar(front,'background')==='true')nativeRequirements.push('background');
     const args=request.arguments??'',argv=args.match(/(?:[^\s"']+|"[^"]*"|'[^']*')+/g)?.map(v=>v.replace(/^(["'])(.*)\1$/,'$2'))??[];
-    let names:string[]=[];const declared=scalar(front,'arguments');if(declared){if(!/^\[[A-Za-z0-9_, '\"-]*\]$/.test(declared))throw Error('LOCAL_SKILL_ARGUMENTS_UNSUPPORTED');names=declared.slice(1,-1).split(',').map(s=>s.trim().replace(/^['\"]|['\"]$/g,'')).filter(Boolean);if(names.some(s=>!/^[A-Za-z_][A-Za-z0-9_]*$/.test(s)))throw Error('LOCAL_SKILL_ARGUMENTS_UNSUPPORTED');}
-    else if(/^arguments:/m.test(front))throw Error('LOCAL_SKILL_ARGUMENTS_UNSUPPORTED');
+    let names:string[]=[];const declared=scalar(front,'arguments');
+    if(declared&&/^\[[A-Za-z0-9_, '\"-]*\]$/.test(declared))names=declared.slice(1,-1).split(',').map(s=>s.trim().replace(/^['\"]|['\"]$/g,'')).filter(Boolean);
+    else if(/^arguments:[^\S\n]*$/m.test(front)){const block=/^arguments:[^\S\n]*\n((?:[ \t]+.*(?:\n|$))*)/m.exec(front)?.[1]??'';names=[...block.matchAll(/^\s+-\s+['"]?([A-Za-z_][A-Za-z0-9_]*)['"]?\s*$/gm)].map(m=>m[1]!);if(!names.length&&block.trim())nativeRequirements.push('arguments');}
+    else if(declared)nativeRequirements.push('arguments');
+    if(names.some(name=>!/^[A-Za-z_][A-Za-z0-9_]*$/.test(name))){nativeRequirements.push('arguments');names=[];}
     let received=false;
     const argumentPattern=new RegExp('(\\\\*)\\$(ARGUMENTS(?:\\[([0-9]+)\\]|\\b)|[0-9]+'+(names.length?'|(?:'+names.join('|')+')\\b':'')+')','g');
     let instructions=body.replace(argumentPattern,(all,slashes:string,token:string,_index:string)=>{
@@ -144,31 +154,32 @@ export class LocalClaudeContext implements ClaudeLocalContext {
     instructions=instructions.replace(/\$\{CLAUDE_SKILL_DIR\}/g,()=>skill.directory).replace(/\$\{CLAUDE_PROJECT_DIR\}/g,()=>this.options.cwd);
     if(skill.pluginRoot)instructions=instructions.replace(/\$\{CLAUDE_PLUGIN_ROOT\}/g,()=>skill.pluginRoot!);
     const effort=this.options.env.CLAUDE_EFFORT;
-    if(effort&&/^(low|medium|high|xhigh|max)$/.test(effort))instructions=instructions.replace(/\$\{CLAUDE_EFFORT\}/g,()=>effort);
-    if(/\$\{CLAUDE_[A-Z_]+\}/.test(instructions))throw Error('LOCAL_SKILL_SUBSTITUTION_UNSUPPORTED');
-    const shell=scalar(front,'shell')||'bash';if(!['bash','powershell'].includes(shell))throw Error('LOCAL_SKILL_SHELL_UNSUPPORTED');
+    if(effort!==undefined)instructions=instructions.replace(/\$\{CLAUDE_EFFORT\}/g,()=>effort);
+    for(const match of instructions.matchAll(/\$\{CLAUDE_[A-Z_]+\}/g))nativeRequirements.push(match[0]);
+    const declaredShell=scalar(front,'shell')||'bash',shell=declaredShell==='pwsh'?'powershell':declaredShell;
+    if(!['bash','powershell'].includes(shell))nativeRequirements.push('shell:'+shell);
     const commands:LocalClaudeSkillPlan['commands']=[];
-    instructions=instructions.replace(/^```![^\S\n]*\n([\s\S]*?)^```[^\S\n]*$|(?<!\S)!`([^`\r\n]+)`/gm,(_all,fenced:string,inline:string)=>{if(!skill.shellExecution)return '[shell command execution disabled by policy]';const command=fenced??inline,index=commands.length,key=this.key(request,index),output=this.commandOutputs.get(key);commands.push({index,command,shell:shell as 'bash'|'powershell',completed:output!==undefined});return output??`[Pending local command ${index}: run RunLocalSkillCommand with the exact command, then reload this skill.]`;});
-    if(/^```!/m.test(instructions))throw Error('LOCAL_SKILL_DYNAMIC_SYNTAX_UNSUPPORTED');
-    const context=scalar(front,'context')||'inline';if(!['inline','fork'].includes(context))throw Error('LOCAL_SKILL_CONTEXT_UNSUPPORTED');
+    instructions=instructions.replace(/^```![^\S\n]*\n([\s\S]*?)^```[^\S\n]*$|(?<!\S)!`([^`\r\n]+)`/gm,(_all,fenced:string,inline:string)=>{if(!['bash','powershell'].includes(shell))return _all;if(!skill.shellExecution)return '[shell command execution disabled by policy]';const command=fenced??inline,index=commands.length,key=this.key(request,index),output=this.commandOutputs.get(key);commands.push({index,command,shell:shell as 'bash'|'powershell',completed:output!==undefined});return output??`[Pending local command ${index}: run RunLocalSkillCommand with the exact command, then reload this skill.]`;});
+    if(/^```!/m.test(instructions))nativeRequirements.push('dynamic-syntax');
+    const context=scalar(front,'context')||'inline';if(!['inline','fork'].includes(context))nativeRequirements.push('context:'+context);
     const model=scalar(front,'model'),agent=scalar(front,'agent'),allowedTools=scalar(front,'allowed-tools');
-    if(model&&model!=='inherit'&&context!=='fork')throw Error('LOCAL_SKILL_INLINE_MODEL_UNSUPPORTED');
+    if(model&&model!=='inherit'&&context!=='fork')nativeRequirements.push('inline-model');
     if(allowedTools)warnings.push('allowed-tools is reference metadata, not a permission grant. Native VPS and local permission gates still apply.');
     if(context==='fork')warnings.push('Execute with the VPS native Agent tool, forwarding these instructions and local MCP tools. Never start a local model client.');
-    this.alive();return {skill,instructions,execution:{location:'vps',context,agent,model,allowedTools},commands,warnings};
+    if(nativeRequirements.length)warnings.push('This source requires native lifecycle or syntax support: '+[...new Set(nativeRequirements)].join(', ')+'. The full original source is returned. These declarations have not executed; do not silently omit them or claim this is a completed skill invocation.');
+    this.alive();return {skill,instructions,source:markdown,execution:{location:'vps',context,agent,model,allowedTools,...(nativeRequirements.length?{nativeRequirements:[...new Set(nativeRequirements)]}:{})},commands,warnings};
   }
   async runSkillCommand(request:LocalClaudeSkillRequest&{index:number;command:string},tools:ClaudeToolServer,signal?:AbortSignal){
     const plan=await this.loadSkill(request),command=plan.commands.find(c=>c.index===request.index);
     if(!command||request.command!==command.command)throw Error('LOCAL_SKILL_COMMAND_MISMATCH');
     const key=this.key(request,request.index);if(this.commandRuns.has(key))throw Error('LOCAL_SKILL_COMMAND_ALREADY_ATTEMPTED');
-    if(this.commandRuns.size>=128)throw Error('LOCAL_SKILL_COMMAND_LIMIT');this.commandRuns.add(key);
+    this.commandRuns.add(key);
     // The explicit tool call goes through the same VPS approval and local mutation gate.
-    const result:any=await tools.call(command.shell==='powershell'?'PowerShell':'Bash',{command:command.command,description:'Run the requested local skill command',timeout:120000},signal);
+    const result:any=await tools.call(command.shell==='powershell'?'PowerShell':'Bash',{command:command.command,description:'Run the requested local skill command'},signal);
     this.alive();if(result?.isError)return result;
     const output=Array.isArray(result?.content)?result.content.filter((c:any)=>c.type==='text').map((c:any)=>c.text).join('\n'):'';
     let native:any;try{native=JSON.parse(output);}catch{/* Official versions may return plain text. */}
     if(native?.interrupted||native?.exitCode&&native.exitCode!==0||native?.exit_code&&native.exit_code!==0)return {...result,isError:true};
-    if(Buffer.byteLength(output)>256*1024)throw Error('LOCAL_SKILL_COMMAND_OUTPUT_LIMIT');
     this.commandOutputs.set(key,output);return result;
   }
   async close(){this.closed=true;this.commandOutputs.clear();this.commandRuns.clear();this.userInvocations.clear();}

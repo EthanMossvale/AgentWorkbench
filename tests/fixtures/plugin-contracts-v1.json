@@ -467,7 +467,7 @@
       "export interface ClaudeLocalContext {\n    discover(directory?: string): Promise<LocalClaudeCatalog>;\n    loadSkill(request: LocalClaudeSkillRequest, userInvoked?: boolean): Promise<LocalClaudeSkillPlan>;\n    runSkillCommand(request: LocalClaudeSkillRequest & {\n        index: number;\n        command: string;\n    }, tools: ClaudeToolServer, signal?: AbortSignal): Promise<unknown>;\n    close(): Promise<void>;\n}",
       "export interface LocalClaudeCatalog {\n    cwd: string;\n    instructions: {\n        path: string;\n        kind: string;\n    }[];\n    memory: {\n        enabled: boolean;\n        directory?: string;\n        source: string;\n        files: string[];\n    };\n    skills: LocalClaudeSkill[];\n    warnings: string[];\n}",
       "export interface LocalClaudeSkill {\n    id: string;\n    name: string;\n    description: string;\n    path: string;\n    directory: string;\n    hash: string;\n    kind: 'skill' | 'command';\n    modelInvocable: boolean;\n    userInvocable: boolean;\n    shellExecution: boolean;\n    pluginRoot?: string;\n}",
-      "export interface LocalClaudeSkillPlan {\n    skill: LocalClaudeSkill;\n    instructions: string;\n    execution: {\n        location: 'vps';\n        context: string;\n        agent?: string;\n        model?: string;\n        allowedTools?: string;\n    };\n    commands: {\n        index: number;\n        command: string;\n        shell: 'bash' | 'powershell';\n        completed: boolean;\n    }[];\n    warnings: string[];\n}",
+      "export interface LocalClaudeSkillPlan {\n    skill: LocalClaudeSkill;\n    instructions: string;\n    source?: string;\n    execution: {\n        location: 'vps';\n        context: string;\n        agent?: string;\n        model?: string;\n        allowedTools?: string;\n        nativeRequirements?: string[];\n    };\n    commands: {\n        index: number;\n        command: string;\n        shell: 'bash' | 'powershell';\n        completed: boolean;\n    }[];\n    warnings: string[];\n}",
       "export interface LocalClaudeSkillRequest {\n    id: string;\n    hash: string;\n    arguments?: string;\n    directory?: string;\n}"
     ],
     "packages/model-api/runtime-target.ts": [
@@ -491,6 +491,10 @@
       "export interface WorkspaceManagementOptions {\n    directory: string;\n    pickImport(): Promise<string | null>;\n    pickExport(filename: string): Promise<string | null>;\n    remote?: RemoteWorkspaceControl;\n    enrollment?: WorkspaceEnrollmentService;\n}",
       "export interface WorkspacePreparation {\n    ready: boolean;\n    reason?: 'catalog' | 'account' | 'runtime' | 'bridge' | 'changed';\n}",
       "export type WorkspaceManagementActions = Pick<WorkspaceManagementService, 'list' | 'plan' | 'apply' | 'operation' | 'exportInvite' | 'importPreview' | 'import' | 'busy' | 'dispose'> & Partial<Pick<WorkspaceManagementService, 'exportConnection' | 'exportManaged' | 'connect'>>;"
+    ],
+    "services/claude-bridge/skill-adapters.ts": [
+      "export interface ClaudeSkillAdapter {\n    id: `plugin:${string}`;\n    load(input: ClaudeSkillAdapterInput, core: () => Promise<LocalClaudeSkillPlan>): Promise<LocalClaudeSkillPlan> | undefined;\n}",
+      "export interface ClaudeSkillAdapterInput {\n    skill: LocalClaudeSkill;\n    request: LocalClaudeSkillRequest;\n    markdown: string;\n    cwd: string;\n    effort?: string;\n}"
     ],
     "services/claude-bridge/policy.ts": [
       "export interface ClaudeMcpPolicy {\n    frameBytes: number;\n    outputWindowBytes: number;\n    resultBytes: number;\n    inlineBytes: number;\n    storedBytes: number;\n    catalogPages: number;\n    catalogTools: number;\n    commandConcurrency: number;\n}",
