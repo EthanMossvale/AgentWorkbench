@@ -1,0 +1,3210 @@
+[
+  {
+    "id": "D001",
+    "tier": 1,
+    "title": "输入译文含汉字即拒绝",
+    "behavior": "输入译文正文仍有任意汉字就中止提交。",
+    "judgment": "建议移除此启发式硬拦截；专名及混合语言不是失败证据。",
+    "impact": "允许用户审阅后发送混合语言译文；不改预览版本检查。",
+    "refs": [
+      {
+        "file": "packages/translation/provider.ts",
+        "needle": "direction==='input'"
+      }
+    ],
+    "sources": [
+      [
+        "packages/translation/provider.ts",
+        141
+      ]
+    ]
+  },
+  {
+    "id": "D002",
+    "tier": 1,
+    "title": "未闭合代码围栏拒绝翻译",
+    "behavior": "代码围栏不完整或无法定位保护区就拒绝翻译。",
+    "judgment": "建议移除拒绝，原样保留该段；不应因 Markdown 编辑状态阻断任务。",
+    "impact": "需要调整保护器以保留原文，而非删掉代码保护。",
+    "refs": [
+      {
+        "file": "packages/translation/protection.ts",
+        "needle": "代码围栏不完整"
+      }
+    ],
+    "sources": [
+      [
+        "packages/translation/protection.ts",
+        18
+      ]
+    ]
+  },
+  {
+    "id": "D003",
+    "tier": 1,
+    "title": "凭据关键词拒绝翻译",
+    "behavior": "password、secret、API key 模式或私钥标记命中即禁止外发。",
+    "judgment": "建议改为可选择的提醒；正则会误判代码示例和测试数据。",
+    "impact": "可能发送真实敏感文本；实际凭据库权限是另一项。",
+    "refs": [
+      {
+        "file": "packages/translation/protection.ts",
+        "needle": "assertNoSecrets"
+      }
+    ],
+    "sources": [
+      [
+        "packages/translation/protection.ts",
+        7
+      ]
+    ]
+  },
+  {
+    "id": "D004",
+    "tier": 1,
+    "title": "完整访问仍逐次审批 API 命令",
+    "behavior": "run_command 无论 full-access 与否都调用 approve；文件写入却允许 full-access 跳过。",
+    "judgment": "建议移除 full-access 的重复审批，与用户选择一致。",
+    "impact": "default 模式审批及只读模式禁止执行可单独保留。",
+    "refs": [
+      {
+        "file": "apps/desktop/host/api-local-tools.ts",
+        "needle": "approve('command'"
+      }
+    ],
+    "sources": [
+      [
+        "apps/desktop/host/api-local-tools.ts",
+        35
+      ]
+    ]
+  },
+  {
+    "id": "D005",
+    "tier": 1,
+    "title": "低影响侧栏操作二次确认",
+    "behavior": "归档项目会话、移除项目记录须 confirm=true；磁盘文件不删除。",
+    "judgment": "建议取消这些可逆操作的二次确认，提供撤销。",
+    "impact": "永久删除会话不在本项内。",
+    "refs": [
+      {
+        "file": "apps/desktop/host/controller.ts",
+        "needle": "请确认归档"
+      }
+    ],
+    "sources": [
+      [
+        "apps/desktop/host/controller.ts",
+        825
+      ]
+    ]
+  },
+  {
+    "id": "D006",
+    "tier": 1,
+    "title": "新聊天授权靠自然语言正则",
+    "behavior": "必须引用最新用户文本，匹配中英文新建意图，命中否定词则拒绝。",
+    "judgment": "建议移除词法判官，改用明确的用户动作或授权字段；意图正则易误判。",
+    "impact": "仍需保留跨 owner 权限与创建幂等性。",
+    "refs": [
+      {
+        "file": "packages/collaboration-core/session-tools.ts",
+        "needle": "const intent"
+      }
+    ],
+    "sources": [
+      [
+        "packages/collaboration-core/session-tools.ts",
+        16
+      ]
+    ]
+  },
+  {
+    "id": "D007",
+    "tier": 1,
+    "title": "原稿发送额外语言门槛",
+    "behavior": "翻译开启时中文原稿 bypass 需要 confirmOriginal，注释也单独检查。",
+    "judgment": "建议让明确的“发送原稿”动作直接表达同意，取消重复门槛。",
+    "impact": "不应因此默认自动发送翻译失败的原稿。",
+    "refs": [
+      {
+        "file": "apps/desktop/host/controller.ts",
+        "needle": "p.confirmOriginal"
+      }
+    ],
+    "sources": [
+      [
+        "apps/desktop/host/controller.ts",
+        1087
+      ]
+    ]
+  },
+  {
+    "id": "D008",
+    "tier": 1,
+    "title": "错误详情整段隐藏",
+    "behavior": "错误含 authorization 等词或超过 400 字就换成泛化失败；AbortError 一律说翻译取消。",
+    "judgment": "建议删除整段吞错和错误归因，改为字段级脱敏。",
+    "impact": "需保留实际 token、私钥脱敏。",
+    "refs": [
+      {
+        "file": "apps/desktop/host/controller.ts",
+        "needle": "export function safeError"
+      }
+    ],
+    "sources": [
+      [
+        "apps/desktop/host/controller.ts",
+        1743
+      ]
+    ]
+  },
+  {
+    "id": "D009",
+    "tier": 1,
+    "title": "普通本机文件按目录名拒绝",
+    "behavior": "API 文件工具拒绝 .ssh/.codex/.claude 及 controlPaths，独立于 OS 可读权限。",
+    "judgment": "建议移除目录名推断权限，真实身份权限另保留。",
+    "impact": "此前仅附件路径已解除；这里仍存在。",
+    "refs": [
+      {
+        "file": "services/owner-file-service/index.ts",
+        "needle": "credentialSegments"
+      }
+    ],
+    "sources": [
+      [
+        "services/owner-file-service/index.ts",
+        26
+      ]
+    ]
+  },
+  {
+    "id": "D010",
+    "tier": 1,
+    "title": "图片生成目录黑名单",
+    "behavior": "生成图工作区仍按敏感目录名和控制根判断，托管目录需要例外回调。",
+    "judgment": "建议移除目录分类；保留写入原子性与身份绑定。",
+    "impact": "生成图路径限制与已修复的预览限制不是同一处。",
+    "refs": [
+      {
+        "file": "apps/desktop/host/generated-images.ts",
+        "needle": "GENERATED_IMAGE_WORKSPACE_INVALID"
+      }
+    ],
+    "sources": [
+      [
+        "apps/desktop/host/generated-images.ts",
+        33
+      ]
+    ]
+  },
+  {
+    "id": "D011",
+    "tier": 1,
+    "title": "图片另存为目录黑名单",
+    "behavior": "另存为拒绝 credentialPath 与控制目录。",
+    "judgment": "建议移除目录名硬拒绝；用户已选择保存目标。",
+    "impact": "原附件覆盖与链接目标校验独立保留。",
+    "refs": [
+      {
+        "file": "apps/desktop/host/attachments.ts",
+        "needle": "ATTACHMENT_SAVE_PROTECTED"
+      }
+    ],
+    "sources": [
+      [
+        "apps/desktop/host/attachments.ts",
+        73
+      ]
+    ]
+  },
+  {
+    "id": "D012",
+    "tier": 1,
+    "title": "账号导出目的目录禁区",
+    "behavior": "导出目标在当前账号 home 内直接拒绝。",
+    "judgment": "建议移除整目录禁区，精确保护源认证文件即可。",
+    "impact": "需防止直接覆盖正在使用的认证源。",
+    "refs": [
+      {
+        "file": "apps/desktop/host/account-export.ts",
+        "needle": "ACCOUNT_EXPORT_DESTINATION_PROTECTED"
+      }
+    ],
+    "sources": [
+      [
+        "apps/desktop/host/account-export.ts",
+        101
+      ]
+    ]
+  },
+  {
+    "id": "D013",
+    "tier": 1,
+    "title": "工作树根目录控制区限制",
+    "behavior": "自选 worktree 根目录在控制目录内但不是固定子目录就拒绝。",
+    "judgment": "建议取消固定目录特例，保留仓库递归嵌套检查。",
+    "impact": "需要继续准确记录受管根和归档目标。",
+    "refs": [
+      {
+        "file": "packages/worktrees/index.ts",
+        "needle": "WORKTREE_ROOT_IS_CONTROL_DIRECTORY"
+      }
+    ],
+    "sources": [
+      [
+        "packages/worktrees/index.ts",
+        73
+      ]
+    ]
+  },
+  {
+    "id": "D014",
+    "tier": 1,
+    "title": "官方技能禁止导出",
+    "behavior": "带官方来源的技能即不能导出，即使存在真实 SKILL.md。",
+    "judgment": "建议取消来源标签限制；无实际源文件的内置技能仍无法导出。",
+    "impact": "许可证义务不会因能导出消失。",
+    "refs": [
+      {
+        "file": "packages/native-skills/index.ts",
+        "needle": "Only personal Skills"
+      }
+    ],
+    "sources": [
+      [
+        "packages/native-skills/index.ts",
+        158
+      ]
+    ]
+  },
+  {
+    "id": "D015",
+    "tier": 1,
+    "title": "技能选择固定数量",
+    "behavior": "总选择最多 6 项，包含 Claude 时最多 1 项。",
+    "judgment": "建议移除产品层固定数量；若原生仅支持单技能须补多技能传递。",
+    "impact": "不能仅删判断而遗漏后续技能。",
+    "refs": [
+      {
+        "file": "packages/native-skills/invocation.ts",
+        "needle": "SKILL_SELECTION_LIMIT"
+      }
+    ],
+    "sources": [
+      [
+        "packages/native-skills/invocation.ts",
+        37
+      ]
+    ]
+  },
+  {
+    "id": "D016",
+    "tier": 1,
+    "title": "预览补充最多十次",
+    "behavior": "同一预览修订累计十次后必须返回原稿。",
+    "judgment": "建议移除人为次数上限。",
+    "impact": "仍保留旧预览作废和单次提交。",
+    "refs": [
+      {
+        "file": "packages/translation/gate.ts",
+        "needle": "预览修订已达上限"
+      }
+    ],
+    "sources": [
+      [
+        "packages/translation/gate.ts",
+        29
+      ]
+    ]
+  },
+  {
+    "id": "D017",
+    "tier": 2,
+    "title": "本机浏览拒绝网络共享",
+    "behavior": "UNC 和 // 路径在解析前后都拒绝。",
+    "judgment": "建议提供网络路径支持或用户选择，不能把共享当设备路径。",
+    "impact": "支持后会产生网络文件访问；OS 认证仍有效。",
+    "refs": [
+      {
+        "file": "apps/desktop/host/file-browser.ts",
+        "needle": "不连接网络共享"
+      }
+    ],
+    "sources": [
+      [
+        "apps/desktop/host/file-browser.ts",
+        10
+      ]
+    ]
+  },
+  {
+    "id": "D018",
+    "tier": 2,
+    "title": "附件拒绝网络和特殊路径",
+    "behavior": "Windows UNC、设备路径、备用数据流由同一 specialPath 判断拒绝。",
+    "judgment": "建议拆开：普通 UNC 可放宽，设备流需单独支持。",
+    "impact": "不能一并开放无限设备流读取。",
+    "refs": [
+      {
+        "file": "apps/desktop/host/attachments.ts",
+        "needle": "const specialPath"
+      }
+    ],
+    "sources": [
+      [
+        "apps/desktop/host/attachments.ts",
+        10
+      ]
+    ]
+  },
+  {
+    "id": "D019",
+    "tier": 2,
+    "title": "硬链接一律拒绝",
+    "behavior": "附件、owner 文件、生成图、归档等即使只读也拒绝 nlink>1。",
+    "judgment": "建议只读取消；写入/删除按所有权与目标身份处理。",
+    "impact": "硬链接共享同一内容，写入会影响所有链接名。",
+    "refs": [
+      {
+        "file": "apps/desktop/host/attachments.ts",
+        "needle": "info.nlink"
+      },
+      {
+        "file": "services/owner-file-service/index.ts",
+        "needle": "metadata.nlink"
+      },
+      {
+        "file": "packages/worktrees/archive.ts",
+        "needle": "stat.nlink"
+      }
+    ],
+    "sources": [
+      [
+        "apps/desktop/host/attachments.ts",
+        100
+      ],
+      [
+        "services/owner-file-service/index.ts",
+        76
+      ],
+      [
+        "packages/worktrees/archive.ts",
+        20
+      ]
+    ]
+  },
+  {
+    "id": "D020",
+    "tier": 2,
+    "title": "本机文件预览大小和列表截断",
+    "behavior": "只预览 1 MiB UTF-8 文本，目录只列 1000 项。",
+    "judgment": "建议分页和流式读取替代硬拒绝。",
+    "impact": "无上限一次加载会占用内存并卡 UI。",
+    "refs": [
+      {
+        "file": "apps/desktop/host/file-browser.ts",
+        "needle": "entries.length >= 1000"
+      }
+    ],
+    "sources": [
+      [
+        "apps/desktop/host/file-browser.ts",
+        23
+      ]
+    ]
+  },
+  {
+    "id": "D021",
+    "tier": 2,
+    "title": "文件搜索与插件定位预算",
+    "behavior": "目录、条目、耗时有界；插件候选最多 256、2 秒。",
+    "judgment": "建议可调预算与继续搜索；保留歧义选择。",
+    "impact": "去掉全部界限会使递归搜索或扩展长期挂起。",
+    "refs": [
+      {
+        "file": "apps/desktop/host/file-navigation.ts",
+        "needle": "2_000"
+      }
+    ],
+    "sources": [
+      [
+        "apps/desktop/host/file-navigation.ts",
+        41
+      ]
+    ]
+  },
+  {
+    "id": "D022",
+    "tier": 2,
+    "title": "附件数量和大小",
+    "behavior": "10 个、单个 20 MiB、总计 50 MiB；主进程和存储重复校验。",
+    "judgment": "建议可配置或按通道能力限制。",
+    "impact": "发送协议、内存和历史负担需同步评估。",
+    "refs": [
+      {
+        "file": "packages/attachments/types.ts",
+        "needle": "MAX_ATTACHMENT"
+      },
+      {
+        "file": "apps/desktop/host/main.ts",
+        "needle": "files.length>10"
+      }
+    ],
+    "sources": [
+      [
+        "packages/attachments/types.ts",
+        10
+      ],
+      [
+        "apps/desktop/host/main.ts",
+        239
+      ]
+    ]
+  },
+  {
+    "id": "D023",
+    "tier": 2,
+    "title": "图片像素及生成格式限制",
+    "behavior": "剪贴板复制最大四千万像素；生成图只接受限定大小 PNG。",
+    "judgment": "建议像素阈值可配置，格式限制需增加解码支持。",
+    "impact": "不能删格式校验后把 JPEG 当 PNG 保存。",
+    "refs": [
+      {
+        "file": "apps/desktop/host/main.ts",
+        "needle": "40000000"
+      },
+      {
+        "file": "apps/desktop/host/generated-images.ts",
+        "needle": "GENERATED_IMAGE_FORMAT_INVALID"
+      }
+    ],
+    "sources": [
+      [
+        "apps/desktop/host/main.ts",
+        121
+      ],
+      [
+        "apps/desktop/host/generated-images.ts",
+        32
+      ]
+    ]
+  },
+  {
+    "id": "D024",
+    "tier": 2,
+    "title": "API 本机工具读取限制",
+    "behavior": "文件服务在 API 路径最多 1,000,000 字节；分片读取最多 32000 字符；仅 UTF-8。",
+    "judgment": "建议支持流式和二进制工具，放宽固定值。",
+    "impact": "这是实际能力缺口，不仅一个判断。",
+    "refs": [
+      {
+        "file": "apps/desktop/host/api-local-tools.ts",
+        "needle": "maxBytes:1_000_000"
+      }
+    ],
+    "sources": [
+      [
+        "apps/desktop/host/api-local-tools.ts",
+        24
+      ]
+    ]
+  },
+  {
+    "id": "D025",
+    "tier": 2,
+    "title": "API 命令时长与输出限额",
+    "behavior": "命令最多 16000 字符、120 秒、输出 1,000,000 字节，超出会终止进程。",
+    "judgment": "建议改成可配置和输出落盘，不应因输出多杀任务。",
+    "impact": "保留用户停止及进程归属清理。",
+    "refs": [
+      {
+        "file": "apps/desktop/host/api-local-tools.ts",
+        "needle": "timer=setTimeout"
+      }
+    ],
+    "sources": [
+      [
+        "apps/desktop/host/api-local-tools.ts",
+        65
+      ]
+    ]
+  },
+  {
+    "id": "D026",
+    "tier": 2,
+    "title": "API 模型循环硬上限",
+    "behavior": "一个回合最多 64 次模型调用。",
+    "judgment": "建议用户预算或可继续状态替代固定中断。",
+    "impact": "完全无限循环可持续计费。",
+    "refs": [
+      {
+        "file": "apps/desktop/host/api-runner.ts",
+        "needle": "64 次模型调用"
+      }
+    ],
+    "sources": [
+      [
+        "apps/desktop/host/api-runner.ts",
+        146
+      ]
+    ]
+  },
+  {
+    "id": "D027",
+    "tier": 2,
+    "title": "上下文与摘要预算",
+    "behavior": "历史附件累计 100 MiB；摘要最多 16 请求；压缩后仍超预算拒绝。",
+    "judgment": "建议按真实模型窗口与用户预算配置。",
+    "impact": "取消预算不增加模型真实上下文能力。",
+    "refs": [
+      {
+        "file": "apps/desktop/host/api-runner.ts",
+        "needle": "100*1024*1024"
+      },
+      {
+        "file": "packages/model-api/provider.ts",
+        "needle": "摘要预算"
+      }
+    ],
+    "sources": [
+      [
+        "apps/desktop/host/api-runner.ts",
+        83
+      ],
+      [
+        "packages/model-api/provider.ts",
+        86
+      ]
+    ]
+  },
+  {
+    "id": "D028",
+    "tier": 2,
+    "title": "模型思考档位白名单与检测门槛",
+    "behavior": "档位格式、列表和确认状态限制；候选档位保存前必须检测并取得推理同意。",
+    "judgment": "建议区分手工透传与自动检测，取消手工值的额外猜测。",
+    "impact": "未知参数可能被上游拒绝；检测本身仍会产生费用。",
+    "refs": [
+      {
+        "file": "packages/model-api/config.ts",
+        "needle": "MODEL_MANUAL_EFFORTS_INVALID"
+      },
+      {
+        "file": "apps/desktop/host/model-connections.ts",
+        "needle": "自定义思考档位必须"
+      }
+    ],
+    "sources": [
+      [
+        "packages/model-api/config.ts",
+        39
+      ],
+      [
+        "apps/desktop/host/model-connections.ts",
+        78
+      ]
+    ]
+  },
+  {
+    "id": "D029",
+    "tier": 2,
+    "title": "翻译端点 URL 限制",
+    "behavior": "仅 HTTPS，明确 loopback 可 HTTP；禁 query/hash、用户信息和链路本地地址。",
+    "judgment": "建议把非凭据 URL 约束改为明确配置选项。",
+    "impact": "HTTP 会明文传输；地址内凭据应单独处理。",
+    "refs": [
+      {
+        "file": "packages/translation/config.ts",
+        "needle": "url.protocol"
+      }
+    ],
+    "sources": [
+      [
+        "packages/translation/config.ts",
+        17
+      ]
+    ]
+  },
+  {
+    "id": "D030",
+    "tier": 2,
+    "title": "翻译输出严格结束语义",
+    "behavior": "拒绝非完整终态、工具请求、空文本；分段 ID 必须完全一致。",
+    "judgment": "建议只放宽可展示的部分译文，不能自动提交不完整结果。",
+    "impact": "误用部分译文可能丢失指令。",
+    "refs": [
+      {
+        "file": "packages/translation/provider.ts",
+        "needle": "data.status!=='completed'"
+      }
+    ],
+    "sources": [
+      [
+        "packages/translation/provider.ts",
+        85
+      ]
+    ]
+  },
+  {
+    "id": "D031",
+    "tier": 2,
+    "title": "翻译容量、队列和响应上限",
+    "behavior": "用户字符/调用/超时预算；队列并发 2、等待 64；响应 2 MB；分段最多 512。",
+    "judgment": "用户设定预算保留；硬编码队列/响应阈值可配置。",
+    "impact": "改变排队、资源占用及费用。",
+    "refs": [
+      {
+        "file": "packages/translation/queue.ts",
+        "needle": "constructor"
+      },
+      {
+        "file": "packages/translation/provider.ts",
+        "needle": "2_000_000"
+      }
+    ],
+    "sources": [
+      [
+        "packages/translation/queue.ts",
+        5
+      ],
+      [
+        "packages/translation/provider.ts",
+        40
+      ]
+    ]
+  },
+  {
+    "id": "D032",
+    "tier": 2,
+    "title": "原生流帧和网关大小上限",
+    "behavior": "本地网关请求 32 MiB、API 流 32 MB；远端普通帧 8 MiB、原生帧 48 MiB。",
+    "judgment": "建议按工具负载调整并支持流式大结果。",
+    "impact": "移除所有限制会允许持续内存增长。",
+    "refs": [
+      {
+        "file": "packages/model-api/native-gateway.ts",
+        "needle": "32 * 1024"
+      },
+      {
+        "file": "packages/model-api/provider.ts",
+        "needle": "32_000_000"
+      },
+      {
+        "file": "services/vps-account-broker/runtime.py",
+        "needle": "MAX_FRAME"
+      }
+    ],
+    "sources": [
+      [
+        "packages/model-api/native-gateway.ts",
+        36
+      ],
+      [
+        "packages/model-api/provider.ts",
+        229
+      ],
+      [
+        "services/vps-account-broker/runtime.py",
+        22
+      ]
+    ]
+  },
+  {
+    "id": "D033",
+    "tier": 2,
+    "title": "Claude 本机工具白名单",
+    "behavior": "仅公开 Read/Write/Edit/Glob/Grep/Bash 等固定工具，不允许 sampling/auth。",
+    "judgment": "建议目录自动发现实际工具；模型调用能力保持显式授权。",
+    "impact": "扩展工具面；不能把本机工具宿主变成隐式模型执行器。",
+    "refs": [
+      {
+        "file": "services/claude-bridge/tools.ts",
+        "needle": "LOCAL_CLAUDE_TOOLS"
+      }
+    ],
+    "sources": [
+      [
+        "services/claude-bridge/tools.ts",
+        11
+      ]
+    ]
+  },
+  {
+    "id": "D034",
+    "tier": 2,
+    "title": "Claude 工具预算",
+    "behavior": "帧 16 MiB、结果 8 MiB、内联 1 MiB、缓存 256 MiB、32 页/512 工具、并发 4。",
+    "judgment": "建议配置和分页落盘替代固定失败。",
+    "impact": "协议体积和内存负担增加。",
+    "refs": [
+      {
+        "file": "services/claude-bridge/policy.ts",
+        "needle": "frameBytes:16"
+      }
+    ],
+    "sources": [
+      [
+        "services/claude-bridge/policy.ts",
+        7
+      ]
+    ]
+  },
+  {
+    "id": "D035",
+    "tier": 2,
+    "title": "Claude 异步命令预算",
+    "behavior": "最多 128 记录、同时 4 项、最长 600000 ms，单次等待 30000 ms。",
+    "judgment": "建议按用户设置，保留 requestId 去重。",
+    "impact": "无限任务会消耗进程资源。",
+    "refs": [
+      {
+        "file": "services/claude-bridge/local-tasks.ts",
+        "needle": "LOCAL_TASK_LIMIT"
+      }
+    ],
+    "sources": [
+      [
+        "services/claude-bridge/local-tasks.ts",
+        54
+      ]
+    ]
+  },
+  {
+    "id": "D036",
+    "tier": 2,
+    "title": "技能语法不支持即拒绝",
+    "behavior": "hooks/isolation/background、部分变量、shell、动态语法、inline model 等被拒绝。",
+    "judgment": "建议补适配或交给原生执行；不应简单删判断。",
+    "impact": "直接放行会忽略技能要求，行为错误。",
+    "refs": [
+      {
+        "file": "services/claude-bridge/local-context.ts",
+        "needle": "LOCAL_SKILL_NATIVE_LIFECYCLE_UNSUPPORTED"
+      }
+    ],
+    "sources": [
+      [
+        "services/claude-bridge/local-context.ts",
+        130
+      ]
+    ]
+  },
+  {
+    "id": "D037",
+    "tier": 2,
+    "title": "技能目录和文本扫描限额",
+    "behavior": "原生技能扫描深度 8、5000 目录；SKILL.md 256 KiB；本机上下文另有扫描预算。",
+    "judgment": "建议分页和可调预算。",
+    "impact": "大技能库可能拖慢扫描。",
+    "refs": [
+      {
+        "file": "packages/native-skills/index.ts",
+        "needle": "depth > 8"
+      },
+      {
+        "file": "services/claude-bridge/local-context.ts",
+        "needle": "visits>2048"
+      }
+    ],
+    "sources": [
+      [
+        "packages/native-skills/index.ts",
+        93
+      ],
+      [
+        "services/claude-bridge/local-context.ts",
+        41
+      ]
+    ]
+  },
+  {
+    "id": "D038",
+    "tier": 2,
+    "title": "ZIP 容量及格式限制",
+    "behavior": "64 MiB、4096 项；不支持 ZIP64、分卷、加密和链接资源。",
+    "judgment": "建议扩展常见格式与大包，路径穿越和 CRC 校验独立保留。",
+    "impact": "需换用支持相应格式的解析实现。",
+    "refs": [
+      {
+        "file": "packages/native-resources/archive.ts",
+        "needle": "const LIMIT"
+      }
+    ],
+    "sources": [
+      [
+        "packages/native-resources/archive.ts",
+        8
+      ]
+    ]
+  },
+  {
+    "id": "D039",
+    "tier": 2,
+    "title": "资源链接一律禁改禁导出",
+    "behavior": "noLinks 对路径祖先、符号链接和硬链接拒绝。",
+    "judgment": "建议按操作区分只读导出与有副作用写入。",
+    "impact": "导出可能引入链接指向内容；写入应保留目标校验。",
+    "refs": [
+      {
+        "file": "packages/native-resources/files.ts",
+        "needle": "Linked resources"
+      }
+    ],
+    "sources": [
+      [
+        "packages/native-resources/files.ts",
+        19
+      ]
+    ]
+  },
+  {
+    "id": "D040",
+    "tier": 2,
+    "title": "插件容量上限",
+    "behavior": "renderer 2 MiB、资源 4 MiB、context 单个 24000/总 64000 字符、存储 1 MiB。",
+    "judgment": "建议可配置，不应以小固定值限制已批准插件。",
+    "impact": "资源成本和上下文占用增长。",
+    "refs": [
+      {
+        "file": "packages/plugins-core/index.ts",
+        "needle": "Combined plugin context"
+      },
+      {
+        "file": "packages/plugins-core/storage.ts",
+        "needle": "MAX_BYTES"
+      }
+    ],
+    "sources": [
+      [
+        "packages/plugins-core/index.ts",
+        213
+      ],
+      [
+        "packages/plugins-core/storage.ts",
+        6
+      ]
+    ]
+  },
+  {
+    "id": "D041",
+    "tier": 2,
+    "title": "插件激活和清理超时",
+    "behavior": "默认激活 10 秒、清理 1 秒，失败进入恢复记录。",
+    "judgment": "建议按插件声明/配置，超时与故障隔离分开。",
+    "impact": "过短误杀，完全取消则可能卡住启停。",
+    "refs": [
+      {
+        "file": "packages/plugins-core/index.ts",
+        "needle": "activationTimeoutMs"
+      }
+    ],
+    "sources": [
+      [
+        "packages/plugins-core/index.ts",
+        48
+      ]
+    ]
+  },
+  {
+    "id": "D042",
+    "tier": 2,
+    "title": "插件守护不可用即安全模式",
+    "behavior": "恢复守护启动失败、恢复状态错误等会全局禁用插件。",
+    "judgment": "建议优先局部隔离并允许明确继续；兜底恢复本身有用。",
+    "impact": "继续可能再次导致插件启动挂起。",
+    "refs": [
+      {
+        "file": "apps/desktop/host/main.ts",
+        "needle": "PLUGIN_GUARDIAN_UNAVAILABLE"
+      },
+      {
+        "file": "packages/plugins-core/recovery.ts",
+        "needle": "safeMode=true"
+      }
+    ],
+    "sources": [
+      [
+        "apps/desktop/host/main.ts",
+        72
+      ],
+      [
+        "packages/plugins-core/recovery.ts",
+        52
+      ]
+    ]
+  },
+  {
+    "id": "D043",
+    "tier": 2,
+    "title": "HTML 预览禁网络和越目录资源",
+    "behavior": "CSP 禁 connect/frame/form；资源仅同根、扩展名白名单；iframe sandbox。",
+    "judgment": "建议用户授权网络/资源范围，默认隔离保留。",
+    "impact": "模型 HTML 可主动访问网络或其它内容。",
+    "refs": [
+      {
+        "file": "apps/desktop/host/html-preview.ts",
+        "needle": "const policy"
+      },
+      {
+        "file": "apps/desktop/renderer/InlineVisualization.tsx",
+        "needle": "sandbox"
+      }
+    ],
+    "sources": [
+      [
+        "apps/desktop/host/html-preview.ts",
+        9
+      ],
+      [
+        "apps/desktop/renderer/InlineVisualization.tsx",
+        67
+      ]
+    ]
+  },
+  {
+    "id": "D044",
+    "tier": 2,
+    "title": "HTML 页面与状态限额",
+    "behavior": "HTML 1 MiB、资产单个 5/累计 20 MiB、普通页 24/内联页 128；状态 16 KiB、渲染 10 秒。",
+    "judgment": "建议可调与资源缓存，尤其累计字节按请求计数会重复计费。",
+    "impact": "取消全部限额可能耗尽内存。",
+    "refs": [
+      {
+        "file": "apps/desktop/host/html-preview.ts",
+        "needle": "page.bytes"
+      },
+      {
+        "file": "packages/visualizations/index.ts",
+        "needle": "16384"
+      }
+    ],
+    "sources": [
+      [
+        "apps/desktop/host/html-preview.ts",
+        45
+      ],
+      [
+        "packages/visualizations/index.ts",
+        52
+      ]
+    ]
+  },
+  {
+    "id": "D045",
+    "tier": 2,
+    "title": "外部链接和登录网址限制",
+    "behavior": "普通链接仅 HTTP(S)；账号打开仅官方登录 URL；禁止新窗口导航。",
+    "judgment": "普通协议建议按用户动作开放，登录来源验证保留。",
+    "impact": "自定义协议会唤起本机程序。",
+    "refs": [
+      {
+        "file": "apps/desktop/host/main.ts",
+        "needle": "openWeb:"
+      },
+      {
+        "file": "apps/desktop/host/main.ts",
+        "needle": "LOCAL_ACCOUNT_BROWSER_URL_REJECTED"
+      }
+    ],
+    "sources": [
+      [
+        "apps/desktop/host/main.ts",
+        137
+      ],
+      [
+        "apps/desktop/host/main.ts",
+        145
+      ]
+    ]
+  },
+  {
+    "id": "D046",
+    "tier": 2,
+    "title": "SSH 不继承配置与代理",
+    "behavior": "使用空配置，禁 ProxyJump/ProxyCommand/Agent、密码、交互认证、连接复用及环境。",
+    "judgment": "建议显式支持用户选用现有 SSH 配置，避免强制覆盖。",
+    "impact": "连接路由和身份可能随用户配置变化，需展示实际解析结果。",
+    "refs": [
+      {
+        "file": "packages/ssh-transport/index.ts",
+        "needle": "buildSshArgs"
+      },
+      {
+        "file": "packages/ssh-transport/index.ts",
+        "needle": "buildSshEnvironment"
+      }
+    ],
+    "sources": [
+      [
+        "packages/ssh-transport/index.ts",
+        38
+      ],
+      [
+        "packages/ssh-transport/index.ts",
+        17
+      ]
+    ]
+  },
+  {
+    "id": "D047",
+    "tier": 2,
+    "title": "API 命令精简环境及无 profile",
+    "behavior": "本机 API 命令复用 SSH 环境白名单，PowerShell -NoProfile。",
+    "judgment": "建议可选择真实本机环境，保护凭据注入边界。",
+    "impact": "工具可能读取继承的环境变量；缺失环境也会造成误失败。",
+    "refs": [
+      {
+        "file": "apps/desktop/host/api-local-tools.ts",
+        "needle": "env:buildSshEnvironment"
+      }
+    ],
+    "sources": [
+      [
+        "apps/desktop/host/api-local-tools.ts",
+        56
+      ]
+    ]
+  },
+  {
+    "id": "D048",
+    "tier": 2,
+    "title": "SSH 请求时间输出预算",
+    "behavior": "默认 30 秒/1 MiB；最多 24 小时/64 MiB，超限杀 SSH 进程。",
+    "judgment": "建议流式结果与按操作配置。",
+    "impact": "本机 SSH 结束不等于远端副作用未发生。",
+    "refs": [
+      {
+        "file": "packages/ssh-transport/index.ts",
+        "needle": "const timeoutMs"
+      }
+    ],
+    "sources": [
+      [
+        "packages/ssh-transport/index.ts",
+        63
+      ]
+    ]
+  },
+  {
+    "id": "D049",
+    "tier": 2,
+    "title": "固定 Codex 执行器版本",
+    "behavior": "旧 deferred bridge 固定 0.155.1；新版本直接拒绝。",
+    "judgment": "建议能力协商替代补丁版本锁；不能未经适配宣称兼容。",
+    "impact": "仅影响该旧桥，不等于所有 Codex 路径都锁版。",
+    "refs": [
+      {
+        "file": "packages/runtime-codex/index.ts",
+        "needle": "Deferred executor is pinned"
+      },
+      {
+        "file": "services/local-executor/index.ts",
+        "needle": "config.version"
+      }
+    ],
+    "sources": [
+      [
+        "packages/runtime-codex/index.ts",
+        235
+      ],
+      [
+        "services/local-executor/index.ts",
+        15
+      ]
+    ]
+  },
+  {
+    "id": "D050",
+    "tier": 2,
+    "title": "协作队列与待发送上限",
+    "behavior": "peer 总 10000、目标待收 256、分页 100；follow-up 队列 100，等待 60 秒。",
+    "judgment": "建议分页清理和可配容量。",
+    "impact": "去掉幂等/owner 验证不是本项。",
+    "refs": [
+      {
+        "file": "packages/collaboration-core/inbox.ts",
+        "needle": "INBOX_FULL"
+      },
+      {
+        "file": "apps/desktop/host/follow-ups.ts",
+        "needle": "FOLLOW_UP_QUEUE_FULL"
+      }
+    ],
+    "sources": [
+      [
+        "packages/collaboration-core/inbox.ts",
+        48
+      ],
+      [
+        "apps/desktop/host/follow-ups.ts",
+        27
+      ]
+    ]
+  },
+  {
+    "id": "D051",
+    "tier": 2,
+    "title": "账号与登录任务固定容量",
+    "behavior": "本机账号 100、登录任务 200、导入最多 100；格式长度上限。",
+    "judgment": "建议配置并清理终态任务。",
+    "impact": "必须保留账号类型/身份校验。",
+    "refs": [
+      {
+        "file": "apps/desktop/host/local-model-accounts.ts",
+        "needle": "LOCAL_ACCOUNT_LIMIT"
+      },
+      {
+        "file": "apps/desktop/host/local-model-accounts.ts",
+        "needle": "LOCAL_ACCOUNT_LOGIN_LIMIT"
+      }
+    ],
+    "sources": [
+      [
+        "apps/desktop/host/local-model-accounts.ts",
+        69
+      ],
+      [
+        "apps/desktop/host/local-model-accounts.ts",
+        173
+      ]
+    ]
+  },
+  {
+    "id": "D052",
+    "tier": 2,
+    "title": "邀请有效期固定五档",
+    "behavior": "只接受 1h/6h/12h/1day/7day。",
+    "judgment": "建议允许自定义有效期；过期失效本身保留。",
+    "impact": "改变授权暴露时长。",
+    "refs": [
+      {
+        "file": "packages/workspace-control/export-policy.ts",
+        "needle": "workspaceExportDurations"
+      }
+    ],
+    "sources": [
+      [
+        "packages/workspace-control/export-policy.ts",
+        2
+      ]
+    ]
+  },
+  {
+    "id": "D053",
+    "tier": 2,
+    "title": "远端文件特殊根与链接拒绝",
+    "behavior": "管理员文件入口拒绝 proc/sys/dev/run，不跟随祖先符号链接。",
+    "judgment": "普通链接建议可解析；虚拟设备根需要明确专用读法。",
+    "impact": "虚拟文件可能无界阻塞或触发系统行为。",
+    "refs": [
+      {
+        "file": "services/vps-account-broker/remote_files.py",
+        "needle": "result[0] not in"
+      }
+    ],
+    "sources": [
+      [
+        "services/vps-account-broker/remote_files.py",
+        26
+      ]
+    ]
+  },
+  {
+    "id": "D054",
+    "tier": 2,
+    "title": "远端文件操作容量",
+    "behavior": "上传下载等 LIMIT 32 MiB；目录 1000 项；路径/文本限额。",
+    "judgment": "建议分页与分块传输。",
+    "impact": "不等于放宽管理员身份要求。",
+    "refs": [
+      {
+        "file": "services/vps-account-broker/remote_files.py",
+        "needle": "LIMIT ="
+      }
+    ],
+    "sources": [
+      [
+        "services/vps-account-broker/remote_files.py",
+        13
+      ]
+    ]
+  },
+  {
+    "id": "D055",
+    "tier": 2,
+    "title": "远端低内存新任务拦截",
+    "behavior": "启用 autoMemory 后内存压力阻止准入，并回收符合条件的闲置进程。",
+    "judgment": "建议告警和用户可调策略，避免固定压力值替用户决定。",
+    "impact": "可能遭 OS OOM；仅源码审计未检查实际启用状态。",
+    "refs": [
+      {
+        "file": "services/vps-account-broker/runtime_maintenance.py",
+        "needle": "def admit"
+      },
+      {
+        "file": "services/vps-account-broker/resources.py",
+        "needle": "def pressure"
+      }
+    ],
+    "sources": [
+      [
+        "services/vps-account-broker/runtime_maintenance.py",
+        202
+      ],
+      [
+        "services/vps-account-broker/resources.py",
+        96
+      ]
+    ]
+  },
+  {
+    "id": "D056",
+    "tier": 2,
+    "title": "远端磁盘余量拦截",
+    "behavior": "磁盘 headroom 不满足时拒绝任务、归档或恢复。",
+    "judgment": "建议可配阈值；保留无法可靠持久化时的明确失败。",
+    "impact": "磁盘耗尽可能使回执无法写入。",
+    "refs": [
+      {
+        "file": "services/vps-account-broker/runtime_maintenance.py",
+        "needle": "disk_headroom"
+      },
+      {
+        "file": "services/vps-account-broker/resources.py",
+        "needle": "def disk_headroom"
+      }
+    ],
+    "sources": [
+      [
+        "services/vps-account-broker/runtime_maintenance.py",
+        207
+      ],
+      [
+        "services/vps-account-broker/resources.py",
+        102
+      ]
+    ]
+  },
+  {
+    "id": "D057",
+    "tier": 2,
+    "title": "后台记忆容量与超时",
+    "behavior": "扫描 1500 项/32 MiB/深度7；后台 10/30 分钟，分批和核验次数有界。",
+    "judgment": "建议可配预算；保留已核验进度才继续。",
+    "impact": "可能增加后台费用或耗时。",
+    "refs": [
+      {
+        "file": "packages/native-memory/sources.ts",
+        "needle": "32 * 1024"
+      },
+      {
+        "file": "packages/native-memory/background.ts",
+        "needle": "MEMORY_BACKGROUND_TIMEOUT"
+      }
+    ],
+    "sources": [
+      [
+        "packages/native-memory/sources.ts",
+        39
+      ],
+      [
+        "packages/native-memory/background.ts",
+        173
+      ]
+    ]
+  },
+  {
+    "id": "D058",
+    "tier": 2,
+    "title": "链接记忆不参与同步",
+    "behavior": "扫描遇到符号链接记忆直接拒绝。",
+    "judgment": "建议按真实路径去重后只读采集，写入保护另行保留。",
+    "impact": "需防循环和跨来源重复采集。",
+    "refs": [
+      {
+        "file": "packages/native-memory/sources.ts",
+        "needle": "Linked native memories"
+      }
+    ],
+    "sources": [
+      [
+        "packages/native-memory/sources.ts",
+        49
+      ]
+    ]
+  },
+  {
+    "id": "D059",
+    "tier": 2,
+    "title": "记忆格式/英语与标记要求",
+    "behavior": "收件契约限制批次格式、标题/正文与受管标记，未知原生格式不写。",
+    "judgment": "格式一致性保留；语言检测和大小上限可单独放宽。",
+    "impact": "删校验可能无法被原生记忆正确读取。",
+    "refs": [
+      {
+        "file": "packages/native-memory/consolidation.ts",
+        "needle": "MEMORY_CONSOLIDATION_ARGUMENT_INVALID"
+      },
+      {
+        "file": "packages/native-memory/protocol.ts",
+        "needle": "Nested"
+      }
+    ],
+    "sources": [
+      [
+        "packages/native-memory/consolidation.ts",
+        25
+      ],
+      [
+        "packages/native-memory/protocol.ts",
+        21
+      ]
+    ]
+  },
+  {
+    "id": "D060",
+    "tier": 2,
+    "title": "工作树快照和归档容量",
+    "behavior": "未跟踪单文件32 MiB/总128 MiB/10000项；归档256 MiB/30000项。",
+    "judgment": "建议按磁盘能力流式归档、配置容量。",
+    "impact": "大二进制项目目前容易被拒绝。",
+    "refs": [
+      {
+        "file": "packages/worktrees/index.ts",
+        "needle": "WORKTREE_UNSUPPORTED_UNTRACKED_FILE"
+      },
+      {
+        "file": "packages/worktrees/archive.ts",
+        "needle": "const maxBytes"
+      }
+    ],
+    "sources": [
+      [
+        "packages/worktrees/index.ts",
+        98
+      ],
+      [
+        "packages/worktrees/archive.ts",
+        9
+      ]
+    ]
+  },
+  {
+    "id": "D061",
+    "tier": 2,
+    "title": "工作树复杂索引/链接不支持",
+    "behavior": "子模块、未合并索引、特殊索引标志、链接等会拒绝归档。",
+    "judgment": "建议补真实可恢复支持，不能删判断假装已备份。",
+    "impact": "否则归档恢复可能丢状态。",
+    "refs": [
+      {
+        "file": "packages/worktrees/index.ts",
+        "needle": "WORKTREE_ARCHIVE_UNSUPPORTED_INDEX"
+      }
+    ],
+    "sources": [
+      [
+        "packages/worktrees/index.ts",
+        146
+      ]
+    ]
+  },
+  {
+    "id": "D062",
+    "tier": 2,
+    "title": "数据迁移路径形态限制",
+    "behavior": "禁止已有目标、重叠根、链接祖先、部分仓库布置；Windows 限盘符路径。",
+    "judgment": "允许空目标或普通链接需独立实现；重叠根禁用有必要。",
+    "impact": "直接删除判断可能递归拷贝或覆盖数据。",
+    "refs": [
+      {
+        "file": "packages/app-data/relocation.ts",
+        "needle": "APP_DATA_PATH_INVALID"
+      }
+    ],
+    "sources": [
+      [
+        "packages/app-data/relocation.ts",
+        35
+      ]
+    ]
+  },
+  {
+    "id": "D063",
+    "tier": 2,
+    "title": "远端浏览器环境与单实例限制",
+    "behavior": "要求固定 root 管理入口、已有组件、隔离身份；端口占用不替换；共享 profile 忙则拒绝。",
+    "judgment": "环境兼容性可扩展；忙时不可强占同一 profile。",
+    "impact": "需要支持多端口/实例而非杀掉占用进程。",
+    "refs": [
+      {
+        "file": "services/vps-browser/remote_browser.py",
+        "needle": "BROWSER_PROFILE_SHARED_BUSY"
+      },
+      {
+        "file": "services/vps-browser/configure_browser_root.py",
+        "needle": "requires root"
+      }
+    ],
+    "sources": [
+      [
+        "services/vps-browser/remote_browser.py",
+        179
+      ],
+      [
+        "services/vps-browser/configure_browser_root.py",
+        37
+      ]
+    ]
+  },
+  {
+    "id": "D064",
+    "tier": 2,
+    "title": "远端保留期与日志容量",
+    "behavior": "闲置策略 1–8760 小时；日志最多2000条/30天/4 MiB；归档条目和容量有限。",
+    "judgment": "建议用户可配保留期和日志容量。",
+    "impact": "改变存储与审计历史；不删除归档校验。",
+    "refs": [
+      {
+        "file": "packages/remote-account-catalog/retention-types.ts",
+        "needle": "RETENTION_MIN_HOURS"
+      },
+      {
+        "file": "packages/remote-account-catalog/retention-journal.ts",
+        "needle": "MAX_ENTRIES"
+      }
+    ],
+    "sources": [
+      [
+        "packages/remote-account-catalog/retention-types.ts",
+        3
+      ],
+      [
+        "packages/remote-account-catalog/retention-journal.ts",
+        7
+      ]
+    ]
+  },
+  {
+    "id": "D065",
+    "tier": 2,
+    "title": "UI 偏好存储容量",
+    "behavior": "4 MiB/5000 key，值类型、版本与作用域校验。",
+    "judgment": "容量可配置；类型和并发修订保留。",
+    "impact": "无限私有 UI 状态会膨胀用户配置。",
+    "refs": [
+      {
+        "file": "packages/ui-preferences/store.ts",
+        "needle": "UI_PREFERENCE_LIMIT"
+      }
+    ],
+    "sources": [
+      [
+        "packages/ui-preferences/store.ts",
+        44
+      ]
+    ]
+  },
+  {
+    "id": "D066",
+    "tier": 3,
+    "title": "翻译外发同意",
+    "behavior": "没有 consent 不调用独立翻译服务。",
+    "judgment": "建议保留一次明确设置，避免重复弹窗。",
+    "impact": "移除会在用户未选择时向第三方发送文本。",
+    "refs": [
+      {
+        "file": "packages/translation/provider.ts",
+        "needle": "profile.consent"
+      }
+    ],
+    "sources": [
+      [
+        "packages/translation/provider.ts",
+        127
+      ]
+    ]
+  },
+  {
+    "id": "D067",
+    "tier": 3,
+    "title": "登录凭据不得当 API key",
+    "behavior": "识别 Claude 登录 token/Cookie/认证文件和网页端点并拒绝独立 API 使用。",
+    "judgment": "建议保留真实凭据类型边界；误判应精确修复。",
+    "impact": "避免将登录身份发送给不匹配端点。",
+    "refs": [
+      {
+        "file": "packages/translation/credentials.ts",
+        "needle": "assertIndependentTranslationKey"
+      }
+    ],
+    "sources": [
+      [
+        "packages/translation/credentials.ts",
+        2
+      ]
+    ]
+  },
+  {
+    "id": "D068",
+    "tier": 3,
+    "title": "插件完整包批准和哈希",
+    "behavior": "执行插件代码前要求对当前包批准，包变化重新核验。",
+    "judgment": "建议保留，这是代码执行授权。",
+    "impact": "移除后导入或替换包可无确认执行本机代码。",
+    "refs": [
+      {
+        "file": "packages/plugins-core/index.ts",
+        "needle": "Explicit approval"
+      }
+    ],
+    "sources": [
+      [
+        "packages/plugins-core/index.ts",
+        149
+      ]
+    ]
+  },
+  {
+    "id": "D069",
+    "tier": 3,
+    "title": "插件命名空间/兼容/释放",
+    "behavior": "重复注册、非法服务成员、能力声明、失效 handle、next 多次调用被拒绝。",
+    "judgment": "建议保留所有权与生命周期；纯版本限制可适配。",
+    "impact": "移除会产生冲突、残留覆盖或重复副作用。",
+    "refs": [
+      {
+        "file": "packages/plugins-core/services.ts",
+        "needle": "Invalid service member"
+      },
+      {
+        "file": "packages/plugins-core/index.ts",
+        "needle": "middleware may invoke next"
+      }
+    ],
+    "sources": [
+      [
+        "packages/plugins-core/services.ts",
+        46
+      ],
+      [
+        "packages/plugins-core/index.ts",
+        230
+      ]
+    ]
+  },
+  {
+    "id": "D070",
+    "tier": 3,
+    "title": "插件故障隔离和独立恢复入口",
+    "behavior": "异常启停记录、独立守护、恢复草稿及安全模式恢复。",
+    "judgment": "建议保留恢复能力，自动全局停用策略由 D040 单独审批。",
+    "impact": "失去后故障插件可让工作台无法启动。",
+    "refs": [
+      {
+        "file": "packages/plugins-core/recovery.ts",
+        "needle": "begin("
+      },
+      {
+        "file": "apps/desktop/host/plugin-recovery-guardian.ts",
+        "needle": "export"
+      }
+    ],
+    "sources": [
+      [
+        "packages/plugins-core/recovery.ts",
+        78
+      ],
+      [
+        "apps/desktop/host/plugin-recovery-guardian.ts",
+        13
+      ]
+    ]
+  },
+  {
+    "id": "D071",
+    "tier": 3,
+    "title": "破坏性动作二次确认",
+    "behavior": "永久删除聊天、卸载CLI、删除远端空间/profile、账号退出/重置卡兑换需要确认。",
+    "judgment": "建议保留；可逆记录移除已另列。",
+    "impact": "误点可丢记录、停止共享使用或消费额度。",
+    "refs": [
+      {
+        "file": "apps/desktop/host/controller.ts",
+        "needle": "请确认永久删除"
+      },
+      {
+        "file": "apps/desktop/host/local-model-accounts.ts",
+        "needle": "LOCAL_ACCOUNT_CONFIRM_REQUIRED"
+      },
+      {
+        "file": "services/vps-workspace-control/destruction.py",
+        "needle": "DELETION_PLAN_REQUIRED"
+      }
+    ],
+    "sources": [
+      [
+        "apps/desktop/host/controller.ts",
+        927
+      ],
+      [
+        "apps/desktop/host/local-model-accounts.ts",
+        163
+      ],
+      [
+        "services/vps-workspace-control/destruction.py",
+        125
+      ]
+    ]
+  },
+  {
+    "id": "D072",
+    "tier": 3,
+    "title": "维护与任务准入互斥",
+    "behavior": "运行中、预览待提交或结果未知时不更新CLI/桌面、不搬数据、不删除绑定。",
+    "judgment": "建议保留活动资源互斥；不同资源可缩小锁范围。",
+    "impact": "中途替换程序或身份可能破坏任务和回执。",
+    "refs": [
+      {
+        "file": "packages/native-runtime/cli.ts",
+        "needle": "CLI_TASKS_ACTIVE"
+      },
+      {
+        "file": "packages/desktop-updates/index.ts",
+        "needle": "DESKTOP_UPDATE_SESSION_BUSY"
+      },
+      {
+        "file": "packages/app-data/service.ts",
+        "needle": "APP_DATA_TASKS_ACTIVE"
+      }
+    ],
+    "sources": [
+      [
+        "packages/native-runtime/cli.ts",
+        169
+      ],
+      [
+        "packages/desktop-updates/index.ts",
+        69
+      ],
+      [
+        "packages/app-data/service.ts",
+        33
+      ]
+    ]
+  },
+  {
+    "id": "D073",
+    "tier": 3,
+    "title": "安装卸载身份/渠道核验",
+    "behavior": "官方原生与 npm 渠道不混用；版本、路径、链接和受管身份核验，不删除配置。",
+    "judgment": "建议保留，扩展渠道通过明确适配。",
+    "impact": "误删其它安装或用户资料。",
+    "refs": [
+      {
+        "file": "packages/native-runtime/native-install.ts",
+        "needle": "CLI_UNINSTALL_UNSUPPORTED"
+      },
+      {
+        "file": "services/vps-account-broker/native_install.py",
+        "needle": "def"
+      }
+    ],
+    "sources": [
+      [
+        "packages/native-runtime/native-install.ts",
+        16
+      ],
+      [
+        "services/vps-account-broker/native_install.py",
+        30
+      ]
+    ]
+  },
+  {
+    "id": "D074",
+    "tier": 3,
+    "title": "未知结果人工恢复",
+    "behavior": "uncertain 阻止新发送，明确核对后恢复；不把历史未知改成成功。",
+    "judgment": "建议保留结果语义；恢复交互可简化。",
+    "impact": "盲目恢复/重试可能重复执行。",
+    "refs": [
+      {
+        "file": "apps/desktop/host/controller.ts",
+        "needle": "SESSION_RECOVERY_CONFIRM_REQUIRED"
+      },
+      {
+        "file": "packages/session-core/recovery.ts",
+        "needle": "export"
+      }
+    ],
+    "sources": [
+      [
+        "apps/desktop/host/controller.ts",
+        355
+      ],
+      [
+        "packages/session-core/recovery.ts",
+        1
+      ]
+    ]
+  },
+  {
+    "id": "D075",
+    "tier": 3,
+    "title": "部分协议结果不执行工具",
+    "behavior": "结束回执、工具参数顺序/完整性不满足时中止，不执行半截参数。",
+    "judgment": "建议保留；兼容新事件需适配而非忽略。",
+    "impact": "可能执行错误或重复工具调用。",
+    "refs": [
+      {
+        "file": "packages/model-api/provider.ts",
+        "needle": "NATIVE_STREAM_TOOL_ORDER"
+      },
+      {
+        "file": "packages/model-api/native-completion.ts",
+        "needle": "export"
+      }
+    ],
+    "sources": [
+      [
+        "packages/model-api/provider.ts",
+        189
+      ],
+      [
+        "packages/model-api/native-completion.ts",
+        7
+      ]
+    ]
+  },
+  {
+    "id": "D076",
+    "tier": 3,
+    "title": "外层失败不自动续投",
+    "behavior": "Claude 终态失败、API断流、未知清理等不自动重发、不换账号。",
+    "judgment": "建议保留防重复收费/执行；用户手动重试可用。",
+    "impact": "删除会重新发送已被上游处理的任务。",
+    "refs": [
+      {
+        "file": "apps/desktop/host/api-runner.ts",
+        "needle": "不能自动重放"
+      },
+      {
+        "file": "packages/runtime-claude/retry.ts",
+        "needle": "workbench has not added"
+      }
+    ],
+    "sources": [
+      [
+        "apps/desktop/host/api-runner.ts",
+        138
+      ],
+      [
+        "packages/runtime-claude/retry.ts",
+        18
+      ]
+    ]
+  },
+  {
+    "id": "D077",
+    "tier": 3,
+    "title": "账号限流认证账单阻断",
+    "behavior": "远端共享账号状态阻止准入，核对回执后解除，不静默换号。",
+    "judgment": "建议保留身份与可用性阻断，误报须修状态。",
+    "impact": "取消后会持续撞认证/计费/限流失败。",
+    "refs": [
+      {
+        "file": "services/vps-account-broker/runtime.py",
+        "needle": "ACCOUNT_RATE_LIMITED"
+      }
+    ],
+    "sources": [
+      [
+        "services/vps-account-broker/runtime.py",
+        1074
+      ]
+    ]
+  },
+  {
+    "id": "D078",
+    "tier": 3,
+    "title": "真实本机与远端来源区分",
+    "behavior": "远端图路径不能当本机路径；仅已核实 local-device MCP 路径例外。",
+    "judgment": "建议保留来源证明，补远端传输而非映射错设备。",
+    "impact": "同名路径可能显示错误内容。",
+    "refs": [
+      {
+        "file": "apps/desktop/host/activity-images.ts",
+        "needle": "localMcp"
+      }
+    ],
+    "sources": [
+      [
+        "apps/desktop/host/activity-images.ts",
+        21
+      ]
+    ]
+  },
+  {
+    "id": "D079",
+    "tier": 3,
+    "title": "浏览器与 IPC 隔离",
+    "behavior": "sandbox/contextIsolation、无 renderer Node；IPC 只接受主窗口主 frame 和指定 URL。",
+    "judgment": "建议保留，这是 renderer 到本机权限边界。",
+    "impact": "页面内容可能直接获得主进程能力。",
+    "refs": [
+      {
+        "file": "apps/desktop/host/main.ts",
+        "needle": "contextIsolation"
+      },
+      {
+        "file": "apps/desktop/host/main.ts",
+        "needle": "IPC 来源"
+      }
+    ],
+    "sources": [
+      [
+        "apps/desktop/host/main.ts",
+        79
+      ],
+      [
+        "apps/desktop/host/main.ts",
+        234
+      ]
+    ]
+  },
+  {
+    "id": "D080",
+    "tier": 3,
+    "title": "本地网关认证及方法路由",
+    "behavior": "网关 token、session 生命周期、指定模型路由；MCP-only 不提供模型凭据。",
+    "judgment": "建议保留；请求大小单列。",
+    "impact": "本机其它进程/页面可能调用模型或工具。",
+    "refs": [
+      {
+        "file": "packages/model-api/native-gateway.ts",
+        "needle": "authorize"
+      },
+      {
+        "file": "services/claude-bridge/index.ts",
+        "needle": "LOCAL_MODEL_NETWORKING_FORBIDDEN"
+      }
+    ],
+    "sources": [
+      [
+        "packages/model-api/native-gateway.ts",
+        20
+      ],
+      [
+        "services/claude-bridge/index.ts",
+        97
+      ]
+    ]
+  },
+  {
+    "id": "D081",
+    "tier": 3,
+    "title": "文件真实 owner 与 grant",
+    "behavior": "OS owner/ACL、owner/device/generation、过期/撤销和读写授权校验。",
+    "judgment": "建议保留，符合你已明确的权限范围。",
+    "impact": "删除后可跨身份访问或复用已撤销授权。",
+    "refs": [
+      {
+        "file": "services/owner-file-service/index.ts",
+        "needle": "private authorize"
+      },
+      {
+        "file": "services/owner-file-service/windows-owner.ts",
+        "needle": "export"
+      }
+    ],
+    "sources": [
+      [
+        "services/owner-file-service/index.ts",
+        60
+      ],
+      [
+        "services/owner-file-service/windows-owner.ts",
+        7
+      ]
+    ]
+  },
+  {
+    "id": "D082",
+    "tier": 3,
+    "title": "只读/计划模式执行边界",
+    "behavior": "readonly/plan 不允许修改和命令；执行前再次读取最新权限。",
+    "judgment": "建议保留用户明确选择的权限语义。",
+    "impact": "只读模式变成可写。",
+    "refs": [
+      {
+        "file": "apps/desktop/host/api-local-tools.ts",
+        "needle": "Permissions changed"
+      },
+      {
+        "file": "packages/session-core/permissions.ts",
+        "needle": "permissionModesForRuntime"
+      }
+    ],
+    "sources": [
+      [
+        "apps/desktop/host/api-local-tools.ts",
+        36
+      ],
+      [
+        "packages/session-core/permissions.ts",
+        8
+      ]
+    ]
+  },
+  {
+    "id": "D083",
+    "tier": 3,
+    "title": "原生审批绑定真实请求",
+    "behavior": "审批 request/receipt 与会话、回合、选项对应；过期不可复用。",
+    "judgment": "建议保留，展示层无需再叠同义审批。",
+    "impact": "批准可能错投其它命令或会话。",
+    "refs": [
+      {
+        "file": "packages/native-approvals/index.ts",
+        "needle": "export"
+      },
+      {
+        "file": "apps/desktop/host/native-provider.ts",
+        "needle": "approval"
+      }
+    ],
+    "sources": [
+      [
+        "packages/native-approvals/index.ts",
+        3
+      ],
+      [
+        "apps/desktop/host/native-provider.ts",
+        16
+      ]
+    ]
+  },
+  {
+    "id": "D084",
+    "tier": 3,
+    "title": "SSH 主机密钥和成员身份",
+    "behavior": "显式 known_hosts、StrictHostKeyChecking、成员验证和连接代次。",
+    "judgment": "建议保留；不继承配置是独立 D044 项。",
+    "impact": "可能连接错主机或以错身份执行。",
+    "refs": [
+      {
+        "file": "packages/ssh-transport/index.ts",
+        "needle": "StrictHostKeyChecking"
+      },
+      {
+        "file": "services/host-control/verify-member.ts",
+        "needle": "export"
+      }
+    ],
+    "sources": [
+      [
+        "packages/ssh-transport/index.ts",
+        43
+      ],
+      [
+        "services/host-control/verify-member.ts",
+        4
+      ]
+    ]
+  },
+  {
+    "id": "D085",
+    "tier": 3,
+    "title": "远端 root/租户/账号授权",
+    "behavior": "SO_PEERCRED、UID、workspace/account generation、账号分配、root 管理与成员工作分离。",
+    "judgment": "建议保留，这是多租户权限核心。",
+    "impact": "可跨用户/账号操作或越权管理系统。",
+    "refs": [
+      {
+        "file": "services/vps-account-broker/broker.py",
+        "needle": "SO_PEERCRED"
+      },
+      {
+        "file": "services/vps-account-broker/runtime.py",
+        "needle": "def authorize"
+      },
+      {
+        "file": "services/vps-workspace-control/ssh_entry.py",
+        "needle": "UNAUTHORIZED"
+      }
+    ],
+    "sources": [
+      [
+        "services/vps-account-broker/broker.py",
+        708
+      ],
+      [
+        "services/vps-account-broker/runtime.py",
+        730
+      ],
+      [
+        "services/vps-workspace-control/ssh_entry.py",
+        37
+      ]
+    ]
+  },
+  {
+    "id": "D086",
+    "tier": 3,
+    "title": "邀请签名/代次/过期/单次兑换",
+    "behavior": "导入邀请验证目标、签名、主机与代次，失效和重复兑换拒绝。",
+    "judgment": "建议保留；有效期菜单 D050 可单独放宽。",
+    "impact": "伪造或过期邀请仍可授予新设备访问。",
+    "refs": [
+      {
+        "file": "packages/workspace-control/enrollment.ts",
+        "needle": "export"
+      },
+      {
+        "file": "services/vps-workspace-control/control.py",
+        "needle": "STALE_AUTHORITY"
+      }
+    ],
+    "sources": [
+      [
+        "packages/workspace-control/enrollment.ts",
+        15
+      ],
+      [
+        "services/vps-workspace-control/control.py",
+        106
+      ]
+    ]
+  },
+  {
+    "id": "D087",
+    "tier": 3,
+    "title": "额度归属与配给核验",
+    "behavior": "账号/工作空间归属、周期、账本修订、周/五小时配给及超额策略。",
+    "judgment": "建议保留用户设定的配给；UI阈值与策略可独立修改。",
+    "impact": "可错误扣费/重复计费或跨租户耗用。",
+    "refs": [
+      {
+        "file": "services/vps-workspace-control/quota_service.py",
+        "needle": "QUOTA_ACCOUNT_NOT_ALLOWED"
+      },
+      {
+        "file": "services/vps-workspace-control/quota_accounting.py",
+        "needle": "INVALID_QUOTA_OBSERVATION"
+      }
+    ],
+    "sources": [
+      [
+        "services/vps-workspace-control/quota_service.py",
+        37
+      ],
+      [
+        "services/vps-workspace-control/quota_accounting.py",
+        143
+      ]
+    ]
+  },
+  {
+    "id": "D088",
+    "tier": 3,
+    "title": "密钥安全存储与日志脱敏",
+    "behavior": "OS secure storage 不可用时不明文保存；私钥/Bearer/query 凭据脱敏。",
+    "judgment": "建议保留；D007 仅移除粗糙吞错。",
+    "impact": "密钥可能明文落盘或进入日志。",
+    "refs": [
+      {
+        "file": "apps/desktop/host/main.ts",
+        "needle": "cryptoCheck"
+      },
+      {
+        "file": "packages/ssh-transport/index.ts",
+        "needle": "redactSshDiagnostic"
+      }
+    ],
+    "sources": [
+      [
+        "apps/desktop/host/main.ts",
+        77
+      ],
+      [
+        "packages/ssh-transport/index.ts",
+        53
+      ]
+    ]
+  },
+  {
+    "id": "D089",
+    "tier": 3,
+    "title": "归档完整回读后才删除",
+    "behavior": "工作树及远端历史先复制、哈希校验、租约、归属核实再删除；恢复不覆盖冲突。",
+    "judgment": "建议保留，容量限制可另改。",
+    "impact": "产生不可恢复的数据丢失。",
+    "refs": [
+      {
+        "file": "packages/worktrees/archive.ts",
+        "needle": "WORKTREE_ARCHIVE_CHECKSUM"
+      },
+      {
+        "file": "services/vps-account-broker/session_storage.py",
+        "needle": "STORAGE_RESTORE_CONFLICT"
+      }
+    ],
+    "sources": [
+      [
+        "packages/worktrees/archive.ts",
+        43
+      ],
+      [
+        "services/vps-account-broker/session_storage.py",
+        361
+      ]
+    ]
+  },
+  {
+    "id": "D090",
+    "tier": 3,
+    "title": "原文件与并发写入保护",
+    "behavior": "hash/version、文件句柄身份、mtime/ctime、原子替换、写入锁与回读。",
+    "judgment": "建议保留，符合数据完整性要求。",
+    "impact": "丢更新、错写链接目标或将变化内容当原始快照。",
+    "refs": [
+      {
+        "file": "services/owner-file-service/index.ts",
+        "needle": "VERSION_CONFLICT"
+      },
+      {
+        "file": "apps/desktop/host/attachments.ts",
+        "needle": "ATTACHMENT_ORIGINAL_PROTECTED"
+      },
+      {
+        "file": "packages/native-resources/files.ts",
+        "needle": "atomicWrite"
+      }
+    ],
+    "sources": [
+      [
+        "services/owner-file-service/index.ts",
+        109
+      ],
+      [
+        "apps/desktop/host/attachments.ts",
+        71
+      ],
+      [
+        "packages/native-resources/files.ts",
+        29
+      ]
+    ]
+  },
+  {
+    "id": "D091",
+    "tier": 3,
+    "title": "配置修订比较和损坏文件保留",
+    "behavior": "设置/插件/记忆/偏好保存使用版本比较，损坏文件不直接覆盖。",
+    "judgment": "建议保留；不要以默认值掩盖损坏。",
+    "impact": "后保存的旧界面可覆盖新修改。",
+    "refs": [
+      {
+        "file": "packages/ui-preferences/store.ts",
+        "needle": "UI_PREFERENCE_CONFLICT"
+      },
+      {
+        "file": "packages/plugins-core/storage.ts",
+        "needle": "PLUGIN_STORAGE_CONFLICT"
+      },
+      {
+        "file": "packages/native-memory/manage.ts",
+        "needle": "changed since"
+      }
+    ],
+    "sources": [
+      [
+        "packages/ui-preferences/store.ts",
+        40
+      ],
+      [
+        "packages/plugins-core/storage.ts",
+        47
+      ],
+      [
+        "packages/native-memory/manage.ts",
+        34
+      ]
+    ]
+  },
+  {
+    "id": "D092",
+    "tier": 3,
+    "title": "异步迟到结果不发布",
+    "behavior": "binding/revision/epoch/取消信号变化后丢弃旧返回，卸载后不得写回。",
+    "judgment": "建议保留，可减少不必要取消范围。",
+    "impact": "旧请求污染新会话/设置。",
+    "refs": [
+      {
+        "file": "packages/translation/policy.ts",
+        "needle": "assert("
+      },
+      {
+        "file": "apps/desktop/host/activity-images.ts",
+        "needle": "ACTIVITY_IMAGE_CHANGED"
+      },
+      {
+        "file": "packages/runtime-extensions/index.ts",
+        "needle": "current("
+      }
+    ],
+    "sources": [
+      [
+        "packages/translation/policy.ts",
+        5
+      ],
+      [
+        "apps/desktop/host/activity-images.ts",
+        34
+      ],
+      [
+        "packages/runtime-extensions/index.ts",
+        35
+      ]
+    ]
+  },
+  {
+    "id": "D093",
+    "tier": 3,
+    "title": "发送、工具、peer 与创建幂等",
+    "behavior": "草稿 sourceHash、operationId、同参数复用、冲突拒绝、先持久化再派发。",
+    "judgment": "建议保留，符合防重复发送要求。",
+    "impact": "重复任务、重复命令、重复聊天或消息。",
+    "refs": [
+      {
+        "file": "packages/translation/gate.ts",
+        "needle": "dispatching"
+      },
+      {
+        "file": "apps/desktop/host/api-runner.ts",
+        "needle": "prior.fingerprint"
+      },
+      {
+        "file": "packages/collaboration-core/inbox.ts",
+        "needle": "IDEMPOTENCY_CONFLICT"
+      },
+      {
+        "file": "apps/desktop/host/chat-session-tools.ts",
+        "needle": "CHAT_OPERATION_CONFLICT"
+      }
+    ],
+    "sources": [
+      [
+        "packages/translation/gate.ts",
+        7
+      ],
+      [
+        "apps/desktop/host/api-runner.ts",
+        133
+      ],
+      [
+        "packages/collaboration-core/inbox.ts",
+        45
+      ],
+      [
+        "apps/desktop/host/chat-session-tools.ts",
+        57
+      ]
+    ]
+  },
+  {
+    "id": "D094",
+    "tier": 3,
+    "title": "队列绑定与不自动唤醒任务",
+    "behavior": "follow-up 绑定原会话/回合，peer 消息不直接启动模型，失败暂停队列。",
+    "judgment": "建议保留用户发送授权和一次性处理。",
+    "impact": "后台消息可能自主消耗模型或投递错会话。",
+    "refs": [
+      {
+        "file": "apps/desktop/host/follow-ups.ts",
+        "needle": "FOLLOW_UP_BINDING_CHANGED"
+      },
+      {
+        "file": "packages/collaboration-core/native-inbox.ts",
+        "needle": "export"
+      }
+    ],
+    "sources": [
+      [
+        "apps/desktop/host/follow-ups.ts",
+        52
+      ],
+      [
+        "packages/collaboration-core/native-inbox.ts",
+        5
+      ]
+    ]
+  },
+  {
+    "id": "D095",
+    "tier": 3,
+    "title": "记忆范围、收据与防回流",
+    "behavior": "来源标记、冻结批次、hash 回读、无进展停止，前台不注入后台交接。",
+    "judgment": "建议保留完整性与来源，不以哈希冒充语义正确。",
+    "impact": "重复吸收、跨来源混淆或误记已完成。",
+    "refs": [
+      {
+        "file": "packages/native-memory/exchange.ts",
+        "needle": "verify"
+      },
+      {
+        "file": "packages/native-memory/background.ts",
+        "needle": "MEMORY_BACKGROUND_RECEIPT_UNVERIFIED"
+      }
+    ],
+    "sources": [
+      [
+        "packages/native-memory/exchange.ts",
+        161
+      ],
+      [
+        "packages/native-memory/background.ts",
+        201
+      ]
+    ]
+  },
+  {
+    "id": "D096",
+    "tier": 3,
+    "title": "进程取消和清理回执",
+    "behavior": "终止仅针对拥有的进程，清理未确认保持 unknown，停止后不冒称未执行。",
+    "judgment": "建议保留；时长上限可另改。",
+    "impact": "误杀其他进程或重复执行未结束任务。",
+    "refs": [
+      {
+        "file": "packages/native-runtime/process.ts",
+        "needle": "CLI_PROCESS_STATE_UNKNOWN"
+      },
+      {
+        "file": "services/claude-bridge/isolation.ts",
+        "needle": "CLEANUP_UNCONFIRMED"
+      },
+      {
+        "file": "services/vps-account-broker/native_worker.py",
+        "needle": "native-process-identity"
+      }
+    ],
+    "sources": [
+      [
+        "packages/native-runtime/process.ts",
+        9
+      ],
+      [
+        "services/claude-bridge/isolation.ts",
+        18
+      ],
+      [
+        "services/vps-account-broker/native_worker.py",
+        95
+      ]
+    ]
+  },
+  {
+    "id": "D097",
+    "tier": 3,
+    "title": "压缩包路径与 CRC 完整性",
+    "behavior": "阻止 ../、绝对路径、重复条目/碰撞、CRC 不符、导入目标覆盖。",
+    "judgment": "建议保留；容量和格式能力已另列。",
+    "impact": "压缩包可写到包外或覆盖文件。",
+    "refs": [
+      {
+        "file": "packages/native-resources/archive.ts",
+        "needle": "ZIP integrity"
+      },
+      {
+        "file": "packages/native-resources/files.ts",
+        "needle": "Resource path escapes"
+      }
+    ],
+    "sources": [
+      [
+        "packages/native-resources/archive.ts",
+        44
+      ],
+      [
+        "packages/native-resources/files.ts",
+        11
+      ]
+    ]
+  },
+  {
+    "id": "D098",
+    "tier": 3,
+    "title": "远端部署和删除目标核验",
+    "behavior": "root 控制程序/目录权限、签名/校验、删除计划与实际发现一致，不跨挂载误删。",
+    "judgment": "建议保留，适配平台限制单独改。",
+    "impact": "执行被替换程序或删除错误系统资源。",
+    "refs": [
+      {
+        "file": "services/vps-workspace-control/destruction.py",
+        "needle": "UNSAFE_DELETION_TARGET"
+      },
+      {
+        "file": "services/vps-account-broker/setup.py",
+        "needle": "UNSAFE_DEPLOYMENT"
+      }
+    ],
+    "sources": [
+      [
+        "services/vps-workspace-control/destruction.py",
+        71
+      ],
+      [
+        "services/vps-account-broker/setup.py",
+        38
+      ]
+    ]
+  },
+  {
+    "id": "D099",
+    "tier": 3,
+    "title": "公共 schema/输入与生命周期校验",
+    "behavior": "非法类型、未知 method、NUL、非法 ID、注册冲突、已关闭对象拒绝调用。",
+    "judgment": "建议保留结构合法性；具体字数和枚举是否必要应随对应项审。",
+    "impact": "运行时异常、路径/命令注入或隐蔽数据损坏。",
+    "refs": [
+      {
+        "file": "apps/desktop/host/validation.ts",
+        "needle": "export function object"
+      },
+      {
+        "file": "packages/plugins-core/services.ts",
+        "needle": "Invalid development service"
+      }
+    ],
+    "sources": [
+      [
+        "apps/desktop/host/validation.ts",
+        4
+      ],
+      [
+        "packages/plugins-core/services.ts",
+        21
+      ]
+    ]
+  },
+  {
+    "id": "D100",
+    "tier": 3,
+    "title": "仓库检查与测试防误交付",
+    "behavior": "插件契约快照、公开文档隐私和 UI 偏好检查失败时阻止检查通过。安装目录默认选择属于产品流程，不再混入这一项。",
+    "judgment": "建议保留开发门槛；它们不是用户运行时弹窗。",
+    "impact": "失去自动发现破坏契约、泄露资料和打包用户数据的机会。",
+    "refs": [
+      {
+        "file": "scripts/check-plugin-contracts.mjs",
+        "needle": "PLUGIN_CONTRACT_REVIEW_REQUIRED"
+      },
+      {
+        "file": "scripts/check-public-docs.mjs",
+        "needle": "if(result.failures.length)process.exitCode=1"
+      },
+      {
+        "file": "scripts/check-ui-preferences.mjs",
+        "needle": "if(errors.length)"
+      }
+    ],
+    "sources": [
+      [
+        "scripts/check-plugin-contracts.mjs",
+        41
+      ],
+      [
+        "scripts/check-public-docs.mjs",
+        64
+      ],
+      [
+        "scripts/check-ui-preferences.mjs",
+        31
+      ]
+    ]
+  },
+  {
+    "id": "D101",
+    "tier": 1,
+    "title": "字体发现异常永久缓存为不可用",
+    "behavior": "发现异常被转换为 undefined 并缓存，除非显式 refresh，否则后续沿用失败结果。",
+    "judgment": "建议取消失败结果缓存，并展示可重试原因。",
+    "impact": "可恢复临时读取失败；成功资源缓存仍可保留。",
+    "refs": [
+      {
+        "file": "apps/desktop/host/claude-reference-font.ts",
+        "needle": "})().catch(()=>undefined)"
+      }
+    ],
+    "sources": [
+      [
+        "apps/desktop/host/claude-reference-font.ts",
+        32
+      ]
+    ]
+  },
+  {
+    "id": "D102",
+    "tier": 1,
+    "title": "字体读取错误统一变成不可用",
+    "behavior": "文件不存在、格式错误、权限失败等都转成同一错误。",
+    "judgment": "建议改成具体诊断，取消整段错误信息覆盖。",
+    "impact": "需要字段级脱敏，不能将无效字体当作有效内容返回。",
+    "refs": [
+      {
+        "file": "apps/desktop/host/claude-reference-font.ts",
+        "needle": "}catch{throw Error('APPEARANCE_REFERENCE_UNAVAILABLE')"
+      }
+    ],
+    "sources": [
+      [
+        "apps/desktop/host/claude-reference-font.ts",
+        44
+      ]
+    ]
+  },
+  {
+    "id": "D103",
+    "tier": 1,
+    "title": "字体协议异常一律返回 404",
+    "behavior": "解析或读取失败统一返回 404，无原始故障区别。",
+    "judgment": "建议区分不存在、格式不支持和读取故障。",
+    "impact": "只改变诊断语义，不扩大协议可读路径。",
+    "refs": [
+      {
+        "file": "apps/desktop/host/claude-reference-font.ts",
+        "needle": "}catch{return new Response(null,{status:404})"
+      }
+    ],
+    "sources": [
+      [
+        "apps/desktop/host/claude-reference-font.ts",
+        62
+      ]
+    ]
+  },
+  {
+    "id": "D104",
+    "tier": 1,
+    "title": "安装过程中禁止关闭窗口",
+    "behavior": "从清单下载到安装子进程退出，窗口关闭被直接取消。",
+    "judgment": "建议替换为明确取消下载或说明安装进程仍在运行。",
+    "impact": "不能只删判断：关闭后下载和安装子进程的归属必须明确。",
+    "refs": [
+      {
+        "file": "scripts/installer/Bootstrap.cs",
+        "needle": "if (working) e.Cancel = true"
+      }
+    ],
+    "sources": [
+      [
+        "scripts/installer/Bootstrap.cs",
+        25
+      ]
+    ]
+  },
+  {
+    "id": "D105",
+    "tier": 1,
+    "title": "安装器失败只保留阶段名",
+    "behavior": "网络、格式、校验、启动和退出失败都隐藏异常细节。",
+    "judgment": "建议保留具体错误与诊断记录。",
+    "impact": "不改变失败即停止安装的行为。",
+    "refs": [
+      {
+        "file": "scripts/installer/Bootstrap.cs",
+        "needle": "} catch { label.Text = stage"
+      }
+    ],
+    "sources": [
+      [
+        "scripts/installer/Bootstrap.cs",
+        66
+      ]
+    ]
+  },
+  {
+    "id": "D106",
+    "tier": 1,
+    "title": "登录方式探测抛错统一标成不可用",
+    "behavior": "availability 抛错时丢弃异常，界面只能看到通用不可用原因。",
+    "judgment": "建议保留诊断并允许用户主动重新探测。",
+    "impact": "不能据此绕过提供方真实的不可用状态。",
+    "refs": [
+      {
+        "file": "packages/model-management/access-registry.ts",
+        "needle": "catch { status = { available: false"
+      }
+    ],
+    "sources": [
+      [
+        "packages/model-management/access-registry.ts",
+        43
+      ]
+    ]
+  },
+  {
+    "id": "D107",
+    "tier": 1,
+    "title": "SSH 诊断只跨界传递固定文本",
+    "behavior": "SshReadError 只提供固定诊断文本和码。",
+    "judgment": "建议补充经字段脱敏的底层原因，取消整段信息屏蔽。",
+    "impact": "不能把账号、令牌或任意原始日志直接展示。",
+    "refs": [
+      {
+        "file": "packages/ssh-transport/read-only.ts",
+        "needle": "constructor(readonly diagnostic"
+      }
+    ],
+    "sources": [
+      [
+        "packages/ssh-transport/read-only.ts",
+        8
+      ]
+    ]
+  },
+  {
+    "id": "D108",
+    "tier": 2,
+    "title": "字体 CSS 扫描仅取前 1000 个",
+    "behavior": "按名称排序后只读取前 1000 个 CSS 文件。",
+    "judgment": "建议取消硬截断或分页继续。",
+    "impact": "安装包资源增多时可能发现不到实际字体。",
+    "refs": [
+      {
+        "file": "apps/desktop/host/claude-reference-font.ts",
+        "needle": "files.slice(0,1000)"
+      }
+    ],
+    "sources": [
+      [
+        "apps/desktop/host/claude-reference-font.ts",
+        18
+      ]
+    ]
+  },
+  {
+    "id": "D109",
+    "tier": 2,
+    "title": "字体 CSS 单文件超过 4 MiB 跳过",
+    "behavior": "超阈值直接跳过 CSS。",
+    "judgment": "建议流式解析或可配置，避免静默跳过。",
+    "impact": "放宽会增加解析量；与字体文件大小不是同一限制。",
+    "refs": [
+      {
+        "file": "apps/desktop/host/claude-reference-font.ts",
+        "needle": "info.size>4*1024*1024"
+      }
+    ],
+    "sources": [
+      [
+        "apps/desktop/host/claude-reference-font.ts",
+        20
+      ]
+    ]
+  },
+  {
+    "id": "D110",
+    "tier": 2,
+    "title": "字体 CSS 总读取超过 20 MiB 中止",
+    "behavior": "累计大小超限后停止后续文件扫描。",
+    "judgment": "建议提供继续扫描或按真实资源索引查找。",
+    "impact": "要单独说明扫描未完成，不应等同于未安装。",
+    "refs": [
+      {
+        "file": "apps/desktop/host/claude-reference-font.ts",
+        "needle": "readBytes>20*1024*1024"
+      }
+    ],
+    "sources": [
+      [
+        "apps/desktop/host/claude-reference-font.ts",
+        20
+      ]
+    ]
+  },
+  {
+    "id": "D111",
+    "tier": 2,
+    "title": "字体资源最多 5 MiB",
+    "behavior": "发现与读取都拒绝超过 5 MiB 的字体。",
+    "judgment": "建议阈值可配置；真实格式校验独立保留。",
+    "impact": "可能影响内存占用，不应删除 WOFF2 结构识别来放宽大小。",
+    "refs": [
+      {
+        "file": "apps/desktop/host/claude-reference-font.ts",
+        "needle": "MAX_FONT_BYTES=5*1024*1024"
+      }
+    ],
+    "sources": [
+      [
+        "apps/desktop/host/claude-reference-font.ts",
+        6
+      ]
+    ]
+  },
+  {
+    "id": "D112",
+    "tier": 2,
+    "title": "字体仅匹配固定 CSS 家族与资产路径",
+    "behavior": "仅识别 anthropic-serif 及 /assets/v1/ 下受限名称的 woff2 路径。",
+    "judgment": "建议按实际 CSS URL 与字体声明解析，减少布局变动造成的失效。",
+    "impact": "需要支持解析，不能只去掉正则后把任意字符串当文件名。",
+    "refs": [
+      {
+        "file": "apps/desktop/host/claude-reference-font.ts",
+        "needle": "const url=body.match"
+      }
+    ],
+    "sources": [
+      [
+        "apps/desktop/host/claude-reference-font.ts",
+        24
+      ]
+    ]
+  },
+  {
+    "id": "D113",
+    "tier": 2,
+    "title": "字体发现只支持 Windows Appx",
+    "behavior": "其它系统直接返回；Windows 只从 Get-AppxPackage 查 Claude。",
+    "judgment": "建议扩展实际安装渠道发现；这属于兼容性缺口而非权限。",
+    "impact": "没有字体资源的环境仍需说明不可用。",
+    "refs": [
+      {
+        "file": "apps/desktop/host/claude-reference-font.ts",
+        "needle": "if(process.platform!=='win32')return"
+      }
+    ],
+    "sources": [
+      [
+        "apps/desktop/host/claude-reference-font.ts",
+        49
+      ]
+    ]
+  },
+  {
+    "id": "D114",
+    "tier": 2,
+    "title": "字体定位子进程 8 秒及 64 KiB 限额",
+    "behavior": "PowerShell 探测超时或输出过量会失败，发现层会隐藏错误。",
+    "judgment": "建议分别设置可调超时与明确溢出诊断。",
+    "impact": "不应无限挂起探测；错误可恢复性与阈值分开审批。",
+    "refs": [
+      {
+        "file": "apps/desktop/host/claude-reference-font.ts",
+        "needle": "windowsHide:true,timeout:8000"
+      }
+    ],
+    "sources": [
+      [
+        "apps/desktop/host/claude-reference-font.ts",
+        51
+      ]
+    ]
+  },
+  {
+    "id": "D115",
+    "tier": 2,
+    "title": "安装器拒绝 HTTP 重定向",
+    "behavior": "更新源返回重定向时不能继续下载。",
+    "judgment": "建议支持已声明的更新源迁移，或明确报告重定向目标。",
+    "impact": "不能在未核实来源时把校验和下载一起绕过。",
+    "refs": [
+      {
+        "file": "scripts/installer/Bootstrap.cs",
+        "needle": "AllowAutoRedirect = false"
+      }
+    ],
+    "sources": [
+      [
+        "scripts/installer/Bootstrap.cs",
+        33
+      ]
+    ]
+  },
+  {
+    "id": "D116",
+    "tier": 2,
+    "title": "安装器网络请求 20 分钟超时",
+    "behavior": "HttpClient 设置 20 分钟超时；流读取阶段仍取决于具体 API 行为。",
+    "judgment": "建议可配置且提供取消；不要把它误报为整个安装事务的统一超时。",
+    "impact": "慢速网络会受影响，需分别验证头部与流读取超时。",
+    "refs": [
+      {
+        "file": "scripts/installer/Bootstrap.cs",
+        "needle": "TimeSpan.FromMinutes(20)"
+      }
+    ],
+    "sources": [
+      [
+        "scripts/installer/Bootstrap.cs",
+        34
+      ]
+    ]
+  },
+  {
+    "id": "D117",
+    "tier": 2,
+    "title": "安装清单 16384 字符限制",
+    "behavior": "清单完整下载成字符串之后才检查字符数，不是下载字节上限。",
+    "judgment": "建议根据结构和实际字段校验，取消无必要字符限制。",
+    "impact": "扩大清单不应同时放宽包完整性校验。",
+    "refs": [
+      {
+        "file": "scripts/installer/Bootstrap.cs",
+        "needle": "json.Length > 16384"
+      }
+    ],
+    "sources": [
+      [
+        "scripts/installer/Bootstrap.cs",
+        36
+      ]
+    ]
+  },
+  {
+    "id": "D118",
+    "tier": 2,
+    "title": "安装包只接受三段纯数字文件名",
+    "behavior": "文件名仅接受数字.数字.数字.exe，不支持预发布后缀等。",
+    "judgment": "建议将版本兼容性与路径合法性分开，支持正式定义的版本命名。",
+    "impact": "拒绝路径穿越仍需保留，不能无条件拼接任意清单路径。",
+    "refs": [
+      {
+        "file": "scripts/installer/Bootstrap.cs",
+        "needle": "Regex.IsMatch(name"
+      }
+    ],
+    "sources": [
+      [
+        "scripts/installer/Bootstrap.cs",
+        40
+      ]
+    ]
+  },
+  {
+    "id": "D119",
+    "tier": 2,
+    "title": "安装包最多 800 MiB",
+    "behavior": "安装清单声明大小大于 800 MiB 即拒绝。",
+    "judgment": "建议按磁盘空间和实际发布包处理，放宽固定上限。",
+    "impact": "真实接收大小与清单一致的检查另行保留。",
+    "refs": [
+      {
+        "file": "scripts/installer/Bootstrap.cs",
+        "needle": "size > 800L*1024*1024"
+      }
+    ],
+    "sources": [
+      [
+        "scripts/installer/Bootstrap.cs",
+        40
+      ]
+    ]
+  },
+  {
+    "id": "D120",
+    "tier": 2,
+    "title": "登录扩展名称与说明长度限制",
+    "behavior": "显示名限制 100 字符，说明限制 500 字符，并拒绝控制字符。",
+    "judgment": "建议将显示长度和标识符合法性拆开，文本改为展示裁剪。",
+    "impact": "控制字符和稳定 ID 要单独评估，不能把整行条件全删。",
+    "refs": [
+      {
+        "file": "packages/model-management/access-registry.ts",
+        "needle": "!label(input.label,100)"
+      }
+    ],
+    "sources": [
+      [
+        "packages/model-management/access-registry.ts",
+        30
+      ]
+    ]
+  },
+  {
+    "id": "D121",
+    "tier": 3,
+    "title": "只读 SSH 握手超时只重试一次",
+    "behavior": "仅首轮未收到握手 banner 且期限剩余超过 500ms 时，等待 250ms 后重试一次。",
+    "judgment": "建议保留有限只读重试；不得推广到写入或模型任务。",
+    "impact": "它证明尚未发远端命令，删除重试会降低临时网络故障恢复能力。",
+    "refs": [
+      {
+        "file": "packages/ssh-transport/read-only.ts",
+        "needle": "attempt===0&&failure.code==='HANDSHAKE_TIMEOUT'"
+      }
+    ],
+    "sources": [
+      [
+        "packages/ssh-transport/read-only.ts",
+        22
+      ]
+    ]
+  },
+  {
+    "id": "D122",
+    "tier": 3,
+    "title": "只读 SSH 重试共用原期限",
+    "behavior": "默认 30 秒，并将剩余时间传入每次 runner，不为重试重置时钟。",
+    "judgment": "建议保留共用期限；默认值可另批为可配置。",
+    "impact": "避免重试无限延长调用；当前调用方可设置 timeoutMs。",
+    "refs": [
+      {
+        "file": "packages/ssh-transport/read-only.ts",
+        "needle": "const deadline=Date.now()"
+      }
+    ],
+    "sources": [
+      [
+        "packages/ssh-transport/read-only.ts",
+        13
+      ]
+    ]
+  },
+  {
+    "id": "D123",
+    "tier": 3,
+    "title": "字体魔数与最小大小核验",
+    "behavior": "字体至少 48 字节且必须含 WOFF2 魔数；这不是完整字体解码校验。",
+    "judgment": "建议保留真实类型识别；支持新格式时补解码适配。",
+    "impact": "删除后可能给字体渲染器返回任意非字体数据。",
+    "refs": [
+      {
+        "file": "apps/desktop/host/claude-reference-font.ts",
+        "needle": "bytes.subarray(0,4).toString()!=='wOF2'"
+      }
+    ],
+    "sources": [
+      [
+        "apps/desktop/host/claude-reference-font.ts",
+        42
+      ]
+    ]
+  },
+  {
+    "id": "D124",
+    "tier": 3,
+    "title": "字体协议仅暴露两个资源",
+    "behavior": "仅接受固定 host 与两个路径，并拒绝端口、查询、片段和认证字段。",
+    "judgment": "建议保留资源协议范围；新增资源用明确注册入口。",
+    "impact": "这是专用资源读取契约，不能当作普通文件浏览的目录黑名单。",
+    "refs": [
+      {
+        "file": "apps/desktop/host/claude-reference-font.ts",
+        "needle": "parsed.protocol!=='awb-font:'"
+      }
+    ],
+    "sources": [
+      [
+        "apps/desktop/host/claude-reference-font.ts",
+        59
+      ]
+    ]
+  },
+  {
+    "id": "D125",
+    "tier": 3,
+    "title": "托盘失败后允许窗口关闭退出",
+    "behavior": "托盘初始化失败会清理残留实例；关闭窗口不再隐藏到不可用托盘。",
+    "judgment": "建议保留降级；补充错误展示可另批。",
+    "impact": "取消此降级可能让窗口隐藏后无法恢复。",
+    "refs": [
+      {
+        "file": "apps/desktop/host/tray.ts",
+        "needle": "} catch { tray?.destroy(); tray = undefined; }"
+      }
+    ],
+    "sources": [
+      [
+        "apps/desktop/host/tray.ts",
+        30
+      ]
+    ]
+  },
+  {
+    "id": "D126",
+    "tier": 3,
+    "title": "退出清理只运行一次",
+    "behavior": "重复 before-quit 事件不会再次调用 dispose。",
+    "judgment": "建议保留幂等保护。",
+    "impact": "避免重复取消任务或重复清理资源。",
+    "refs": [
+      {
+        "file": "apps/desktop/host/tray.ts",
+        "needle": "if (cleanupStarted) return"
+      }
+    ],
+    "sources": [
+      [
+        "apps/desktop/host/tray.ts",
+        36
+      ]
+    ]
+  },
+  {
+    "id": "D127",
+    "tier": 3,
+    "title": "退出清理失败后仍退出",
+    "behavior": "dispose 拒绝后仍进入 finally 并退出；远端清理不被冒认为确认成功。",
+    "judgment": "建议保留可退出性，并保留未确认清理的诊断。",
+    "impact": "改成硬阻止退出会造成用户无法关闭；不能清除未知执行状态。",
+    "refs": [
+      {
+        "file": "apps/desktop/host/tray.ts",
+        "needle": "void dispose().catch"
+      }
+    ],
+    "sources": [
+      [
+        "apps/desktop/host/tray.ts",
+        39
+      ]
+    ]
+  },
+  {
+    "id": "D128",
+    "tier": 3,
+    "title": "安装器拒绝并行安装",
+    "behavior": "同一窗口安装尚在进行时忽略再次触发。",
+    "judgment": "建议保留防重复安装。",
+    "impact": "不同于禁止关窗口，是防止两个安装过程同时写入。",
+    "refs": [
+      {
+        "file": "scripts/installer/Bootstrap.cs",
+        "needle": "if (working) return"
+      }
+    ],
+    "sources": [
+      [
+        "scripts/installer/Bootstrap.cs",
+        28
+      ]
+    ]
+  },
+  {
+    "id": "D129",
+    "tier": 3,
+    "title": "安装下载逐段核对总大小",
+    "behavior": "超出清单大小立即停止，结束时也检查实际大小一致。",
+    "judgment": "建议保留数据完整性检查。",
+    "impact": "取消后可能启动截断或与清单不一致的文件。",
+    "refs": [
+      {
+        "file": "scripts/installer/Bootstrap.cs",
+        "needle": "if (received > size)"
+      }
+    ],
+    "sources": [
+      [
+        "scripts/installer/Bootstrap.cs",
+        50
+      ]
+    ]
+  },
+  {
+    "id": "D130",
+    "tier": 3,
+    "title": "安装包 SHA-512 校验",
+    "behavior": "哈希与清单不一致即停止；清单也要求摘要解码为 64 字节。",
+    "judgment": "建议保留完整性核验；不将其宣称为清单的独立数字签名。",
+    "impact": "只能证明与所读清单一致，不能单独证明发行者身份。",
+    "refs": [
+      {
+        "file": "scripts/installer/Bootstrap.cs",
+        "needle": "hash.ComputeHash(input)"
+      }
+    ],
+    "sources": [
+      [
+        "scripts/installer/Bootstrap.cs",
+        58
+      ]
+    ]
+  },
+  {
+    "id": "D131",
+    "tier": 3,
+    "title": "登录扩展停用后取消迟到的登录句柄",
+    "behavior": "插件等待 start 返回期间已停用时，取消新返回的句柄且拒绝发布。",
+    "judgment": "建议保留失效生命周期约束。",
+    "impact": "否则停用插件仍可能在后台继续登录。",
+    "refs": [
+      {
+        "file": "packages/model-management/access-registry.ts",
+        "needle": "if (!entry.live) { await handle.cancel()"
+      }
+    ],
+    "sources": [
+      [
+        "packages/model-management/access-registry.ts",
+        55
+      ]
+    ]
+  },
+  {
+    "id": "D132",
+    "tier": 3,
+    "title": "登录取消过程只执行一次",
+    "behavior": "对同一个句柄重复取消共用同一 Promise。",
+    "judgment": "建议保留防重复取消。",
+    "impact": "避免调用底层取消多次及终态竞争。",
+    "refs": [
+      {
+        "file": "packages/model-management/access-registry.ts",
+        "needle": "current.cancel = () => cancelling??="
+      }
+    ],
+    "sources": [
+      [
+        "packages/model-management/access-registry.ts",
+        57
+      ]
+    ]
+  },
+  {
+    "id": "D133",
+    "tier": 3,
+    "title": "取消登录后清除一次性 URL 和 code",
+    "behavior": "取消或失败后移除 URL、userCode 与交互标志，任务进入终态。",
+    "judgment": "建议保留过期登录信息清理。",
+    "impact": "否则界面可能让用户继续使用已经失效的登录入口。",
+    "refs": [
+      {
+        "file": "packages/model-management/access-registry.ts",
+        "needle": "delete current.job.url"
+      }
+    ],
+    "sources": [
+      [
+        "packages/model-management/access-registry.ts",
+        57
+      ]
+    ]
+  },
+  {
+    "id": "D134",
+    "tier": 3,
+    "title": "导入解析完成后再次检查扩展存活",
+    "behavior": "异步解析期间扩展被卸载时拒绝采用结果，并返回可供后续检查的存活断言。",
+    "judgment": "建议保留迟到结果保护。",
+    "impact": "避免未批准/已停用解析器的结果继续写入账号。",
+    "refs": [
+      {
+        "file": "packages/model-management/access-registry.ts",
+        "needle": "if (!entry.live) throw Error('LOCAL_ACCOUNT_IMPORT_FORMAT_UNAVAILABLE')"
+      }
+    ],
+    "sources": [
+      [
+        "packages/model-management/access-registry.ts",
+        63
+      ]
+    ]
+  }
+]

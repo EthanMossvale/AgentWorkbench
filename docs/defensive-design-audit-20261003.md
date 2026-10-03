@@ -1,5 +1,7 @@
 # 防御性设计源码审计与逐项审批（2026-10-03）
 
+> 更正：本文件的 100 项是按主题归并的旧总览，**不是全部防御性设计清单**。其中通用校验、错误处理等大项没有逐个列出实现，不能据此宣称完成全面审计。后续请结合[逐点源码台账](defensive-design-point-ledger-20261003.md)及[补充人工审阅](defensive-design-supplement-20261003.md)；旧 D 编号保留以承接审批意见。
+
 排序：必要性从低到高。共 **100 个审批项**，建议优先移除/取消硬拦截 16 项，建议放宽/可配置/补适配 49 项，建议保留 35 项。全部状态均为 **待审批**，建议不是批准。
 
 审计起始基线：`b1e0e8d14f551a8d66c7db5ea284da48e77e7602`。读取当前工作区源码，包括开始时已存在的未提交 UI 改动；仓库存在并行变动，文件哈希以本次扫描快照为准。未改变任何产品运行逻辑、权限或设置，未连接 VPS、读取真实用户聊天/凭据，未做删除。
@@ -1023,10 +1025,10 @@
 <a id="d100"></a>
 ### D100 · 仓库检查与测试防误交付
 
-- 当前行为：插件契约快照、公开文档隐私、UI偏好扫描、测试隔离、安装目录保护。
+- 当前行为：插件契约快照、公开文档隐私和 UI 偏好检查失败时阻止检查通过。更正：安装目录默认选择属于产品流程，不再混入此项。
 - 我的判断：建议保留开发门槛；它们不是用户运行时弹窗。
 - 移除/改变后的影响：失去自动发现破坏契约、泄露资料和打包用户数据的机会。
-- 源码：[scripts/check-plugin-contracts.mjs:1](../scripts/check-plugin-contracts.mjs#L1)；[scripts/check-public-docs.mjs:1](../scripts/check-public-docs.mjs#L1)；[scripts/check-ui-preferences.mjs:1](../scripts/check-ui-preferences.mjs#L1)；[scripts/installer/paths.nsh:1](../scripts/installer/paths.nsh#L1)
+- 源码：[scripts/check-plugin-contracts.mjs:41](../scripts/check-plugin-contracts.mjs#L41)；[scripts/check-public-docs.mjs:64](../scripts/check-public-docs.mjs#L64)；[scripts/check-ui-preferences.mjs:31](../scripts/check-ui-preferences.mjs#L31)
 - 用户审批：**待审批**（移除 / 保留 / 改为可配置 / 修改方案）。
 
 ## 验证边界

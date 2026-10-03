@@ -4921,3 +4921,13 @@ const policy = api.uiPreferences.override('disclosure.open', (value,scope) =>
 ```
 
 Behavior evidence: `scripts/test-streaming-workspace-ui.mjs` exercises approved host/renderer plugins, both runtime fixtures, wheel-follow intent, folded-body removal, locate-original/paired click, image restoration after full restart and enable/disable/reenable. `scripts/test-native-events-ui.mjs` covers mounted/later instances, legacy attribute discovery, stacked replacements, activation failure, late asynchronous cleanup and package removal. `scripts/test-activity-preference-ui.mjs` covers effective overrides on mounted/remounted disclosures and restart. `scripts/test-context-annotations-ui.mjs` covers selection actions and toolbar dismissal; `scripts/test-translation-tracking-ui.mjs` covers existing paired focus/hover and layout fallback. `tests/session-fork.test.ts` covers snapshot indexing and fresh host revalidation; existing UI preference tests cover revisions, unknown/corrupt data and reset. Evidence uses isolated synthetic profiles only; no active desktop, real provider, SSH or installed release acceptance is implied.
+
+## 2026-10-03: Offline defensive-design audit ledger
+
+This change adds repository inspection tools only. `scripts/audit-defensive-designs.mjs`, `scripts/audit-defensive-designs.py` and `scripts/render-defensive-audit.py` read version-controlled source, attach review annotations and emit a local approval ledger. Entry arguments, records, exported decisions, errors, scope and evidence are specified in [the ledger guide](defensive-design-point-ledger-20261003.md).
+
+| Coverage | Call existing behavior | Register options/implementations | Replace implementation | Lifecycle and compatibility |
+| --- | --- | --- | --- | --- |
+| Offline source audit | Three CLI entry points; TS/Python extraction functions | No production catalog or setting is introduced; review annotations are repository JSON | Extraction/rendering scripts can consume the documented record artifacts | No host, renderer or native runtime lifecycle changes; approval decisions are data and do not execute modifications |
+
+No public command, service, event, resource, selector, surface or persisted product format changes. Production registration and synthetic approved-plugin activation are not applicable: the tools do not run in the application or extension host. Existing contract snapshots need no semantic or signature migration. The standalone review page stores decisions locally and exports them explicitly; it does not use or modify a real user profile. Tests cover static extraction and isolated-browser review behavior, not model execution or deployment. Existing plugin, documentation, preference and type gates remain the regression checks.
