@@ -41,7 +41,7 @@ const messages: Record<string,string> = {
   LOCAL_ACCOUNT_CHANGED:'账号已被更新，请关闭后重新打开。',
   LOCAL_ACCOUNT_BUSY:'此账号仍有进行中的操作，请先完成或取消。',
 };
-const describe = (error:unknown) => messages[errorText(error)] ?? (errorText(error).startsWith('LOCAL_')?'此次账号操作未确认，请刷新状态后重试。':errorText(error));
+const describe = (error:unknown) => messages[errorText(error)] ?? errorText(error);
 const active = (job?:AccountLogin) => !!job && ['waiting','verifying'].includes(job.status);
 
 export default function AccountLoginDialog({account,onClose,refresh}:{account:LocalModelAccount;onClose():void;refresh():Promise<unknown>}) {
@@ -49,11 +49,13 @@ export default function AccountLoginDialog({account,onClose,refresh}:{account:Lo
   const [method,setMethod]=useState<LoginMethod>('browser'),[format,setFormat]=useState('auto'),[job,setJob]=useState<AccountLogin>(),[busy,setBusy]=useState(false),[error,setError]=useState(''),[notice,setNotice]=useState('');
   const [code,setCode]=useState(''),[callback,setCallback]=useState(''),[contents,setContents]=useState('');
   const live=useRef(true),lifetime=useRef(0),locked=useRef(false),current=useRef<AccountLogin|undefined>(undefined),initialized=useRef(false),file=useRef<HTMLInputElement>(null),importedIds=useRef([account.id]);
-  const [pendingImports,setPendingImports]=useState<string[]>([]);
+  const [pendingImports,setPendingImports]=useState<string[]>([]),[checking,setChecking]=useState(false);
+  const reloadMethods=useRef<()=>Promise<void>>(async()=>{});
   const accept=(value:AccountLogin)=>{if(current.current?.id===value.id&&!active(current.current)&&active(value))return;current.current=value;if(live.current)setJob({...value});};
   useEffect(()=>{
     live.current=true;const generation=++lifetime.current;let revision=0;
-    const load=async()=>{const attempt=++revision;try{const [m,f]=await Promise.all([api<AccountLoginMethod[]>('models/accounts/login-methods',{id:account.id}),account.provider==='codex'?api<AccountImportFormat[]>('models/accounts/import-formats',{id:account.id}):Promise.resolve([])]);if(!live.current||attempt!==revision)return;setMethods(m);setFormats(f);if(!initialized.current){initialized.current=true;setMethod(m.find(v=>v.available)?.id??'browser');}}catch(e){if(live.current)setError(describe(e));}};
+    const load=async()=>{const attempt=++revision;setChecking(true);try{const [m,f]=await Promise.all([api<AccountLoginMethod[]>('models/accounts/login-methods',{id:account.id}),account.provider==='codex'?api<AccountImportFormat[]>('models/accounts/import-formats',{id:account.id}):Promise.resolve([])]);if(!live.current||attempt!==revision)return;setMethods(m);setFormats(f);if(!initialized.current){initialized.current=true;setMethod(m.find(v=>v.available)?.id??'browser');}}catch(e){if(live.current&&attempt===revision)setError(describe(e));}finally{if(live.current&&attempt===revision)setChecking(false);}};
+    reloadMethods.current=load;
     void load();const stop=window.workbench?.onExtensions?.(()=>void load());
     return()=>{live.current=false;revision++;stop?.();queueMicrotask(()=>{if(live.current||lifetime.current!==generation)return;const j=current.current;void(async()=>{if(active(j))await api('models/accounts/login-cancel',{id:account.id,jobId:j!.id});for(const id of importedIds.current)await api('models/accounts/draft-discard',{id});})().catch(()=>{});});};
   },[account.id]);
@@ -79,9 +81,9 @@ export default function AccountLoginDialog({account,onClose,refresh}:{account:Lo
       {account.provider==='codex'&&<div className="model-login-tabs" role="tablist" aria-label="账号接入"><button role="tab" aria-selected={tab==='login'} disabled={busy||waiting} onClick={()=>setTab('login')}>官方登录</button><button role="tab" aria-selected={tab==='import'} disabled={busy||waiting} onClick={()=>setTab('import')}>Token / JSON</button></div>}
       {tab==='login'?<>
         <div className="model-login-tabs account-method-tabs" role="tablist" aria-label="登录方式">{methods.map(item=><button key={item.id} role="tab" aria-selected={method===item.id} disabled={busy||waiting||!item.available} title={!item.available?describe(item.reason):item.description} onClick={()=>{setMethod(item.id);setError('');setNotice('');}}>{item.label}</button>)}</div>
-        {!initialized.current&&<p className="model-usage-note">正在检测可用登录方式…</p>}
+        {checking&&<p className="model-usage-note">正在检测可用登录方式…</p>}
         <p className="model-usage-note">{selected?.description??'当前登录方式不可用，请重新选择。'}</p>
-        {account.provider==='codex'&&methods.some(m=>m.id==='desktop'&&!m.available)&&<p className="model-usage-note">未检测到 Codex 桌面端，官方客户端入口不可用。</p>}
+        <div data-workbench-login-discovery>{methods.filter(m=>!m.available).map(item=><p key={item.id} className="model-usage-note">{item.label}：{describe(item.reason??'LOCAL_ACCOUNT_METHOD_UNAVAILABLE')}</p>)}<button className="text-button" disabled={busy||waiting||checking} onClick={()=>{setError('');void reloadMethods.current();}}>重新检测登录方式</button></div>
         <p className="model-usage-note">登录资料保存在此账号独立的原生目录。{method==='desktop'?'完成后仅关闭本次独立窗口并清理其临时界面配置。':''}</p>
         {job&&<div className="model-login-status" role="status">
           <span>{{waiting:method==='desktop'?'请在独立官方窗口中继续登录':'等待官方授权',verifying:'正在核实登录与模型目录',complete:'登录已核实',cancelled:'已取消',failed:'登录未完成'}[job.status]}</span>

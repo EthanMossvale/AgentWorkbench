@@ -23,6 +23,13 @@ const model={id:'test-model',model:'test-model',name:'Synthetic',isDefault:true,
 const a:LocalModelAccount={id:'11111111-1111-4111-a111-111111111111',revision:'r',provider:'codex',name:'Synthetic',status:'signed-out',enabled:true,models:[]};
 const job=(account=a):AccountLogin=>({id:'job-'+account.id,accountId:account.id,method:'browser',status:'waiting',url:'https://auth.openai.com/authorize?state=fixture',expiresAt:new Date(Date.now()+60000).toISOString()});
 const defer=<T>()=>{let resolve!:(v:T)=>void;const promise=new Promise<T>(r=>resolve=r);return{resolve,promise};};
+
+test('failed availability retains a redacted cause and can recover on explicit rediscovery',async()=>{
+ const registry=new AccountAccessRegistry();let probes=0,starts=0;
+ registry.registerLogin('test.probe',{id:'login',provider:'codex',label:'Probe',description:'Synthetic',availability:async()=>{if(++probes===1)throw Error('DNS probe failed; access_token=fixture-secret');return {available:true};},start:async()=>{starts++;return {job:job(),cancel:async()=>{}};}});
+ const first=(await registry.methods(a))[0]!;assert.equal(first.available,false);assert.match(first.reason!,/DNS probe failed/);assert.doesNotMatch(first.reason!,/fixture-secret/);assert.equal(starts,0);
+ assert.equal((await registry.methods(a))[0]!.available,true);assert.equal(starts,0);await registry.dispose();
+});
 async function fixture(t:test.TestContext){
  const directory=await mkdtemp(path.join(os.tmpdir(),'awb-account-access-')),store=new StateStore(directory);await store.load();let changed:(job:AccountLogin)=>void=()=>{},opened=0,failOpen=false;
  const transport={inspect:async():Promise<AccountInspection>=>({status:'authenticated',email:'full.address@example.com',models:[model]}),login:async(account:LocalModelAccount,_method:string,cb:(job:AccountLogin)=>void)=>{changed=cb;const current=job(account);return{job:current,cancel:async()=>cb({...current,status:'cancelled'})};},consume:async()=>'',dispose:async()=>{}};

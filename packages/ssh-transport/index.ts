@@ -85,7 +85,7 @@ export const runSsh: SshRunner = async (host, command, options = {}) => {
     child.stdout.on('data', (chunk: Buffer) => collect(chunk, false));
     child.stderr.on('data', (chunk: Buffer) => collect(chunk, true));
     child.stdin.on('error', () => { /* A remote process may close stdin before consuming all input. */ });
-    child.on('error', () => { failure = new SshTransportError('SPAWN_FAILED', 'Unable to start the configured OpenSSH executable.'); });
+    child.on('error', error => { failure = new SshTransportError('SPAWN_FAILED', 'Unable to start the configured OpenSSH executable: '+redactSshDiagnostic(error.message,host)); });
     child.on('close', (code, signal) => {
       clearTimeout(timer); if (forceTimer) clearTimeout(forceTimer); options.signal?.removeEventListener('abort', cancel);
       stdout += stdoutDecoder.end(); stderr += stderrDecoder.end();

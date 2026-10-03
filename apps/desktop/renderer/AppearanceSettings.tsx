@@ -49,7 +49,8 @@ export default function AppearanceSettings({state,refresh}:PageProps) {
       {row('强调色',<AccentInput value={settings.accent} fallback={activePreset.colors.accent} disabled={busy} onChange={accent=>void save({accent})}/>)}
       {row('界面字体',<FontPicker label="界面字体" id="ui-font" value={settings.uiFont} catalog={fonts} disabled={busy} onChange={uiFont=>void save({uiFont})}/>)}
     </div>
-    <div className="appearance-font-status"><small>{loading?'正在读取本机字体…':fonts.status==='ready'?`已发现 ${fonts.families.length} 种本机字体`:'暂时无法读取本机字体，可使用默认字体组合'}</small><button type="button" className="text-button" disabled={loading} onClick={()=>void loadFonts()}>刷新字体</button></div>
+    <div className="appearance-font-status" data-workbench-font-discovery><small>{loading?'正在读取本机字体…':fonts.status==='ready'?`已发现 ${fonts.families.length} 种本机字体`:'暂时无法读取本机字体，可使用默认字体组合'}</small><button type="button" className="text-button" disabled={loading} onClick={()=>void loadFonts()}>刷新字体</button></div>
+    {fonts.claude?.reason&&<p className="model-usage-note" role="status">Claude 字体读取失败：{fonts.claude.reason}。可点击“刷新字体”重试。</p>}
     <h2>文字与阅读</h2>
     <div className="appearance-card">
       {row('界面字号',<SizeInput label="界面字号" value={settings.uiSize} min={11} max={18} disabled={busy} onChange={uiSize=>void save({uiSize})}/>,'按比例调整菜单、侧栏和设置文字')}

@@ -1,11 +1,18 @@
 import {setTimeout as delay} from 'node:timers/promises';
-import {runSsh,SshTransportError,type SshRunner,type SshRunOptions} from './index';
+import {runSsh,SshTransportError,redactSshDiagnostic,type SshRunner,type SshRunOptions} from './index';
 import type {SshHost} from '../contracts';
 import {sshFailure} from './diagnostics';
+import {redactDiagnostic} from '../diagnostics';
 
-/** Only fixed diagnostic text may cross the desktop boundary. */
+/** Keep classified guidance plus value-redacted underlying diagnostics. Never includes stdout. */
 export class SshReadError extends Error {
- constructor(readonly diagnostic:NonNullable<ReturnType<typeof sshFailure>>){super(diagnostic.message+' 诊断码：SSH_'+diagnostic.code);}
+ constructor(readonly diagnostic:NonNullable<ReturnType<typeof sshFailure>>,readonly detail?:string){super(diagnostic.message+' 诊断码：SSH_'+diagnostic.code+(detail?'\n'+detail:''));}
+}
+
+function detail(text:string,host:SshHost){
+ let result=redactDiagnostic(redactSshDiagnostic(text,host));
+ for(const value of [host.hostname,host.username]){const escaped=value.replace(/[.*+?^${}()|[\]\\]/g,'\\$&');result=result.replace(new RegExp('(?<![\\w.-])'+escaped+'(?![\\w.-])','g'),'[identity]');}
+ return result;
 }
 
 /** Explicit read-only metadata calls only. Never use for login, writes or model execution. */
@@ -23,10 +30,10 @@ export async function readOnlySsh(host:SshHost,command:string,options:SshRunOpti
     try{await delay(250,undefined,{signal:options.signal});}catch{throw new SshReadError(sshFailure(undefined,new SshTransportError('CANCELLED','Cancelled'))!);}
     continue;
    }
-   throw new SshReadError(failure);
+   throw new SshReadError(failure,detail(result.stderr,host));
   }catch(error){
    if(error instanceof SshReadError)throw error;
-   const failure=sshFailure(undefined,error);if(failure)throw new SshReadError(failure);
+   const failure=sshFailure(undefined,error);if(failure)throw new SshReadError(failure,detail(error instanceof Error?error.message:String(error),host));
    throw error;
   }
  }

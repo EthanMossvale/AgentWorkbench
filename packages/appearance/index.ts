@@ -29,7 +29,7 @@ export function validateTitlebarAppearance(value:unknown):TitlebarAppearance {
     ![input.color,input.symbolColor].every(color=>typeof color==='string'&&/^#[a-f\d]{6}$/i.test(color)))throw Error('APPEARANCE_INVALID_TITLEBAR');
   return {color:(input.color as string).toLowerCase(),symbolColor:(input.symbolColor as string).toLowerCase()};
 }
-export interface FontCatalog { status: 'ready' | 'unavailable'; families: string[]; reason?: 'unsupported-platform' | 'enumeration-failed'; claude?: {available:boolean;italicAvailable:boolean;source:'installed-claude';family:'Anthropic Serif'} }
+export interface FontCatalog { status: 'ready' | 'unavailable'; families: string[]; reason?: 'unsupported-platform' | 'enumeration-failed'; claude?: {available:boolean;italicAvailable:boolean;source:'installed-claude';family:'Anthropic Serif';reason?:string} }
 export const SYSTEM_FONT = '"Segoe UI Variable", "Segoe UI", "Microsoft YaHei UI", system-ui, sans-serif';
 export const SERIF_FONT = 'Georgia, "Noto Serif CJK SC", "Source Han Serif SC", "Songti SC", SimSun, serif';
 export const CLAUDE_READING_FONT = '"AWB Claude Serif", "Anthropic Serif Variable Text", "Anthropic Serif", Georgia, "PingFang SC", "Microsoft YaHei", "Noto Sans CJK SC", serif';

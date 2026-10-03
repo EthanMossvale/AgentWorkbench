@@ -1,6 +1,7 @@
 import type { AccountImportFormat, AccountLoginMethod, LocalModelAccount, LoginMethod } from './types';
 import type { LoginHandle } from './native';
 import type { CodexCredential } from './credentials';
+import {redactDiagnostic} from '../diagnostics';
 
 export interface AccountLoginRegistration { id: string; provider: 'codex' | 'claude'; label: string; description: string; availability?(account: LocalModelAccount): Promise<{ available: boolean; reason?: string }>; start(account: LocalModelAccount, changed: (job: LoginHandle['job']) => void): Promise<LoginHandle> }
 export interface AccountImporterRegistration extends AccountImportFormat { parse(contents: string): CodexCredential[] | Promise<CodexCredential[]> }
@@ -40,14 +41,14 @@ export class AccountAccessRegistry implements AccountAccessService {
   async methods(account: LocalModelAccount): Promise<AccountLoginMethod[]> {
     return (await Promise.all([...this.logins.values()].filter(e => e.value.provider === account.provider).map(async e => {
       const d = e.value; let status = { available: true } as { available: boolean; reason?: string };
-      try { status = await d.availability?.(account) ?? status; } catch { status = { available: false, reason: 'LOCAL_ACCOUNT_METHOD_UNAVAILABLE' }; }
+      try { status = await d.availability?.(account) ?? status; } catch(error) { status = { available: false, reason: redactDiagnostic(error instanceof Error?error.message:String(error)) }; }
       return e.live ? { id: d.id as LoginMethod, label: d.label, description: d.description, ...status } : undefined;
     }))).filter((v): v is AccountLoginMethod => !!v);
   }
   formats(): AccountImportFormat[] { return [...this.importers.values()].map(({value:{id,label,description}}) => ({id,label,description})); }
   async start(account: LocalModelAccount, method: string, changed: (job: LoginHandle['job']) => void) {
     const entry = this.logins.get(account.provider + '/' + method); if (!entry || !entry.live || entry.value.provider !== account.provider) throw Error('LOCAL_ACCOUNT_METHOD_UNAVAILABLE');
-    if (entry.value.availability && !(await entry.value.availability(account)).available) throw Error('LOCAL_ACCOUNT_METHOD_UNAVAILABLE');
+    if (entry.value.availability) {const status=await entry.value.availability(account);if(!status.available)throw Error(status.reason?redactDiagnostic(status.reason):'LOCAL_ACCOUNT_METHOD_UNAVAILABLE');}
     if (!entry.live) throw Error('LOCAL_ACCOUNT_METHOD_UNAVAILABLE');
     for(const existing of entry.handles)if(!['waiting','verifying'].includes(existing.job.status))entry.handles.delete(existing);
     let handle:LoginHandle|undefined;

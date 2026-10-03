@@ -2,19 +2,21 @@ import { execFile } from 'node:child_process';
 import { promisify } from 'node:util';
 import { readFile, readdir, realpath, stat } from 'node:fs/promises';
 import path from 'node:path';
+import {redactDiagnostic} from '../../../packages/diagnostics';
 
 const execute=promisify(execFile),MAX_FONT_BYTES=5*1024*1024;
-export interface ClaudeFontStatus { available:boolean; italicAvailable:boolean; source:'installed-claude'; family:'Anthropic Serif'; }
+export interface ClaudeFontStatus { available:boolean; italicAvailable:boolean; source:'installed-claude'; family:'Anthropic Serif'; reason?:string; }
 const unavailable=():ClaudeFontStatus=>({available:false,italicAvailable:false,source:'installed-claude',family:'Anthropic Serif'});
 /** Read-only local resource reference. Never copies, installs, exports or downloads font files. */
 export class ClaudeReferenceFont {
   private cached?:Promise<{root:string;normal:string;italic?:string}|undefined>;
   constructor(private locate:()=>Promise<string|undefined>=locateInstalledClaudeAssets){}
   private async discover(){
-    this.cached??=(async()=>{
+    if(this.cached)return this.cached;
+    const attempt=(async()=>{
       const location=await this.locate();if(!location)return;
       const root=await realpath(location),directory=path.join(root,'assets','v1');
-      const files=(await readdir(directory)).filter(file=>file.endsWith('.css')).sort();let readBytes=0;
+      const files=(await readdir(directory)).filter(file=>file.endsWith('.css')).sort();let readBytes=0;let invalid:Error|undefined;
       for(const file of files.slice(0,1000)){
         const filename=await realpath(path.join(directory,file));if(!inside(root,filename))continue;
         const info=await stat(filename);if(info.size>4*1024*1024)continue;readBytes+=info.size;if(readBytes>20*1024*1024)break;
@@ -23,25 +25,32 @@ export class ClaudeReferenceFont {
           const body=match[1]!;if(!/(?:^|;)\s*font-family\s*:\s*["']?anthropic-serif["']?\s*(?:;|$)/i.test(body))continue;
           const url=body.match(/src\s*:\s*url\(\s*["']?(\/assets\/v1\/[a-z\d_-]+\.woff2)["']?\s*\)/i)?.[1];if(!url)continue;
           const font=await realpath(path.join(root,url.slice(1)));if(!inside(root,font))continue;
-          const fontInfo=await stat(font);if(!fontInfo.isFile()||fontInfo.size<48||fontInfo.size>MAX_FONT_BYTES)continue;
-          if((await readFile(font)).subarray(0,4).toString()!=='wOF2')continue;
+          const fontInfo=await stat(font);if(!fontInfo.isFile()||fontInfo.size<48){invalid=Error('APPEARANCE_REFERENCE_FORMAT_INVALID');continue;}if(fontInfo.size>MAX_FONT_BYTES){invalid=Error('APPEARANCE_REFERENCE_TOO_LARGE');continue;}
+          if((await readFile(font)).subarray(0,4).toString()!=='wOF2'){invalid=Error('APPEARANCE_REFERENCE_FORMAT_INVALID');continue;}
           const style=/(?:^|;)\s*font-style\s*:\s*italic\s*(?:;|$)/i.test(body)?'italic':'normal';faces[style]=font;
         }
         if(faces.normal)return {root,normal:faces.normal,italic:faces.italic};
       }
-    })().catch(()=>undefined);
-    return this.cached;
+      if(invalid)throw invalid;
+    })();
+    this.cached=attempt;
+    try{const faces=await attempt;if(!faces&&this.cached===attempt)this.cached=undefined;return faces;}
+    catch(error){if(this.cached===attempt)this.cached=undefined;throw error;}
   }
-  async status(refresh=false):Promise<ClaudeFontStatus>{if(refresh)this.cached=undefined;const faces=await this.discover();return faces?{available:true,italicAvailable:!!faces.italic,source:'installed-claude',family:'Anthropic Serif'}:unavailable();}
+  async status(refresh=false):Promise<ClaudeFontStatus>{
+    if(refresh)this.cached=undefined;
+    try{const faces=await this.discover();return faces?{available:true,italicAvailable:!!faces.italic,source:'installed-claude',family:'Anthropic Serif'}:unavailable();}
+    catch(error){return {...unavailable(),reason:redactDiagnostic(error instanceof Error?error.message:String(error))};}
+  }
   async read(style:'normal'|'italic'):Promise<Uint8Array>{
     try{
-    if(style!=='normal'&&style!=='italic')throw Error('APPEARANCE_REFERENCE_UNAVAILABLE');
+    if(style!=='normal'&&style!=='italic')throw Error('APPEARANCE_REFERENCE_STYLE_INVALID');
     const faces=await this.discover(),file=faces?.[style];if(!faces||!file)throw Error('APPEARANCE_REFERENCE_UNAVAILABLE');
-    const actual=await realpath(file);if(!inside(faces.root,actual))throw Error('APPEARANCE_REFERENCE_UNAVAILABLE');
-    const info=await stat(actual);if(!info.isFile()||info.size<48||info.size>MAX_FONT_BYTES)throw Error('APPEARANCE_REFERENCE_UNAVAILABLE');
-    const bytes=await readFile(actual);if(bytes.length>MAX_FONT_BYTES||bytes.subarray(0,4).toString()!=='wOF2')throw Error('APPEARANCE_REFERENCE_UNAVAILABLE');
+    const actual=await realpath(file);if(!inside(faces.root,actual))throw Error('APPEARANCE_REFERENCE_PATH_CHANGED');
+    const info=await stat(actual);if(!info.isFile()||info.size<48)throw Error('APPEARANCE_REFERENCE_FORMAT_INVALID');if(info.size>MAX_FONT_BYTES)throw Error('APPEARANCE_REFERENCE_TOO_LARGE');
+    const bytes=await readFile(actual);if(bytes.length>MAX_FONT_BYTES)throw Error('APPEARANCE_REFERENCE_TOO_LARGE');if(bytes.subarray(0,4).toString()!=='wOF2')throw Error('APPEARANCE_REFERENCE_FORMAT_INVALID');
     return bytes;
-    }catch{throw Error('APPEARANCE_REFERENCE_UNAVAILABLE');}
+    }catch(error){this.cached=undefined;throw error;}
   }
 }
 function inside(root:string,file:string){const relative=path.relative(root,file);return !!relative&&!relative.startsWith('..')&&!path.isAbsolute(relative);}
@@ -59,5 +68,9 @@ export async function referenceFontResponse(url:string,service=claudeReferenceFo
     const parsed=new URL(url);if(parsed.protocol!=='awb-font:'||parsed.hostname!=='claude'||parsed.port||parsed.search||parsed.hash||parsed.username||parsed.password||!['/serif','/serif-italic'].includes(parsed.pathname))return new Response(null,{status:404});
     const bytes=await service.read(parsed.pathname==='/serif'?'normal':'italic');
     return new Response(new Uint8Array(bytes),{headers:{'Content-Type':'font/woff2','Cache-Control':'no-store','Access-Control-Allow-Origin':'*'}});
-  }catch{return new Response(null,{status:404});}
+  }catch(error){
+    const code=(error as NodeJS.ErrnoException).code,message=error instanceof Error?error.message:String(error);
+    const status=code==='ENOENT'||message==='APPEARANCE_REFERENCE_UNAVAILABLE'?404:code==='EACCES'||code==='EPERM'||message==='APPEARANCE_REFERENCE_PATH_CHANGED'?403:message==='APPEARANCE_REFERENCE_FORMAT_INVALID'?422:message==='APPEARANCE_REFERENCE_TOO_LARGE'?413:error instanceof TypeError?400:500;
+    return new Response(redactDiagnostic(message),{status,headers:{'Content-Type':'text/plain; charset=utf-8','Cache-Control':'no-store'}});
+  }
 }

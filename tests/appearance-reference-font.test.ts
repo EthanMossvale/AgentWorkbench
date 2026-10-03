@@ -14,6 +14,15 @@ test('Claude is the default reading choice and existing explicit choices are nev
 test('optional Claude resources fail closed without downloading or fabricating an available font',async()=>{
   const fonts=new ClaudeReferenceFont(async()=>undefined);assert.equal((await fonts.status()).available,false);await assert.rejects(fonts.read('normal'),/REFERENCE_UNAVAILABLE/);assert.equal((await referenceFontResponse('awb-font://claude/serif',fonts)).status,404);
 });
+
+test('temporary discovery failures retry on the next request and expose redacted causes',async()=>{
+ let calls=0;const fonts=new ClaudeReferenceFont(async()=>{calls++;if(calls===1)throw Error('EACCES: synthetic font directory, password=fixture-secret');return undefined;});
+ const status=await fonts.status();assert.equal(status.available,false);assert.match(status.reason!,/EACCES/);assert.doesNotMatch(status.reason!,/fixture-secret/);
+ assert.equal((await fonts.status()).reason,undefined);assert.equal(calls,2);await fonts.status();assert.equal(calls,3);
+ const errors=new ClaudeReferenceFont(async()=>{throw Object.assign(Error('Synthetic directory read failure'),{code:'EIO'});});
+ const response=await referenceFontResponse('awb-font://claude/serif',errors);assert.equal(response.status,500);assert.match(await response.text(),/Synthetic directory read failure/);
+ assert.equal((await referenceFontResponse('not a URL',errors)).status,400);
+});
 test('local font references discover only bounded declared WOFF2 files and support refresh',async()=>{
   const directory=await mkdtemp(path.join(os.tmpdir(),'awb-font-reference-')),assets=path.join(directory,'assets/v1');await mkdir(assets,{recursive:true});
   try{
@@ -22,9 +31,9 @@ test('local font references discover only bounded declared WOFF2 files and suppo
     const fonts=new ClaudeReferenceFont(async()=>directory);assert.deepEqual(await fonts.status(),{available:true,italicAvailable:true,source:'installed-claude',family:'Anthropic Serif'});assert.deepEqual(Buffer.from(await fonts.read('normal')),bytes);
     const response=await referenceFontResponse('awb-font://claude/serif-italic',fonts);assert.equal(response.status,200);assert.equal(response.headers.get('content-type'),'font/woff2');assert.deepEqual(Buffer.from(await response.arrayBuffer()),bytes);
     for(const url of ['https://claude/serif','awb-font://other/serif','awb-font://claude/serif?file=private','awb-font://claude/private','awb-font://user@claude/serif','awb-font://claude:123/serif','awb-font://claude/%2e%2e/private'])assert.equal((await referenceFontResponse(url,fonts)).status,404);
-    await writeFile(path.join(assets,'normal.woff2'),'Invalid font');await assert.rejects(fonts.read('normal'),/REFERENCE_UNAVAILABLE/);assert.equal((await fonts.status(true)).available,false);
+    await writeFile(path.join(assets,'normal.woff2'),'Invalid font');await assert.rejects(fonts.read('normal'),/REFERENCE_FORMAT_INVALID/);assert.equal((await referenceFontResponse('awb-font://claude/serif',fonts)).status,422);assert.equal((await fonts.status(true)).available,false);
     await writeFile(path.join(assets,'normal.woff2'),bytes);assert.equal((await fonts.status(true)).available,true);
-    await rm(path.join(assets,'normal.woff2'));await assert.rejects(fonts.read('normal'),/^Error: APPEARANCE_REFERENCE_UNAVAILABLE$/);assert.equal((await referenceFontResponse('awb-font://claude/serif',fonts)).status,404);
+    await rm(path.join(assets,'normal.woff2'));await assert.rejects(fonts.read('normal'),/ENOENT/);assert.equal((await referenceFontResponse('awb-font://claude/serif',fonts)).status,404);
   }finally{await rm(directory,{recursive:true,force:true});}
 });
 test('font metadata cannot redirect the protocol outside the installed resource directory',async()=>{
