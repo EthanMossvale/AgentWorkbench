@@ -3,6 +3,7 @@ export class ClaudeCommandQueue {
  private active=0;
  private waiting:{start():void;cancel():void}[]=[];
  constructor(private concurrency:number){}
+ get available(){return !this.concurrency||this.active<this.concurrency;}
  run<T>(signal:AbortSignal,execute:()=>Promise<T>):Promise<T>{
   return new Promise<T>((resolve,reject)=>{
    const cancel=()=>{const index=this.waiting.indexOf(entry);if(index>=0)this.waiting.splice(index,1);signal.removeEventListener('abort',cancel);reject(Error('CLAUDE_LOCAL_TOOL_CANCELLED'));};
@@ -14,5 +15,5 @@ export class ClaudeCommandQueue {
    signal.addEventListener('abort',cancel,{once:true});this.waiting.push(entry);this.pump();
   });
  }
- private pump(){while(this.waiting.length&&(!this.concurrency||this.active<this.concurrency))this.waiting.shift()!.start();}
+ private pump(){while(this.waiting.length&&this.available)this.waiting.shift()!.start();}
 }

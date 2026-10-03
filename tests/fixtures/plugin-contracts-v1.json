@@ -505,7 +505,7 @@
     "services/claude-bridge/local-tasks.ts": [
       "export interface ClaudeLocalTasks {\n    start(input: LocalClaudeCommand, signal?: AbortSignal): Promise<LocalClaudeTask>;\n    output(id: string, waitMs?: number, signal?: AbortSignal): Promise<LocalClaudeTask>;\n    stop(id: string): Promise<LocalClaudeTask>;\n    list(): LocalClaudeTask[];\n    pending(): boolean;\n    subscribe(listener: (task: LocalClaudeTask) => void): () => void;\n    close(): Promise<void>;\n}",
       "export interface LocalClaudeCommand {\n    requestId: string;\n    command: string;\n    shell?: LocalClaudeShell;\n    timeout?: number;\n    description?: string;\n}",
-      "export interface LocalClaudeTask {\n    id: string;\n    requestId: string;\n    shell: LocalClaudeShell;\n    command: string;\n    description?: string;\n    state: 'starting' | 'running' | 'completed' | 'failed' | 'cancelled' | 'uncertain';\n    startedAt: string;\n    finishedAt?: string;\n    collected: boolean;\n    result?: unknown;\n    error?: string;\n    output?: ClaudeResultReference;\n    outputError?: string;\n}",
+      "export interface LocalClaudeTask {\n    id: string;\n    requestId: string;\n    shell: LocalClaudeShell;\n    command: string;\n    description?: string;\n    state: 'queued' | 'starting' | 'running' | 'completed' | 'failed' | 'cancelled' | 'uncertain';\n    startedAt: string;\n    finishedAt?: string;\n    collected: boolean;\n    result?: unknown;\n    error?: string;\n    output?: ClaudeResultReference;\n    outputError?: string;\n}",
       "export type LocalClaudeShell = 'Bash' | 'PowerShell';"
     ],
     "apps/desktop/host/api-command.ts": [

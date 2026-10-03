@@ -2428,3 +2428,7 @@ Claude local tools follow the actual native catalog, including new ordinary name
 ## D034 local tool capacity delivery (2026-10-03)
 
 Removed default Claude tool wire/result/store/catalog and pending-request ceilings, fixed host request timers and Read image/text size rejection. Existing full-result storage now accepts larger results/pages; occupied command slots queue instead of failing. A typed production policy registry supports explicit limits, scheduling and approved plugin restoration. Duplicate IDs, exact output, cancellation, native read/edit state and real permissions remain. All 29 focused synthetic tests pass; type/plugin/docs/preference gates apply. No UI preference change or live native/remote/installed desktop acceptance is claimed.
+
+## D035 asynchronous command delivery (2026-10-03)
+
+Local asynchronous commands retain arbitrary numbers of receipts and queue at the selected concurrency. Workbench command-duration/wait/length caps are removed; native timeout arguments remain exact and optional. Queued stop and late startup shutdown do not launch unwanted commands; duplicate request IDs keep once-only execution. Production approved policy and MCP consumers are verified, with 49 distinct focused cases across the relevant runs. Public queued state and remote source bundle revision 7 are documented. No new UI state or live deployment is included.

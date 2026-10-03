@@ -67,5 +67,16 @@ test('approved policy schedules production commands, cancels queued work and res
   ends.shift()!();await a;while(starts.length<2)await delay(5);assert.deepEqual(starts,['first','third']);ends.shift()!();await c;
   await plugins.setEnabled(id,hash,true);assert.equal(service.toolPolicy(options(dir)).commandConcurrency,1);
   assert.equal(service.toolPolicy({...options(dir),policy:{commandConcurrency:2}}).commandConcurrency,2);
+  const asyncTools=await service.openTools(options(dir));
+  try{
+   const first=(await asyncTools.call('StartLocalCommand',{requestId:'async first',command:'async first'}) as any).structuredContent;
+   const queued=(await asyncTools.call('StartLocalCommand',{requestId:'async second',command:'async second'}) as any).structuredContent;
+   // Small inline policy pages the receipt, so read its complete JSON when needed.
+   const receipt=async(value:any)=>value.output?JSON.parse((await asyncTools.call('ReadLocalToolResult',{id:value.output.id}) as any).structuredContent.text).structuredContent:value;
+   const a=await receipt(first),b=await receipt(queued);assert.equal(a.state,'running');assert.equal(b.state,'queued');
+   await asyncTools.call('StopLocalTask',{taskId:b.id});ends.shift()!();await asyncTools.call('LocalTaskOutput',{taskId:a.id,waitMs:40000});
+   assert.deepEqual(starts,['first','third','async first']);
+  }finally{await asyncTools.close();}
+
  }finally{for(const end of ends)end();await tools?.close();await plugins.dispose();await rm(dir,{recursive:true,force:true});}
 });

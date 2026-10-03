@@ -86,7 +86,7 @@ def launch(runtime, account, params, receipt):
                         'New durable memory prose must be English; preserve literal paths, code, identifiers and evidence. '
                         'Pass this local-resource workflow to every native child agent. Native AskUserQuestion remains on the VPS. '
                         'Native local Bash and PowerShell calls are foreground-only. For asynchronous local work use StartLocalCommand, then poll LocalTaskOutput or stop it with StopLocalTask; ListLocalTasks never lists unrelated OS processes. '
-                        'Local shell commands may use a timeout up to 600000 milliseconds. '
+                        'Local shell commands accept an optional native timeout in milliseconds; the workbench adds no fixed duration cap. Queued command receipts can be polled or stopped. '
                         'Do not invoke local model clients or model APIs as a substitute for native VPS orchestration. '
                         'Do not inventory hardware or another owner without explicit user authorization.')
         # Ephemeral tool credentials stay in an owner-private file, never argv or receipts.
