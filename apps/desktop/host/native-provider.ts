@@ -21,7 +21,7 @@ import { mkdir } from 'node:fs/promises';
 import path from 'node:path';
 import type { AppState, DraftPreview, Message, NativeModelSelection, PermissionMode, Session } from '../../../packages/contracts';
 import type { LocalCliService } from '../../../packages/native-runtime/cli';
-import { ProcessSupervisor, type NativeFrame, type ProcessSpec, type NativeProcessTransport } from '../../../services/remote-supervisor';
+import { createNativeProcess, ProcessSupervisor, type NativeFrame, type ProcessSpec, type NativeProcessTransport } from '../../../services/remote-supervisor';
 import type {NativeClaudeService} from '../../../services/claude-bridge';
 import type {ApiModel} from '../../../packages/model-api/types';
 import {claudeToolSemanticName} from '../../../packages/runtime-claude/tool-names';
@@ -44,7 +44,6 @@ import { codexCollaborationParams } from '../../../packages/session-core/plannin
 import { sourceLabel, visibleHandoff } from '../../../packages/model-api/targets';
 import type { ModelConnections } from './model-connections';
 import type { AttachmentStore } from './attachments';
-import { CODEX_IMAGE_FRAME_BYTES } from '../../../packages/generated-images/types';
 import { codexInteraction, claudeInteraction, interactionResult, putInteraction, expireInteractions, planUpdate, questions, isRequestId, type InteractionReply } from '../../../packages/native-interactions';
 
 interface Hooks {
@@ -85,7 +84,7 @@ export class NativeProviderRunner {
   private titleReads = new Map<string, Promise<NativeTitleRefreshResult>>();
   private titleControllers = new Set<AbortController>();
   private titlesClosed = false;
-  constructor(private connections: ModelConnections, private cli: LocalCliService, private hooks: Hooks, private fetcher?: typeof fetch, private accounts?: LocalModelAccounts, private processFactory: (spec: ProcessSpec) => ProcessSupervisor = spec => new ProcessSupervisor(spec)) {}
+  constructor(private connections: ModelConnections, private cli: LocalCliService, private hooks: Hooks, private fetcher?: typeof fetch, private accounts?: LocalModelAccounts, private processFactory: (spec: ProcessSpec) => ProcessSupervisor = spec => createNativeProcess(spec)) {}
   private session(id: string) { const session = this.hooks.snapshot().sessions.find(session => session.id === id); if (!session) throw Error('会话不存在。'); return session; }
   private update(id: string, change: (session: Session) => void) { return this.hooks.update(state => { const session = state.sessions.find(session => session.id === id); if (session) change(session); }); }
   /** Read only the title metadata belonging to this session's native runtime environment. */
@@ -307,7 +306,7 @@ export class NativeProviderRunner {
     }
     if (!session.binding.localAccountId && runtime === 'codex' && model.contextWindow) active.modelCatalog = await this.prepareCatalog(executable, model, this.cli.env);
     const launch = remote ? {args:[],env:this.cli.env,thread:undefined,runtimeModel:model.model} : session.binding.localAccountId ? officialAccountLaunch(session, this.accounts!.execution(session).env, active.gateway) : nativeProviderLaunch(runtime, model, active.gateway!, session.permissionMode ?? 'default', session.modelSelection, this.cli.env, session.binding.nativeSessionId, connection!.protocol, active.modelCatalog?.file, runtime==='claude'?session.branch?.native:undefined,session.id);
-    active.process = remote ? this.hooks.remoteClaude!.createTransport({workbenchTools:()=>this.hooks.peers(id),host:this.hooks.snapshot().hosts.find(h=>h.id===session.binding.hostId)!,session:structuredClone(session),executable,directory:path.join(this.hooks.managedDirectory??path.join(this.cli.home,'.agent-workbench'),'claude-tool-profiles'),cwd,env:this.cli.env,signal:active.abort.signal,authorize:()=>{this.assertAllowed(this.session(id));}}) : this.processFactory({ executable, args: launch.args, env: launch.env, cwd, ...(runtime==='codex'?{maxFrameBytes:CODEX_IMAGE_FRAME_BYTES}:{}) });
+    active.process = remote ? this.hooks.remoteClaude!.createTransport({workbenchTools:()=>this.hooks.peers(id),host:this.hooks.snapshot().hosts.find(h=>h.id===session.binding.hostId)!,session:structuredClone(session),executable,directory:path.join(this.hooks.managedDirectory??path.join(this.cli.home,'.agent-workbench'),'claude-tool-profiles'),cwd,env:this.cli.env,signal:active.abort.signal,authorize:()=>{this.assertAllowed(this.session(id));}}) : this.processFactory({ executable, args: launch.args, env: launch.env, cwd });
     let complete!: () => void, failed!: (error: unknown) => void;
     const completion = new Promise<void>((resolve, reject) => { complete = resolve; failed = reject; }); completion.catch(() => {});
     const release=()=>{if(active.sent&&active.completed&&!active.finishingTurn&&!active.children.pending&&!active.claudeInputs?.size){active.stopping=true;complete();}};

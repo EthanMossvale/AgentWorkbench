@@ -5,7 +5,7 @@ import path from 'node:path';
 import type {PermissionMode,Session,SshHost} from '../../packages/contracts';
 import {buildSshArgs,buildSshEnvironment,SSH_EXECUTABLE} from '../../packages/ssh-transport';
 import {openNativeGateway} from '../../packages/model-api/native-gateway';
-import {ProcessSupervisor,type NativeFrame,type NativeProcessTransport,type ProcessExit,type ProcessSpec,type ProcessState} from '../remote-supervisor';
+import {createNativeProcess,ProcessSupervisor,type NativeFrame,type NativeProcessTransport,type ProcessExit,type ProcessSpec,type ProcessState} from '../remote-supervisor';
 import {NATIVE_OWNER_REMOTE_BRIDGE} from '../codex-bridge/native-owner-remote';
 import {ClaudeToolMcpSession,openOfficialClaudeTools,type ClaudeToolServer,type ClaudeToolServerOptions} from './tools';
 import {LocalClaudeContext,withClaudeLocalContext,type ClaudeLocalContext} from './local-context';
@@ -38,7 +38,7 @@ export function claudeAccountBinding(ref:string){
   return {authorityId:values[0],authorityGeneration:values[1],accountId:values[3],accountGeneration:values[4]};
 }
 export class ClaudeBridgeService implements NativeClaudeService {
-  constructor(private directory:string,private factory=(spec:ProcessSpec)=>new ProcessSupervisor(spec)){}
+  constructor(private directory:string,private factory=(spec:ProcessSpec)=>createNativeProcess(spec)){}
   supports(host:SshHost,session:Session){
     try{claudeAccountBinding(session.binding.accountRef);return host.role==='workspace'&&host.username!=='root'&&session.binding.hostId===host.id&&session.binding.runtime==='claude'&&session.binding.egress==='vps'&&session.binding.executionId==='local-device'&&session.binding.accountRuntime==='native-owner';}catch{return false;}
   }
@@ -100,7 +100,7 @@ export class ClaudeSshTransport extends EventEmitter implements NativeProcessTra
       const command=`exec /usr/bin/python3 -u -c "import base64;exec(base64.b64decode('${Buffer.from(NATIVE_OWNER_REMOTE_BRIDGE).toString('base64')}'))"`;
       const args=buildSshArgs(o.host,command).map(v=>v==='ClearAllForwardings=yes'?'ClearAllForwardings=no':v);
       args.splice(args.indexOf('--'),0,'-o','ExitOnForwardFailure=yes','-o','StreamLocalBindMask=0177','-o','StreamLocalBindUnlink=no','-R',`${socketPath}:127.0.0.1:${endpoint.port}`);
-      const ssh=this.ssh=this.factory({executable:SSH_EXECUTABLE,args,env:buildSshEnvironment(),maxFrameBytes:48*1024*1024});
+      const ssh=this.ssh=this.factory({executable:SSH_EXECUTABLE,args,env:buildSshEnvironment()});
       let resolve!:()=>void,reject!:(error:Error)=>void;
       const connected=new Promise<void>((yes,no)=>{resolve=yes;reject=no;});connected.catch(()=>{});
       // Owner preflight can use 25s for identity, 25s for initialize and 20s for MCP.

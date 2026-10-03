@@ -9,7 +9,7 @@ import subprocess
 import threading
 import time
 import uuid
-from runtime import RuntimeErrorCode, NativePipe, MAX_FRAME
+from runtime import RuntimeErrorCode, NativePipe
 
 MODES = {'default': 'default', 'plan': 'plan', 'accept-edits': 'acceptEdits', 'full-access': 'bypassPermissions'}
 NATIVE_TOOLS = 'Agent,TaskStop,TodoWrite,AskUserQuestion,EnterPlanMode,ExitPlanMode,ToolSearch,SendMessage,ListAgents,ReportFindings,Workflow'
@@ -330,8 +330,8 @@ def serve(runtime, uid, params, reader, writer, disconnect=lambda: None):
         output_thread = threading.Thread(target=output, daemon=True)
         output_thread.start()
         while not stopped.is_set():
-            raw = reader.readline(MAX_FRAME+1)
-            if not raw or len(raw) > MAX_FRAME: break
+            raw = reader.readline()
+            if not raw: break
             value = json.loads(raw)
             if value == {'type': 'workbench_close'}: break
             with fence.lock:

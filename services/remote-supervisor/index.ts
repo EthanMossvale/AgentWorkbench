@@ -55,7 +55,8 @@ export function decodeNativeFrame(bytes: Buffer, receivedAt = new Date().toISOSt
 export class ProcessSupervisor extends EventEmitter {
   state: ProcessState = 'new';
   private child?: ChildProcessWithoutNullStreams;
-  private pending = Buffer.alloc(0);
+  private pending:Buffer[] = [];
+  private pendingBytes = 0;
   private outputBytes = 0;
   private lifetime?: ReturnType<typeof setTimeout>;
   private closingReason = 'process-exit';
@@ -82,7 +83,7 @@ export class ProcessSupervisor extends EventEmitter {
     child.stdout.on('data', (chunk: Buffer) => this.acceptBytes(chunk));
     child.stderr.on('data', (chunk: Buffer) => {
       this.outputBytes += chunk.length;
-      if (this.outputBytes > (this.spec.maxOutputBytes ?? 128 * 1024 * 1024)) { this.protocolFailure('Native output limit exceeded'); return; }
+      if (this.outputBytes > (this.spec.maxOutputBytes ?? Infinity)) { this.protocolFailure('Native output limit exceeded'); return; }
       this.emit('diagnostic', chunk.toString('utf8'));
     });
     child.stdin.on('error', error => this.emit('fault', error));
@@ -92,8 +93,8 @@ export class ProcessSupervisor extends EventEmitter {
     });
     child.on('close', (code, signal) => {
       clearTimeout(this.lifetime);
-      if (this.pending.length) this.emit('fault', new Error('Native stream ended with a truncated frame'));
-      this.pending = Buffer.alloc(0);
+      if (this.pendingBytes) this.emit('fault', new Error('Native stream ended with a truncated frame'));
+      this.pending = [];this.pendingBytes=0;
       if (this.state !== 'failed') this.state = 'closed';
       this.exitValue = { code, signal, reason: this.closingReason };
       this.emit('disconnect', this.exitValue);
@@ -113,21 +114,24 @@ export class ProcessSupervisor extends EventEmitter {
   private acceptBytes(chunk: Buffer): void {
     if (this.state === 'stopping' || this.state === 'failed') return;
     this.outputBytes += chunk.length;
-    const limit = this.spec.maxFrameBytes ?? 8 * 1024 * 1024;
-    if (this.outputBytes > (this.spec.maxOutputBytes ?? 128 * 1024 * 1024)) {
+    const limit = this.spec.maxFrameBytes ?? Infinity;
+    if (this.outputBytes > (this.spec.maxOutputBytes ?? Infinity)) {
       this.protocolFailure('Native output limit exceeded'); return;
     }
     if (this.spec.outputMode === 'opaque') { this.emit('stdout', Buffer.from(chunk)); return; }
-    this.pending = Buffer.concat([this.pending, chunk]);
-    let end: number;
-    while ((end = this.pending.indexOf(10)) >= 0) {
-      if (end + 1 > limit) { this.protocolFailure('Native frame limit exceeded'); return; }
-      const frameBytes = this.pending.subarray(0, end + 1);
-      this.pending = this.pending.subarray(end + 1);
+    let start=0;
+    for(;;){
+      const end=chunk.indexOf(10,start),part=chunk.subarray(start,end<0?chunk.length:end+1);
+      this.pendingBytes+=part.length;
+      if(this.pendingBytes>limit){this.protocolFailure('Native frame limit exceeded');return;}
+      if(part.length)this.pending.push(part);
+      if(end<0)break;
+      const frameBytes=this.pending.length===1?this.pending[0]!:Buffer.concat(this.pending,this.pendingBytes);
+      this.pending=[];this.pendingBytes=0;
       try { this.emit('frame', decodeNativeFrame(frameBytes)); }
       catch { this.protocolFailure('Invalid native JSONL frame'); return; }
+      start=end+1;
     }
-    if (this.pending.length > limit) this.protocolFailure('Native frame limit exceeded');
   }
 
   private protocolFailure(message: string): void {
@@ -139,7 +143,7 @@ export class ProcessSupervisor extends EventEmitter {
     const child = this.child;
     if (this.state !== 'running' || !child || child.stdin.destroyed) throw new Error('Native process is not connected');
     const data = `${JSON.stringify(value)}\n`;
-    if (Buffer.byteLength(data) > (this.spec.maxFrameBytes ?? 8 * 1024 * 1024)) throw new Error('Outbound native frame limit exceeded');
+    if (Buffer.byteLength(data) > (this.spec.maxFrameBytes ?? Infinity)) throw new Error('Outbound native frame limit exceeded');
     await new Promise<void>((resolve, reject) => child.stdin.write(data, error => error ? reject(error) : resolve()));
   }
 
@@ -215,3 +219,14 @@ export function remoteCommand(executable: string, args: readonly string[], cwd?:
 export function createRemoteSupervisor(host: SshHost, executable: string, args: readonly string[], cwd?: string): ProcessSupervisor {
   return new ProcessSupervisor({ executable: SSH_EXECUTABLE, args: buildSshArgs(host, remoteCommand(executable, args, cwd)), env: buildSshEnvironment() });
 }
+
+
+export interface NativeProcessFactory {id:`plugin:${string}`;create(spec:ProcessSpec,core:(spec:ProcessSpec)=>ProcessSupervisor):ProcessSupervisor|undefined}
+/** Production native process construction shared by both local and SSH runtime paths. */
+export class NativeStreams {
+ private factories=new Map<string,NativeProcessFactory>();
+ register(factory:NativeProcessFactory):()=>void{if(this.factories.has(factory.id))throw Error('NATIVE_PROCESS_FACTORY_DUPLICATE');const entry={...factory};this.factories.set(entry.id,entry);return()=>{if(this.factories.get(entry.id)===entry)this.factories.delete(entry.id);};}
+ create(spec:ProcessSpec):ProcessSupervisor{const core=(value:ProcessSpec)=>new ProcessSupervisor(value);for(const factory of [...this.factories.values()].reverse()){const result=factory.create(spec,core);if(result!==undefined)return result;}return core(spec);}
+}
+export const nativeStreams=new NativeStreams();
+export const createNativeProcess=(spec:ProcessSpec)=>nativeStreams.create(spec);

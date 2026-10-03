@@ -456,6 +456,7 @@
     ],
     "services/remote-supervisor/index.ts": [
       "export interface NativeFrame {\n    readonly sequence?: number;\n    readonly rawText: string;\n    readonly rawBase64: string;\n    readonly sha256: string;\n    readonly receivedAt: string;\n    readonly value: Readonly<Record<string, unknown>>;\n}",
+      "export interface NativeProcessFactory {\n    id: `plugin:${string}`;\n    create(spec: ProcessSpec, core: (spec: ProcessSpec) => ProcessSupervisor): ProcessSupervisor | undefined;\n}",
       "export interface NativeProcessTransport extends EventEmitter {\n    state: ProcessState;\n    start(): Promise<void>;\n    write(value: unknown): Promise<void>;\n    stop(reason?: string): Promise<ProcessExit>;\n}",
       "export interface ProcessExit {\n    code: number | null;\n    signal: NodeJS.Signals | null;\n    reason: string;\n}",
       "export interface ProcessSpec {\n    executable: string;\n    args: readonly string[];\n    cwd?: string;\n    env?: NodeJS.ProcessEnv;\n    maxFrameBytes?: number;\n    maxOutputBytes?: number;\n    lifetimeMs?: number;\n    outputMode?: 'jsonl' | 'opaque';\n}",

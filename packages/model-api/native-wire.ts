@@ -245,12 +245,10 @@ export function nativeWireStream(protocol: 'responses' | 'anthropic-messages', r
     const events = start();
     let draft = drafts.get(part.index);
     if (!draft) {
-      if (drafts.size >= 64) throw Error('NATIVE_STREAM_TOOL_LIMIT');
       draft = { id: part.id, name: part.name, args: '', sent: '' }; drafts.set(part.index, draft);
     }
     if (draft.index !== undefined && (part.id !== draft.id || part.name !== draft.name)) throw Error('NATIVE_STREAM_TOOL_CHANGED');
     draft.id = part.id; draft.name = part.name; draft.args += part.argumentsDelta;
-    if (draft.args.length > 512000) throw Error('NATIVE_STREAM_TOOL_LIMIT');
     // Messages consumers require sequential blocks. Upstream parallel calls may
     // interleave, so release their blocks only after the entire turn validates.
     if(protocol==='anthropic-messages'&&!release)return events;

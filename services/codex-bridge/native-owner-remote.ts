@@ -1,8 +1,6 @@
 /** Member-side transport only. The official account-owner runtime owns login. */
 export const NATIVE_OWNER_REMOTE_BRIDGE = String.raw`
 import json,os,pwd,re,select,signal,socket,stat,struct,sys,threading
-MAX_FRAME=8*1024*1024
-MAX_NATIVE_FRAME=48*1024*1024
 closing=threading.Event();wire_lock=threading.Lock();listener=None;channel=None;socket_identity=None
 peers=set();peers_lock=threading.Lock()
 def emit(value):
@@ -39,8 +37,8 @@ def trusted_socket():
 def downstream(reader):
     try:
         while not closing.is_set():
-            raw=reader.readline(MAX_NATIVE_FRAME+1)
-            if not raw or len(raw)>MAX_NATIVE_FRAME:break
+            raw=reader.readline()
+            if not raw:break
             with wire_lock:sys.stdout.buffer.write(raw);sys.stdout.flush()
     except OSError:pass
     finally:
@@ -73,8 +71,8 @@ try:
     emit({'method':'workbench/bridgeReady','params':{'port':port,'accountRuntime':'native-owner','sessionReceipt':response['value'].get('sessionReceipt'),'provider':response['value'].get('provider'),'transport':response['value'].get('transport')}})
     threading.Thread(target=downstream,args=(reader,),daemon=True).start()
     while not closing.is_set():
-        raw=sys.stdin.buffer.readline(MAX_FRAME+1)
-        if not raw or len(raw)>MAX_FRAME:break
+        raw=sys.stdin.buffer.readline()
+        if not raw:break
         channel.sendall(raw)
 except Exception:
     emit({'method':'error','params':{'error':{'message':'Native account session is unavailable. Check its authorization and native runtime status. No legacy fallback was attempted.'}}})

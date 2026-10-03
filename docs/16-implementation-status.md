@@ -2415,3 +2415,8 @@ Readable partial translations now reach the existing input/answer preview and al
 ## D031 translation capacity delivery (2026-10-03)
 
 Translation retains queued work beyond 64 requests, reads responses beyond 2 MB, preserves more than 512 associated fields, and follows model catalogs beyond ten pages/2000 entries. The actual queue exposes a typed scheduling registry with cleanup and production interception. Existing user budgets remain authoritative and accept larger explicit values; long deadlines preserve duration without timer overflow. The same settings and persistence contract remain. 119 translation tests and hidden production settings/restart coverage verify this change; docs 36/37 describe the public contracts. No real model or installed desktop update is included.
+
+
+## D032 native transport capacity delivery (2026-10-03)
+
+Removed artificial native model frame/output defaults, both SSH relay/owner input limits, gateway request 32 MiB and API JSON/SSE/tool-count/argument caps. Native JSONL now accumulates chunks without repeatedly copying an unfinished large frame. The production runtime.native-streams factory supports approved call/register/replace through actual local, SSH and translation process consumers. Explicit caller transport policies and data/permission/duplicate integrity remain. 214 focused cases and the full production build pass; bundle revision 6 records source migration only. No new UI state; no live SSH, real model, installed update or remote deployment.

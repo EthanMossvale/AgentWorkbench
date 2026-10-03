@@ -3,7 +3,7 @@ import { dirname, isAbsolute, resolve } from 'node:path';
 import type { Capability } from '../../packages/contracts/index.js';
 import { CODEX_DEFERRED_BASELINE } from '../../packages/runtime-codex/index.js';
 import { buildSshEnvironment } from '../../packages/ssh-transport/index.js';
-import { ProcessSupervisor, type ProcessSpec } from '../remote-supervisor/index.js';
+import { createNativeProcess, ProcessSupervisor, type ProcessSpec } from '../remote-supervisor/index.js';
 
 export interface LocalCodexExecutorConfig {
   executable: string; version: string; cwd: string; isolatedCodexHome: string; port: number;
@@ -33,7 +33,7 @@ export class LocalExecutorSupervisor {
     await mkdir(dirname(this.config.isolatedCodexHome), { recursive: true });
     // Refuse pre-existing profiles rather than ever reusing a user's authenticated CODEX_HOME.
     await mkdir(this.config.isolatedCodexHome, { recursive: false });
-    this.process = new ProcessSupervisor(spec);
+    this.process = createNativeProcess(spec);
     this.process.on('diagnostic',value=>{this.diagnostic=(this.diagnostic+String(value)).slice(-4096);});
     this.process.on('fault',error=>{this.diagnostic=String(error);});
     await this.process.start();

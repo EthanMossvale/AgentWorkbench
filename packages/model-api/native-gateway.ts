@@ -33,8 +33,8 @@ export interface NativeGatewayOptions {
   usage?(value: { counts: TokenCounts; model: string; elapsedMs: number }): void | Promise<void>;
 }
 async function readBody(request: IncomingMessage) {
-  const chunks: Buffer[] = []; let size = 0;
-  for await (const chunk of request) { size += chunk.length; if (size > 32 * 1024 * 1024) throw Error('NATIVE_REQUEST_TOO_LARGE'); chunks.push(chunk); }
+  const chunks: Buffer[] = [];
+  for await (const chunk of request) { chunks.push(chunk); }
   return JSON.parse(Buffer.concat(chunks).toString('utf8'));
 }
 /** Session-scoped loopback gateway: no tools, prompts, credential files or agent loop. */

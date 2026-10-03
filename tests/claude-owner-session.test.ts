@@ -180,3 +180,38 @@ for changed in [{'uid':1002},{'threadId':'foreign'},{'uncertain':True},{'nativeS
 for changed in [{'lastMessageId':'bad'},{'runtime':'codex'},{'threadId':params['sessionId']},{'extra':True}]:
     error('NATIVE_FORK_BOUNDARY_UNVERIFIED',lambda:validate(dict(params,fork=dict(fork,**changed))))
 `);
+
+python('Claude owner transports a user frame beyond eight MiB without truncation',String.raw`
+sent=[];stopped=[];responses=[]
+class Pipe:
+    def __init__(self,*args):pass
+    def send(self,value):
+        sent.append(value)
+        if value.get('type')=='user':return
+        responses.append({'type':'control_response','response':{'subtype':'success','request_id':value['request_id'],'response':{'mcpServers':[{'name':'local_device','status':'connected','config':{'secret':'must-not-escape'}}]} if value['request']['subtype']=='mcp_status' else {}}})
+    def receive(self,*args):
+        if responses:return responses.pop(0)
+        if args[-1].wait(.02):raise EOFError()
+        raise TimeoutError()
+module.NativePipe=Pipe
+runtime.claude_factory=lambda *_:object()
+runtime.stop=lambda process:stopped.append(process)
+large='x'*(9*1024*1024)
+user={'type':'user','uuid':'00000000-0000-4000-8000-000000000002','session_id':'','parent_tool_use_id':None,'message':{'role':'user','content':large}}
+class Reader:
+    sent=False
+    def readline(self,*args):
+        if self.sent:return b'{"type":"workbench_close"}\n'
+        self.sent=True;user['session_id']=next(iter(runtime.state.state['sessions'].values()))['threadId']
+        return (json.dumps(user)+'\n').encode()
+out=io.BytesIO();serve(runtime,1001,params,Reader(),out)
+values=[json.loads(line) for line in out.getvalue().splitlines()]
+assert values[0]['ok'] and values[0]['value']['credentialOwner']=='native' and values[0]['value']['transport']=='official-mcp-v1'
+assert values[-1]['params']['cleanupConfirmed'] is True
+assert [s['request']['subtype'] for s in sent if 'request' in s]==['initialize','mcp_status']
+assert next(v for v in sent if v.get('type')=='user')['message']['content']==large
+assert 'must-not-escape' not in out.getvalue().decode()
+assert len(stopped)==1 and not runtime.active and not runtime.maintenance.handles
+receipt=next(iter(runtime.state.state['sessions'].values()));assert receipt['cleanupConfirmed']
+assert params['toolToken'] not in json.dumps(runtime.state.state) and params['toolToken'] not in out.getvalue().decode()
+`);

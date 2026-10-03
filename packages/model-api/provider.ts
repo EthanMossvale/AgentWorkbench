@@ -52,10 +52,10 @@ async function response(fetcher: typeof fetch, url: string, init: RequestInit, s
   }
   return result;
 }
-async function json(result: Response, limit = 4_000_000): Promise<Json> {
+async function json(result: Response): Promise<Json> {
   const reader = result.body?.getReader(); if (!reader) throw new ModelRequestError('API 返回空响应。');
-  let bytes = 0; const chunks: Uint8Array[] = [];
-  try { for (;;) { const part = await reader.read(); if (part.done) break; bytes += part.value.length; if (bytes > limit) throw new ModelRequestError('API 响应超过大小限制。'); chunks.push(part.value); } }
+  const chunks: Uint8Array[] = [];
+  try { for (;;) { const part = await reader.read(); if (part.done) break; chunks.push(part.value); } }
   catch (error) { throw error instanceof ModelRequestError ? error : new ModelRequestError('API 响应读取中断，请手动重试。'); }
   finally { await reader.cancel().catch(() => {}); }
   try { return object(JSON.parse(Buffer.concat(chunks).toString('utf8'))); } catch { throw new ModelRequestError('API 未返回有效 JSON。'); }
@@ -162,12 +162,12 @@ export function parseTurn(data: Json, protocol: ModelConnection['protocol']): Ap
     for (const call of choice.message?.tool_calls ?? []) calls.push({ id: call.id, name: call.function?.name, arguments: call.function?.arguments });
     if (choice.finish_reason === 'tool_calls' && !calls.length) fail();
   }
-  if (typeof text !== 'string' || (!text && !calls.length) || calls.length > 64 || new Set(calls.map(c => c.id)).size !== calls.length || calls.some(c => !c.id || typeof c.id !== 'string' || typeof c.name !== 'string' || typeof c.arguments !== 'string' || c.arguments.length > 512000)) fail();
+  if (typeof text !== 'string' || (!text && !calls.length) || new Set(calls.map(c => c.id)).size !== calls.length || calls.some(c => !c.id || typeof c.id !== 'string' || typeof c.name !== 'string' || typeof c.arguments !== 'string')) fail();
   return { text, calls, usage: { inputTokens: count(data.usage?.input_tokens ?? data.usage?.prompt_tokens), outputTokens: count(data.usage?.output_tokens ?? data.usage?.completion_tokens) }, raw: data, requestId: typeof data.id === 'string' ? data.id : undefined };
 }
 export async function collectStream(result: Response, protocol: ModelConnection['protocol'], onText?: (text: string) => void | Promise<void>, options: import('./stream-events').StreamReadOptions = {}): Promise<Json> {
   const reader = result.body?.getReader(); if (!reader) throw new ModelRequestError('API 返回空流。', true);
-  const decoder = new TextDecoder(); let buffer = '', bytes = 0, text = '', completed = false, final: Json | undefined;
+  const decoder = new TextDecoder(); let buffer = '', text = '', completed = false, final: Json | undefined;
   const calls = new Map<number, any>(), blocks = new Map<number, any>(); let usage: Json = {}, finish: string | null = null, reasoning = '', messageId: string | undefined;
   const appendText = async (delta: string) => {
     if (typeof delta !== 'string') throw Error('NATIVE_STREAM_INVALID_TEXT');
@@ -176,7 +176,7 @@ export async function collectStream(result: Response, protocol: ModelConnection[
     await onText?.(text);
   };
   const toolDelta = async (index: number, id: string, name: string, argumentsDelta: string) => {
-    if (!Number.isSafeInteger(index) || index < 0 || index > 4096 || typeof argumentsDelta !== 'string') throw Error('NATIVE_STREAM_INVALID_TOOL');
+    if (!Number.isSafeInteger(index) || index < 0 || typeof argumentsDelta !== 'string') throw Error('NATIVE_STREAM_INVALID_TOOL');
     await options.onDelta?.({ type: 'tool', index, id, name, argumentsDelta });
   };
   const cancel = () => { void reader.cancel(options.signal?.reason).catch(() => {}); };
@@ -232,7 +232,7 @@ export async function collectStream(result: Response, protocol: ModelConnection[
   };
   try {
     options.signal?.throwIfAborted();
-    for (;;) { const part = await reader.read(); options.signal?.throwIfAborted(); if (part.done) { buffer += decoder.decode(); break; } bytes += part.value.length; if (bytes > 32_000_000) throw new ModelRequestError('模型流超过大小限制。', true); buffer += decoder.decode(part.value, { stream: true });
+    for (;;) { const part = await reader.read(); options.signal?.throwIfAborted(); if (part.done) { buffer += decoder.decode(); break; } buffer += decoder.decode(part.value, { stream: true });
       let end: RegExpExecArray | null; while (!completed && (end = /\r?\n\r?\n/.exec(buffer))) { const frame = buffer.slice(0, end.index); buffer = buffer.slice(end.index + end[0].length); const payload = frame.split(/\r?\n/).filter(line => line.startsWith('data:')).map(line => line.slice(5).trimStart()).join('\n'); if (payload) await event(payload); }
       // The protocol receipt is the boundary; a server may keep the socket alive.
       if (completed) break;

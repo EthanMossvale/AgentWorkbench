@@ -1,7 +1,7 @@
 import { randomUUID } from 'node:crypto';
 import { mkdir, mkdtemp, rm } from 'node:fs/promises';
 import path from 'node:path';
-import { ProcessSupervisor, type NativeFrame, type ProcessSpec } from '../../services/remote-supervisor';
+import { createNativeProcess, ProcessSupervisor, type NativeFrame, type ProcessSpec } from '../../services/remote-supervisor';
 import { CodexRpcClient } from '../runtime-codex';
 import { parseTokenCounts, tokenCount } from '../session-metrics';
 import { TranslationExecutionError } from './types';
@@ -11,7 +11,7 @@ export interface NativeTranslationLaunch { runtime: 'codex'|'claude'; executable
 /** One owned native request. No account tokens, chat history, tools, or outer retries. */
 export class NativeTranslationRunner {
   private active = new Map<string,{abort:AbortController;done:Promise<unknown>}>();
-  constructor(private directory:string, private factory:(spec:ProcessSpec)=>ProcessSupervisor=spec=>new ProcessSupervisor(spec)){}
+  constructor(private directory:string, private factory:(spec:ProcessSpec)=>ProcessSupervisor=spec=>createNativeProcess(spec)){}
   busy(){return this.active.size>0;}
   async run(launch:NativeTranslationLaunch,request:TranslationExecutionRequest):Promise<TranslationCompletion>{
     const id=randomUUID(),abort=new AbortController();
@@ -28,7 +28,7 @@ export class NativeTranslationRunner {
     for(const feature of ['goals','token_budget','shell_tool','unified_exec','apply_patch_freeform','multi_agent','apps','memories','memory_tool','hooks','codex_hooks','plugin_hooks','plugins','js_repl','image_generation','view_image','browser_use','computer_use','default_mode_request_user_input','collaboration_modes','shell_snapshot'])config['features.'+feature]=false;
     const args=codex?[...Object.entries(config).flatMap(([k,v])=>['-c',`${k}=${JSON.stringify(v)}`]),'app-server','--listen','stdio://']:
       ['--print','--verbose','--input-format','stream-json','--output-format','stream-json','--no-session-persistence','--tools','','--strict-mcp-config','--mcp-config','{"mcpServers":{}}','--disable-slash-commands','--setting-sources','','--settings','{"autoMemoryEnabled":false,"disableAllHooks":true}','--model',launch.model,'--system-prompt',request.instructions,...(launch.effort?['--effort',launch.effort]:[])];
-    const child=this.factory({executable:launch.executable,args,cwd,env:launch.env,maxFrameBytes:8*1024*1024,maxOutputBytes:32*1024*1024});
+    const child=this.factory({executable:launch.executable,args,cwd,env:launch.env});
     let completed=false,threadId:string|undefined,text='',reasoningTokens:number|null=null,counts=parseTokenCounts(undefined,codex?'codex':'anthropic-messages');
     let resolve!:(value:TranslationCompletion)=>void,reject!:(error:Error)=>void;
     const result=new Promise<TranslationCompletion>((yes,no)=>{resolve=yes;reject=no;});void result.catch(()=>{});

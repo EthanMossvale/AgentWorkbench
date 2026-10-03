@@ -20,7 +20,6 @@ import time
 import uuid
 
 MAX_FRAME = 8 * 1024 * 1024
-MAX_NATIVE_FRAME = 48 * 1024 * 1024
 VERSIONS = {'codex': '0.155.1', 'claude': '2.1.281'}
 
 
@@ -121,7 +120,7 @@ class GeneratedImageReceipts:
 
 
 class NativePipe:
-    """One reader, bounded frames and deadlines without buffered-pipe deadlocks."""
+    """One reader with chunked buffering and explicit operation deadlines."""
     def __init__(self, process, stopped=None):
         self.process, self.buffer = process, bytearray()
         self.stopped = stopped
@@ -150,14 +149,10 @@ class NativePipe:
             if b'\n' in self.buffer:
                 raw, _, remaining = self.buffer.partition(b'\n')
                 self.buffer = bytearray(remaining)
-                if len(raw) > MAX_NATIVE_FRAME:
-                    raise RuntimeErrorCode('NATIVE_FRAME_TOO_LARGE')
                 value = json.loads(raw)
                 if not isinstance(value, dict):
                     raise RuntimeErrorCode('INVALID_NATIVE_FRAME')
                 return value
-            if len(self.buffer) > MAX_NATIVE_FRAME:
-                raise RuntimeErrorCode('NATIVE_FRAME_TOO_LARGE')
             if select.select([self.process.stdout], [], [], min(.2, max(0, deadline - time.monotonic())))[0]:
                 chunk = os.read(self.process.stdout.fileno(), 65536)
                 if not chunk:
@@ -1046,8 +1041,8 @@ class NativeAccountRuntime:
             output_thread = threading.Thread(target=output, daemon=True)
             output_thread.start()
             while not stopped.is_set():
-                raw = reader.readline(MAX_FRAME + 1)
-                if not raw or len(raw) > MAX_FRAME:
+                raw = reader.readline()
+                if not raw:
                     break
                 value = json.loads(raw)
                 try:

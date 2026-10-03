@@ -5,11 +5,10 @@ import path from 'node:path';
 import {setTimeout as pause} from 'node:timers/promises';
 import type {Session,SshHost} from '../../packages/contracts';
 import {buildSshArgs,buildSshEnvironment,redactSshDiagnostic,SSH_EXECUTABLE} from '../../packages/ssh-transport';
-import {ProcessSupervisor} from '../remote-supervisor';
+import {createNativeProcess,ProcessSupervisor} from '../remote-supervisor';
 import {LocalExecutorSupervisor} from '../local-executor';
 import {CodexRpcClient,environmentRegistration} from '../../packages/runtime-codex';
 import {NATIVE_OWNER_REMOTE_BRIDGE} from './native-owner-remote';
-import { CODEX_IMAGE_FRAME_BYTES } from '../../packages/generated-images/types';
 
 const listen=(server:net.Server)=>new Promise<number>((resolve,reject)=>{server.once('error',reject);server.listen(0,'127.0.0.1',()=>resolve((server.address() as net.AddressInfo).port));});
 const close=(server:net.Server)=>new Promise<void>(resolve=>server.close(()=>resolve()));
@@ -33,7 +32,7 @@ export class CodexBridgeConnection{
   const command=`exec /usr/bin/python3 -u -c "import base64;exec(base64.b64decode('${Buffer.from(source).toString('base64')}'))"`;
   const args=buildSshArgs(host,command).map(value=>value==='ClearAllForwardings=yes'?'ClearAllForwardings=no':value);
   args.splice(args.indexOf('--'),0,'-o','ExitOnForwardFailure=yes','-o','StreamLocalBindMask=0177','-o','StreamLocalBindUnlink=no','-R',`${this.remoteSocket}:127.0.0.1:${gatePort}`);
-  this.transport=new ProcessSupervisor({executable:SSH_EXECUTABLE,args,env:buildSshEnvironment(),maxFrameBytes:CODEX_IMAGE_FRAME_BYTES});
+  this.transport=createNativeProcess({executable:SSH_EXECUTABLE,args,env:buildSshEnvironment()});
   this.rpc=new CodexRpcClient(this.transport,session.id,30000);
   this.transport.on('frame',frame=>{if(frame.value.method==='workbench/bridgeReady'){const port=frame.value.params?.port;if(Number.isInteger(port)&&port>1024&&port<=65535)this.remotePort=port;const receipt=frame.value.params?.sessionReceipt;if(session.binding.accountRuntime==='native-owner'&&receipt&&typeof receipt.threadId==='string'&&receipt.threadId.length<256&&receipt.environmentId===session.binding.executionId&&receipt.cwd===options.cwd)this.ownerReceipt={threadId:receipt.threadId,environmentId:receipt.environmentId,cwd:receipt.cwd,uncertain:receipt.uncertain===true,interrupted:receipt.interrupted===true,cleanupConfirmed:receipt.cleanupConfirmed===true,...(typeof receipt.turnId==='string'&&receipt.turnId.length<256?{turnId:receipt.turnId}:{})};}});
   this.transport.on('diagnostic',(value:string)=>{this.diagnostic=(this.diagnostic+redactSshDiagnostic(value,host)).slice(-4096);const match=/Allocated port (\d+) for remote forward/.exec(this.diagnostic);if(match)this.remotePort=Number(match[1]);});
