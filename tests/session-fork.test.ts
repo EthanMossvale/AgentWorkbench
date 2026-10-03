@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import {mkdtemp,rm} from 'node:fs/promises';
 import {tmpdir} from 'node:os';
 import path from 'node:path';
-import {createSessionFork,forkUnavailable} from '../packages/session-core/fork';
+import {createSessionFork,forkUnavailable,forkEligibility} from '../packages/session-core/fork';
 import {StateStore,SecretStore} from '../apps/desktop/host/store';
 import {WorkbenchController,DEMO_INPUT,type HostActions} from '../apps/desktop/host/controller';
 import type {Session,DraftPreview} from '../packages/contracts';
@@ -43,6 +43,16 @@ test('fork rejects running, uncertain, missing, and incomplete native boundaries
   assert.throws(()=>createSessionFork(history(),'child','now','absent'));
   const source=history();source.binding.runtime='codex';source.messages[1]!.nativeTurnEnd=false;assert.ok(forkUnavailable(source,'a1'));
   source.binding.runtime='claude';assert.ok(forkUnavailable(source));
+});
+
+test('indexed renderer fork eligibility refreshes after completion and host checks mutable state afresh',()=>{
+  const source=history();source.binding.runtime='codex';source.binding.nativeSessionId='native-source';source.status='running';
+  const live=forkEligibility(source);
+  assert.equal(live('a1'),undefined);assert.ok(live('a2'));assert.ok(live());assert.ok(live('missing'));
+  const settled={...source,status:'idle' as const};assert.equal(forkEligibility(settled)('a2'),undefined);
+  source.status='idle';source.messages[1]!.nativeTurnEnd=false;assert.ok(forkUnavailable(source,'a1'));
+  source.messages[1]!.nativeTurnEnd=true;assert.equal(forkUnavailable(source,'a1'),undefined);
+  source.binding.runtime='claude';assert.match(forkEligibility(source)('a1')??'',/Claude/);
 });
 test('fork snapshots effective native defaults and never leaves a copied translation waiting on the source job',()=>{
   const source=history();source.modelSelection=undefined;source.nativeEffectiveModel={model:'native-default',effort:'high'};source.messages[1]!.translationStatus='pending';

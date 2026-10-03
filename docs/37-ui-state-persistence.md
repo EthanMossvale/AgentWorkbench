@@ -458,3 +458,21 @@ Popover visibility, search, pending state, errors and request sequence counters 
 ## Third party completion boundary repair (2026-10-03)
 
 Normal provider stop and repeated envelope text are runtime response interpretation, not adjustable UI state. The repair adds no window geometry/state, zoom, split, panel, reading mode, tab, order, disclosure or editor-size control. Existing per-user profile keys, defaults, storage, restart restoration and reset remain unchanged; no migration or fallback write occurs. Historical failure records are not rewritten and no saved draft is automatically resent. Plugin call/register/replace and cleanup evidence is in document 36.
+
+
+## Streaming history and lazy disclosure bodies (2026-10-03 JST)
+
+The affected adjustable nodes keep their existing `disclosure.open` key. Scopes are `JSON.stringify([parentScope,memoryId,instanceId])`, with the existing parent/session scope; no stored key, shipped default or version changes.
+
+| Node | memoryId / instanceId | Default, restoration and reset |
+| --- | --- | --- |
+| Historical process | `ConversationReading.details.1` / turn or process-segment ID | Historical turns default folded; live activity forces effective open temporarily. Explicit toggle or locate-original/paired navigation saves through the existing revision-aware preference store. Reopen/remount/restart restores that choice; live forced opening does not erase it |
+| Nested tool group | `ActivityGroups.details.1` / group ID | Existing folded default; saved effective open state is consumed when the parent body mounts again, including plugin overrides |
+| Viewed image log | `RuntimeImageLog.details.1` / activity ID | Existing folded default; saved open now mounts thumbnails after full process restart, removing a duplicate unsaved local flag |
+| Annotation capsule/editor | `composer.annotations-open` / session scope; existing `editor.height` scope | Existing user-profile ownership, defaults, revision protection and reset are retained; scrolling does not change annotations or their saved disclosure |
+
+Storage remains the version-1 user-profile UI preference file. `uiPreferences.get/set/reset/subscribe/register/override` uses the same production store and consumers described in document 36. Reset removes the explicit choice and resumes the shipped/contextual default. Extension disable/reenable or a temporarily absent folded body preserves the preferred value; override cleanup restores it. Existing invalid/unknown-file preservation, surfaced write failures and stale-write rejection apply unchanged. New installations receive no fixture profile. Rebuilds and updates reuse existing keys and require no migration.
+
+Scroll intent, DOM discovery frame IDs, deferred render snapshots, message lookup indexes, native selection geometry, the selection toolbar and paired hover/focus are transient interaction/render state. They reset with their mounted owner and are not new adjustable preferences. Scroll dismisses the toolbar without clearing native selected text. Window geometry/state, zoom, split sizes, panel visibility, reading modes, tabs, ordering and editor dimensions retain their current owners and reset semantics. Responsive single-pane fitting does not rewrite paired-reading preferences; returning to paired reading commits the matching focus handlers immediately. No monitor fitting rule changes.
+
+Verification uses fresh disposable profiles, saved process/image/group choices across complete process exit, effective preference overrides on mounted/remounted groups, extension disable/reenable, and narrow/wide paired-reading fallback. Existing `tests/ui-preferences.test.ts` covers concurrent revisions, old/corrupt/unknown files, defaults and reset. Script locations are recorded in document 36. Hidden desktop evidence does not establish actual user-profile update/installer, physical-monitor or foreground-desktop acceptance; QA profiles remain excluded from release output.

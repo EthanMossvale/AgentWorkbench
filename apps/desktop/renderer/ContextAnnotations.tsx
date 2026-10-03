@@ -58,8 +58,12 @@ export function SelectionAnnotations({root,sessionId,active,disabled,report,onAd
     };
     const key=(event:KeyboardEvent)=>{if(event.key==='Escape'){window.getSelection()?.removeAllRanges();setSelection(null);}else if(event.shiftKey||event.key==='Shift')read();};
     const hide=()=>setSelection(null);
-    document.addEventListener('selectionchange',read);document.addEventListener('pointerup',read);document.addEventListener('keyup',key);window.addEventListener('resize',hide);root.current?.addEventListener('scroll',read,true);
-    const container=root.current;return()=>{document.removeEventListener('selectionchange',read);document.removeEventListener('pointerup',read);document.removeEventListener('keyup',key);window.removeEventListener('resize',hide);container?.removeEventListener('scroll',read,true);};
+    // Scrolling is a high-frequency interaction. Re-reading the selection on
+    // every scroll forced getBoundingClientRect/querySelector work and competed
+    // with the compositor. The toolbar is transient, so dismiss it cheaply.
+    const onScroll=()=>setSelection(null);
+    document.addEventListener('selectionchange',read);document.addEventListener('pointerup',read);document.addEventListener('keyup',key);window.addEventListener('resize',hide);root.current?.addEventListener('scroll',onScroll,true);
+    const container=root.current;return()=>{document.removeEventListener('selectionchange',read);document.removeEventListener('pointerup',read);document.removeEventListener('keyup',key);window.removeEventListener('resize',hide);container?.removeEventListener('scroll',onScroll,true);};
   },[active,sessionId,root]);
   useLayoutEffect(()=>{if(!selection||!toolbar.current)return;const rect=toolbar.current.getBoundingClientRect();setPosition({left:Math.max(8,Math.min(window.innerWidth-rect.width-8,selection.x-rect.width/2)),top:Math.max(8,selection.y-rect.height-8)});},[selection,annotationController.getVersion()]);
   if(!selection||!active)return null;

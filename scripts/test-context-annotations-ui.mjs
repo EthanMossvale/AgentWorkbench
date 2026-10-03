@@ -42,6 +42,9 @@ try{
   // Existing historic translations remain selectable while translation is paused.
   await call('ui-preferences/update',{id:'workspace.translation-visible',revision:0,value:true});
   await add('translation','所选译文上下文。');assert.equal((await call('annotations/get',{sessionId:'one'})).items[1].source.side,'translation');record('source and translated selections add separate exact excerpts');
+  await select();await page.getByTestId('original-pane').dispatchEvent('scroll');await page.getByRole('toolbar',{name:'所选上下文'}).waitFor({state:'detached'});
+  assert.equal(await page.evaluate(()=>window.getSelection().toString()),'Selected reference');
+  assert.equal((await call('annotations/get',{sessionId:'one'})).items.length,2);record('scroll dismisses the transient toolbar without clearing the native selection or saved annotations');
   await draft().getByRole('button',{name:'编辑注释',exact:true}).first().click();await draft().getByRole('textbox',{name:'注释内容'}).fill('Edited reference');await draft().getByRole('button',{name:'保存',exact:true}).click();await wait(async()=>(await call('annotations/get',{sessionId:'one'})).items[0].text==='Edited reference');
   await page.screenshot({path:path.join(output,'annotations-light.png')});record('multiple annotations, editing, capsule and composer layout');
   await choose('two');assert.equal(await draft().count(),0);await choose();assert.equal(await draft().getByRole('button',{name:'2 条注释'}).getAttribute('aria-expanded'),'true');

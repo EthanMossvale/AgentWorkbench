@@ -16,22 +16,31 @@ export function nextForkTitle(source: Session, sessions: readonly Session[]) {
 
 /** Display eligibility is also checked by the host; it never grants runtime access. */
 export function forkUnavailable(session:Session,messageId?:string):string|undefined {
-  if(isPluginRuntime(session.binding.runtime)&&!session.pluginRuntime?.capabilities.fork)return '运行时插件未提供会话分支接口。';
-  if(session.status==='running'&&(!messageId||!completedReplyIds(session).has(messageId)))return '当前回合尚未结束，请从上方已完成的回复创建分支。';
-  if(session.status==='uncertain')return '请先核对原生回合结果，再创建分支。';
-  if(session.binding.runtime==='claude'&&session.messages.length){
-    if(!claudeForkTransport(session))return '此 Claude 连接不支持原生分支。';
-    const target=messageId?session.messages.find(message=>message.id===messageId):session.messages.at(-1);
-    if(!target||target.role!=='assistant'||target.nativeTurnEnd!==true||!target.nativeItemId||!session.binding.nativeSessionId&&!session.branch?.native?.threadId)return '请选择具有原生消息回执的完整 Claude 回复创建分支。';
-    if(target.modelSource&&target.modelSource.runtime!=='claude')return '请切换到这条回复所属的运行时后创建分支。';
-    if(session.modelTargetId&&target.modelSource?.targetId&&target.modelSource.targetId!==session.modelTargetId)return '请切换到这条回复所属的模型连接后创建分支。';
-  }
-  if(messageId){
-    const index=session.messages.findIndex(message=>message.id===messageId),message=session.messages[index];
-    if(!message)return '分支起点已不存在。';
-    if(message.role==='assistant'&&!completedReplyIds(session).has(messageId))return '请选择此回合结束后的回复创建分支。';
-    if(session.status==='running'&&session.binding.runtime==='codex'&&(!message.nativeTurnId||message.nativeTurnEnd!==true||!session.binding.nativeSessionId&&!session.branch?.native?.threadId))return '运行中只可从已记录原生回执的完整回复创建分支。';
-  }
+  return forkEligibility(session)(messageId);
+}
+
+/** One immutable renderer snapshot can share turn and message indexes across all replies.
+ * Host callers still use forkUnavailable to validate fresh mutable state per action. */
+export function forkEligibility(session:Session):(messageId?:string)=>string|undefined {
+  const replies=completedReplyIds(session),messages=new Map(session.messages.map(message=>[message.id,message]));
+  return messageId=>{
+    if(isPluginRuntime(session.binding.runtime)&&!session.pluginRuntime?.capabilities.fork)return '运行时插件未提供会话分支接口。';
+    if(session.status==='running'&&(!messageId||!replies.has(messageId)))return '当前回合尚未结束，请从上方已完成的回复创建分支。';
+    if(session.status==='uncertain')return '请先核对原生回合结果，再创建分支。';
+    if(session.binding.runtime==='claude'&&session.messages.length){
+      if(!claudeForkTransport(session))return '此 Claude 连接不支持原生分支。';
+      const target=messageId?messages.get(messageId):session.messages.at(-1);
+      if(!target||target.role!=='assistant'||target.nativeTurnEnd!==true||!target.nativeItemId||!session.binding.nativeSessionId&&!session.branch?.native?.threadId)return '请选择具有原生消息回执的完整 Claude 回复创建分支。';
+      if(target.modelSource&&target.modelSource.runtime!=='claude')return '请切换到这条回复所属的运行时后创建分支。';
+      if(session.modelTargetId&&target.modelSource?.targetId&&target.modelSource.targetId!==session.modelTargetId)return '请切换到这条回复所属的模型连接后创建分支。';
+    }
+    if(messageId){
+      const message=messages.get(messageId);
+      if(!message)return '分支起点已不存在。';
+      if(message.role==='assistant'&&!replies.has(messageId))return '请选择此回合结束后的回复创建分支。';
+      if(session.status==='running'&&session.binding.runtime==='codex'&&(!message.nativeTurnId||message.nativeTurnEnd!==true||!session.binding.nativeSessionId&&!session.branch?.native?.threadId))return '运行中只可从已记录原生回执的完整回复创建分支。';
+    }
+  };
 }
 
 /** Ignore later turns and display-only retranslation, but freeze the selected native history and identity. */

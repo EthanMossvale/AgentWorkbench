@@ -75,7 +75,7 @@ interface SurfaceObserver { id: string; selector: string; placement: SurfacePlac
 export function createPluginSurfaces() {
   const mounts = new Set<Mount>(), hidden = new Map<HTMLElement, boolean>();
   const watches = new Set<SurfaceObserver>();
-  let stopped = false, sequence = 0;
+  let stopped = false, sequence = 0, refreshFrame: number | undefined;
   const eligible = (selector: string) => [...document.querySelectorAll<HTMLElement>(selector)].filter(node => node instanceof HTMLElement && !!node.parentElement && !node.closest('[data-plugin-mount], [data-plugin-surface]'));
   const rootFor = (id: string) => { const root = document.createElement('div'); root.dataset.pluginMount = id; return root; };
   const validate = (surface: string, placement: SurfacePlacement) => {
@@ -130,7 +130,11 @@ export function createPluginSurfaces() {
     observe();
   };
   const observer = new MutationObserver(records => {
-    if (records.some(record => !(record.target instanceof Element) || !record.target.closest('[data-plugin-mount], [data-plugin-surface]'))) refresh();
+    if (!records.some(record => !(record.target instanceof Element) || !record.target.closest('[data-plugin-mount], [data-plugin-surface]'))) return;
+    if (refreshFrame !== undefined || stopped || !mounts.size && !watches.size) return;
+    // Streaming text and layout changes can arrive in the same frame.
+    // Registration/disposal still refresh synchronously; DOM discovery is batched.
+    refreshFrame = requestAnimationFrame(() => { refreshFrame = undefined; refresh(); });
   });
   observe();
   return {
@@ -147,6 +151,6 @@ export function createPluginSurfaces() {
       watches.add(watch); refresh();
       return () => { watches.delete(watch); for (const instance of watch.instances.values()) { instance.release(); instance.root.remove(); } watch.instances.clear(); refresh(); };
     },
-    dispose() { stopped = true; observer.disconnect(); for (const watch of watches) for (const instance of watch.instances.values()) { instance.release(); instance.root.remove(); } watches.clear(); for (const mount of mounts) mount.root.remove(); mounts.clear(); for (const [target, previous] of hidden) target.hidden = previous; hidden.clear(); },
+    dispose() { stopped = true; if (refreshFrame !== undefined) cancelAnimationFrame(refreshFrame); observer.disconnect(); for (const watch of watches) for (const instance of watch.instances.values()) { instance.release(); instance.root.remove(); } watches.clear(); for (const mount of mounts) mount.root.remove(); mounts.clear(); for (const [target, previous] of hidden) target.hidden = previous; hidden.clear(); },
   };
 }
