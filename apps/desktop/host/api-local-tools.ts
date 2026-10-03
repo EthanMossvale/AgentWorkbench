@@ -14,13 +14,14 @@ export const apiLocalToolDefinitions:ApiToolDefinition[]=[
   {name:'read_file',description:'Read a UTF-8 ordinary file owned by this OS user, in bounded character slices. Owner-wide access is not confined to the working directory. Credential, other-owner and control-plane paths are excluded. The returned version is required for edits; a truncated slice is not the complete file.',inputSchema:{type:'object',properties:{path:text,offset:{type:'integer',minimum:0},limit:{type:'integer',minimum:1,maximum:32000}},required:['path'],additionalProperties:false}},
   {name:'list_directory',description:'List an ordinary directory belonging to this OS user. This is file browsing, not device or system inventory.',inputSchema:{type:'object',properties:{path:text},required:['path'],additionalProperties:false}},
   {name:'write_file',description:'Replace an existing UTF-8 file using the exact version from read_file. Never overwrite concurrent edits. Default permissions require approval; read-only forbids edits.',inputSchema:{type:'object',properties:{path:text,version:text,content:text},required:['path','version','content'],additionalProperties:false}},
-  {name:'run_command',description:'Request execution of a local shell command. Every command needs user approval, including in full-access mode. Read-only forbids this tool. It runs on the real local device with no API credentials in its environment. Do not request access to new devices, other owners, credentials or administrator controls.',inputSchema:{type:'object',properties:{command:{type:'string',maxLength:16000}},required:['command'],additionalProperties:false}},
+  {name:'run_command',description:'Execute a local shell command. Default permissions require approval; full-access uses the permission already selected by the user. Read-only and plan modes forbid this tool. It runs on the real local device with no API credentials in its environment. Do not request access to new devices, other owners, credentials or administrator controls.',inputSchema:{type:'object',properties:{command:{type:'string',maxLength:16000}},required:['command'],additionalProperties:false}},
 ];
 type Approve=(kind:'command'|'file',details:string,signal:AbortSignal)=>Promise<boolean>;
 export class ApiLocalTools {
   private service?:Promise<OwnerFileService>;
   private generation=randomUUID();
   constructor(private controlPaths:string[]){}
+  executeCommand(command:string,cwd:string,signal:AbortSignal):Promise<unknown>{return runApiCommand(command,cwd,signal);}
   private files(){return this.service??=OwnerFileService.create({ownerId:'local-owner',deviceId:'local-device',generation:this.generation,controlPaths:this.controlPaths,verifyOwner:process.platform==='win32'?verifyCurrentWindowsOwner:undefined,expectedUid:process.getuid?.(),maxBytes:1_000_000});}
   async call(session:Session,name:string,args:Record<string,unknown>,signal:AbortSignal,approve:Approve,current:()=>Session=()=>session):Promise<unknown>{
     signal.throwIfAborted();
@@ -32,8 +33,8 @@ export class ApiLocalTools {
     for(const key of definition.inputSchema.required as string[])if(typeof args[key]!=='string')throw Error('INVALID_ARGUMENT: Required string is missing.');
     if(name==='run_command'){
       if(!String(args.command).trim()||String(args.command).length>16000)throw Error('INVALID_COMMAND');
-      if(!await approve('command',JSON.stringify({cwd:session.projectPath||os.homedir(),command:args.command},null,2),signal))return {status:'declined',executed:false};
-      signal.throwIfAborted();if(['read-only','plan'].includes(current().permissionMode??'default'))throw Error('READ_ONLY: Permissions changed before command execution.');return runApiCommand(String(args.command),session.projectPath||os.homedir(),signal);
+      if(current().permissionMode!=='full-access'&&!await approve('command',JSON.stringify({cwd:session.projectPath||os.homedir(),command:args.command},null,2),signal))return {status:'declined',executed:false};
+      signal.throwIfAborted();if(['read-only','plan'].includes(current().permissionMode??'default'))throw Error('READ_ONLY: Permissions changed before command execution.');return this.executeCommand(String(args.command),session.projectPath||os.homedir(),signal);
     }
     const files=await this.files(),grant=files.issueGrant({expiresAt:new Date(Date.now()+10*60_000).toISOString(),operations:writing?['read','write']:['read']});
     const context:FileContext={grantId:grant.id,ownerId:grant.ownerId,deviceId:grant.deviceId,generation:grant.generation,sessionId:session.id,workspaceId:session.projectId??'projectless',operationId:randomUUID(),os:process.platform};

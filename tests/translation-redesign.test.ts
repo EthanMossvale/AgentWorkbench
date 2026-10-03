@@ -159,7 +159,7 @@ test('approved ZIP registers real translation targets, overrides invocation, dis
   assert.ok((await f.controller.call('translation/targets') as any[]).some(t=>t.id===`plugin:${id}/fixture`));
   await f.controller.call('translation/settings',{profile:{...f.store.snapshot().translation,source:{kind:'model',targetId:`plugin:${id}/fixture`}}});
   const module=f.controller.developmentServices().translation as TranslationModule;
-  assert.equal((await module.translate('first','input','first','input')).value.text,'first');assert.equal((await f.controller.call('translation/usage') as any).marker,'plugin');
+  for(const text of ['first','Use 中文名称 as the title.','api_key=example_example_example','Unclosed example\n```ts\nconst 中文 = 1;'])assert.equal((await module.translate(text,'input',text,'input')).value.text,text);assert.equal((await f.controller.call('translation/usage') as any).marker,'plugin');
   const budgetChat=await f.controller.call('session/create',{runtime:'demo'}) as any;
   await f.controller.call('translation/settings',{profile:{...f.store.snapshot().translation,maxCalls:1}});
   await module.translate('budget','output','budget','final',undefined,budgetChat.id);

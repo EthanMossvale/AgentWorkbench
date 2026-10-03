@@ -4,30 +4,29 @@ import { markdownTokens } from '../message-markdown';
 export const PROTECTION_VERSION = 2 as const;
 export const hashText = (text: string) => createHash('sha256').update(text, 'utf8').digest('hex');
 export interface ProtectedText { text: string; nonce: string; spans: { token: string; original: string }[]; sourceHash: string }
-export function assertNoSecrets(text: string): void {
-  if (/-----BEGIN [A-Z ]*PRIVATE KEY-----|\b(?:sk-|sk-ant-)[A-Za-z0-9_-]{16,}|\b(?:api[_-]?key|access[_-]?token|password|secret)\s*[:=]\s*["']?[^\s"']{8,}/i.test(text)) {
-    throw new Error('检测到可能的凭据；请移除后再翻译。内容尚未发送。');
-  }
-}
 /** Locate rendered code, including code nested under list/quote indentation. */
 function markdownCodeRanges(text:string) {
   const ranges:{start:number;end:number}[]=[],escape=(value:string)=>value.replace(/[.*+?^${}()|[\]\\]/g,'\\$&');
-  const visit=(tokens:Token[])=>{for(const token of tokens){
+  const visit=(tokens:Token[],container:{start:number;end:number})=>{for(const token of tokens){
     if(token.type==='code'){
-      const raw=token.raw.replace(/\n+$/,''),opening=raw.match(/^[ \t]*(`{3,}|~{3,})[^\n]*\n/);
-      if(token.codeBlockStyle!=='indented'&&(!opening||!new RegExp('\\n[ \\t]*'+opening[1]![0]+'{'+opening[1]!.length+',}[ \\t]*$').test(raw)))throw new Error('代码围栏不完整；请闭合或明确引用后再翻译。');
+      const raw=token.raw.replace(/\n+$/,'');
       const lines=raw.split('\n').map((line,index)=>'[ \\t]*(?:>[ \\t]*)*'+(index===0?'(?:(?:[-+*]|\\d+[.)])[ \\t]+)?':'')+escape(line));
       const matches=[...text.matchAll(new RegExp('(^|\\n)'+lines.join('\\r?\\n')+'(?=\\r?\\n|$)','g'))];
-      if(!matches.length)throw new Error('代码片段无法完整保护；内容尚未发送。');
+      if(!matches.length)ranges.push(container);
       for(const match of matches)ranges.push({start:match.index,end:match.index+match[0].length});
-    }else if(token.type==='list')for(const item of token.items)visit(item.tokens);
-    else if('tokens' in token&&Array.isArray(token.tokens))visit(token.tokens);
+    }else if(token.type==='list')for(const item of token.items)visit(item.tokens,container);
+    else if('tokens' in token&&Array.isArray(token.tokens))visit(token.tokens,container);
   }};
-  visit(markdownTokens(text));return ranges;
+  let offset=0;
+  for(const token of markdownTokens(text)){
+    const raw=token.raw.replace(/\r\n?/g,'\n'),match=new RegExp(escape(raw).replaceAll('\n','\\r?\\n')).exec(text.slice(offset));
+    const container=match?{start:offset+match.index,end:offset+match.index+match[0].length}:{start:offset,end:text.length};
+    visit([token],container);offset=container.end;
+  }
+  return ranges.sort((a,b)=>a.start-b.start||b.end-a.end);
 }
 // Conservative lexical protection, not a claim to understand arbitrary source languages.
 export function protect(text: string): ProtectedText {
-  assertNoSecrets(text);
   const nonce = randomBytes(8).toString('hex');
   const spans: ProtectedText['spans'] = [];
   const ranges: { start: number; end: number }[] = [];
@@ -56,10 +55,6 @@ export function protect(text: string): ProtectedText {
   for (const pattern of patterns) for (const match of text.matchAll(pattern)) {
     if (pattern === quotedPaths && !pathPrefix.test(match[0].slice(1, -1))) continue;
     add(match.index, match.index + match[0].length);
-  }
-  const completeFences=[...codeRanges,...[...text.matchAll(patterns[0]!)].map(match=>({start:match.index,end:match.index+match[0].length}))];
-  for(const match of text.matchAll(/(?:^|\n)[ \t]*(?:`{3,}|~{3,})/g)) {
-    if(!completeFences.some(r=>match.index>=r.start&&match.index<r.end))throw new Error('代码围栏不完整；请闭合或明确引用后再翻译。');
   }
   ranges.sort((a,b) => a.start-b.start);
   let result = '', offset = 0;

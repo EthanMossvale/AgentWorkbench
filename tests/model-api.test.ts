@@ -12,7 +12,9 @@ import { API_DEFAULTS, compactionBudget, modelMetadata, validateConnection } fro
 import { listModels } from '../packages/translation/provider';
 import { apiTargetId, type ModelConnection, type ModelTarget } from '../packages/model-api/types';
 import { assertDelegation, modelAgentTools } from '../packages/model-api/agent-tools';
-import { apiLocalToolDefinitions, runApiCommand } from '../apps/desktop/host/api-local-tools';
+import { apiLocalToolDefinitions, runApiCommand, ApiLocalTools } from '../apps/desktop/host/api-local-tools';
+import { PluginRegistry } from '../packages/plugins-core';
+import { encodeZip } from '../packages/native-resources/archive';
 import { StateStore, SecretStore } from '../apps/desktop/host/store';
 import { WorkbenchController, type HostActions } from '../apps/desktop/host/controller';
 import { selectedSharedAccountRef } from '../packages/account-selection';
@@ -27,6 +29,33 @@ const json=(body:unknown,status=200)=>new Response(JSON.stringify(body),{status,
 const finished=(text='SYNTHETIC_RESULT')=>({choices:[{finish_reason:'stop',message:{role:'assistant',content:text}}],usage:{prompt_tokens:120,completion_tokens:14}});
 const wait=async(predicate:()=>boolean)=>{for(let i=0;i<500&&!predicate();i++)await new Promise(r=>setTimeout(r,5));assert.ok(predicate(),'Timed out waiting for isolated fixture');};
 const sse=(events:unknown[],done=true)=>{const data=events.map(event=>'data: '+JSON.stringify(event)+'\n\n').join('')+(done?'data: [DONE]\n\n':'');const bytes=new TextEncoder().encode(data);return new Response(new ReadableStream({start(controller){for(let i=0;i<bytes.length;i+=3)controller.enqueue(bytes.slice(i,i+3));controller.close();}}),{headers:{'content-type':'text/event-stream'}});};
+
+test('full-access commands use selected permission and approved executor replacements restore on disable',async()=>{
+ let n=0;
+ const f=await fixture(async()=>++n%2===1?json({choices:[{finish_reason:'tool_calls',message:{role:'assistant',tool_calls:[{id:'command-'+n,type:'function',function:{name:'run_command',arguments:JSON.stringify({command:'echo fixture-command'})}}]}}]}):json(finished()));
+ const plugins=new PluginRegistry(path.join(f.directory,'plugins'));await plugins.initialize();
+ try{
+  for(const[id,service]of Object.entries(f.controller.developmentServices()))if(service)plugins.services.register(id,service,{version:1});
+  const local=f.controller.developmentServices()['runtime.api.tools'] as ApiLocalTools;
+  const original=local.executeCommand;
+  const id='test.command-executor',manifest={schemaVersion:1,apiVersion:1,id,name:'Command fixture',version:'1.0.0',description:'Isolated execution fixture',capabilities:['host'],main:'main.mjs'};
+  const source=`export function activate(api){api.services.register('${id}',{execute:async()=>({exitCode:0,stdout:'PLUGIN_EXECUTOR',stderr:''})},{version:1});api.services.override('runtime.api.tools',{executeCommand:(...args)=>api.services.get('${id}').execute(...args)});}`;
+  const zip=path.join(f.directory,'plugin.zip');await writeFile(zip,encodeZip([{name:'workbench.plugin.json',data:Buffer.from(JSON.stringify(manifest))},{name:'main.mjs',data:Buffer.from(source)}]));await plugins.importZip(zip);const hash=(await plugins.list())[0]!.hash;
+  await plugins.setEnabled(id,hash,true,true);
+  const chat=await f.create(await f.save());await f.controller.call('session/permissions',{sessionId:chat.id,permissionMode:'full-access'});
+  await f.submit(chat.id);await wait(()=>f.store.snapshot().sessions[0]!.status==='idle');
+  assert.equal(f.store.snapshot().sessions[0]!.nativeApprovals?.length,0);
+  assert.match(JSON.stringify(f.store.snapshot().sessions[0]!.activities),/PLUGIN_EXECUTOR/);
+  await plugins.setEnabled(id,hash,false);assert.equal(local.executeCommand,original);
+  let approvals=0;const session={...chat,permissionMode:'full-access' as const};
+  const result=await local.call(session,'run_command',{command:'echo fixture-command'},new AbortController().signal,async()=>{approvals++;return false;}) as any;
+  assert.equal(approvals,0);assert.match(result.stdout,/fixture-command/);
+  await plugins.setEnabled(id,hash,true);
+  const declined=await local.call({...session,permissionMode:'default'},'run_command',{command:'unused'},new AbortController().signal,async()=>{approvals++;return false;}) as any;
+  assert.equal(approvals,1);assert.equal(declined.executed,false);
+  for(const permissionMode of ['read-only','plan'] as const)await assert.rejects(local.call({...session,permissionMode},'run_command',{command:'unused'},new AbortController().signal,async()=>{throw Error('must not ask');}),/READ_ONLY/);
+ }finally{await plugins.dispose();await f.close();}
+});
 
 test('explicit running API input joins at a request boundary without replaying the active request',async()=>{
  let release!:(value:Response)=>void,n=0;

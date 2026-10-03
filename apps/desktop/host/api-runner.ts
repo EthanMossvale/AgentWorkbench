@@ -28,7 +28,7 @@ const estimate=(history:ApiHistoryEntry[])=>history.reduce((sum,item)=>sum+Buffe
 export class ApiRunner {
   private active=new Map<string,Active>();
   private approvals=new Map<string,{sessionId:string;resolve:(value:boolean)=>void}>();
-  constructor(private connections:ModelConnections,private hooks:Hooks,private local:ApiLocalTools,private fetcher:typeof fetch=fetch){}
+  constructor(private connections:ModelConnections,private hooks:Hooks,readonly local:ApiLocalTools,private fetcher:typeof fetch=fetch){}
   busy(id:string){return this.active.has(id);}
   private session(id:string){const session=this.hooks.snapshot().sessions.find(item=>item.id===id);if(!session)throw Error('会话不存在。');return session;}
   private update(id:string,change:(session:Session)=>void){return this.hooks.update(s=>{const session=s.sessions.find(item=>item.id===id);if(!session)throw Error('会话不存在。');change(session);});}

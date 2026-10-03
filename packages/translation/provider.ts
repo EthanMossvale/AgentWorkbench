@@ -164,8 +164,6 @@ export class Translator {
       if(typeof data.model==='string')reportedModel=data.model;
       output=outputText(data,profile.protocol);
     }
-    // Literal spans are still placeholders here; remaining Han is untranslated prose.
-    if(direction==='input'&&/[\p{Script=Han}]/u.test(output))throw Error('输入翻译未完成：正文仍含中文；内容未发送，请重试翻译。');
     let result:string;
     if(protectedSegments){
       let translated:unknown;try{translated=JSON.parse(output);}catch{throw Error('分段译文格式无效，未使用错位译文。');}

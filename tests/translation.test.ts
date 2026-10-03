@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { protect,restore,hashText,assertNoSecrets } from '../packages/translation/protection';
+import { protect,restore,hashText } from '../packages/translation/protection';
 import { Translator,listModels,endpoint,protocolCandidates } from '../packages/translation/provider';
 import { InputGate } from '../packages/translation/gate';
 import { OverlayStore } from '../packages/translation/overlay';
@@ -15,13 +15,13 @@ test('protected code, mixed paths, URL, quoted literal, hashes round-trip byte e
  const p=protect(input);assert.equal(restore(p.text,p),input);assert.ok(p.spans.length>=7);assert.ok(!p.text.includes('const 汉字'));assert.ok(!p.text.includes('模型.blend'));assert.ok(!p.text.includes('example.test'));
 });
 test('standalone JSON and diff are exact protected payloads',()=>{for(const input of ['{ "name": "中文", "count": 2 }','diff --git a/a b/a\n--- a/a\n+++ b/a\n@@ -1 +1 @@\n-旧\n+新']){const p=protect(input);assert.equal(p.spans.length,1);assert.equal(restore(p.text,p),input);}});
-test('command lines remain literal and incomplete code blocks fail closed',()=>{const source='请运行：\nnpm test -- --file 中文.txt\n不要修改文件';const p=protect(source);assert.ok(p.spans.some(s=>s.original.includes('npm test')));assert.equal(restore(p.text,p),source);assert.throws(()=>protect('```js\nconst token = 1;'),/围栏/);});
+test('command lines remain literal and incomplete code blocks remain literal',()=>{const source='请运行：\nnpm test -- --file 中文.txt\n不要修改文件';const p=protect(source);assert.ok(p.spans.some(s=>s.original.includes('npm test')));assert.equal(restore(p.text,p),source);const unfinished='```js\nconst token = 1;',value=protect(unfinished);assert.equal(restore(value.text,value),unfinished);assert.ok(!value.text.includes('const token'));});
 test('nested code protection preserves quote and list prefixes without freezing nearby prose',()=>{
  for(const input of ['- Description\n\n  ```js\n  const text = "literal";\n  ```\n\n  Continue.','- Description\n\n      const text = "literal";\n\n  Continue.','> Description\n>\n> ```js\n> const text = "literal";\n> ```\n>\n> Continue.','Description\r\n\r\n- ```js\r\n  const text = "literal";\r\n  ```\r\n\r\nContinue.','Description\n\n````md\n```js\nliteral\n```\n````\n\nContinue.']){const value=protect(input);assert.equal(restore(value.text,value),input);assert.ok(!value.text.includes('literal'));assert.ok(value.text.includes('Description'));assert.ok(value.text.includes('Continue.'));}
- for(const input of ['- Description\n\n  ```js\n  const text = "literal";','```'])assert.throws(()=>protect(input),/围栏/);
+ for(const input of ['- Description\n\n  ```js\n  const text = "literal";','```']){const value=protect(input);assert.equal(restore(value.text,value),input);assert.ok(!value.text.includes('```'));}
 });
 test('missing duplicated modified or foreign placeholder is rejected',()=>{const p=protect('修改 `x.ts`');const token=p.spans[0]!.token;assert.throws(()=>restore('changed',p));assert.throws(()=>restore(token+token,p));assert.throws(()=>restore(token.replace('AW_','AX_'),p));assert.throws(()=>restore(token+'⟦AW_bad_0⟧',p));});
-test('credential-looking input is stopped before third party',()=>{assert.throws(()=>assertNoSecrets('api_key=abcdefghijklmnop'));assert.throws(()=>protect('-----BEGIN OPENSSH PRIVATE KEY-----'));});
+test('credential-like examples no longer block explicitly configured translation',()=>{for(const text of ['api_key=example_example_example','-----BEGIN OPENSSH PRIVATE KEY-----']){const value=protect(text);assert.equal(restore(value.text,value),text);}});
 test('endpoint rejects secrets, nonlocal plaintext URL and queries',()=>{for(const url of ['http://a.example','https://user:pass@a.example','https://a.example?x=1','http://192.168.1.2/v1'])assert.throws(()=>endpoint(url,'models'));assert.equal(endpoint('https://api.example/v1/','models').href,'https://api.example/v1/models');assert.equal(protocolCandidates('https://unknown.example/v1').length,3);});
 for(const protocol of ['chat-completions','responses','anthropic-messages'] as const)test(`real request shaping and extraction: ${protocol}`,async()=>{
  let calls=0;
@@ -50,10 +50,10 @@ test('signed source block preserved; newer overlay revision wins',async()=>{cons
 test('tool approvals and nonpublic payloads never enter overlay translation',async()=>{const store=new OverlayStore();for(const type of ['approval','tool','error'] as const){store.ingest({id:type,sessionId:'s',sequence:1,revision:1,type,text:'native',public:true,timestamp:'now'});await assert.rejects(store.translate('s',type,async t=>result(t)));}});
 test('queue deduplicates by immutable key and prioritizes input then final',async()=>{const queue=new TranslationQueue(1);const order:string[]=[];const start=deferred<void>();const first=queue.enqueue('first','progress',()=>start.promise);const p=queue.enqueue('p','progress',async()=>{order.push('progress');return 1;});const f=queue.enqueue('f','final',async()=>{order.push('final');return 2;});const i=queue.enqueue('i','input',async()=>{order.push('input');return 3;});const duplicate=queue.enqueue('i','input',async()=>999);assert.equal(i,duplicate);start.resolve();await Promise.all([first,p,f,i]);assert.deepEqual(order,['input','final','progress']);});
 
-test('input translation fails closed on echoed or partly untranslated Chinese, preserving literal paths',async()=>{
+test('input translation accepts user-reviewable mixed language and preserves literal paths',async()=>{
  for(const reply of ['测试，开一个新会话','Open a new session，测试']){
   const translator=new Translator(async()=>new Response(JSON.stringify({choices:[{finish_reason:'stop',message:{content:reply}}]}),{status:200}));
-  await assert.rejects(translator.translate('测试，开一个新会话','input',base,'fixture'),/正文仍含中文/);
+  assert.equal((await translator.translate('测试，开一个新会话','input',base,'fixture')).text,reply);
  }
  const translator=new Translator(async(_url,init)=>{const body=JSON.parse(String(init?.body));const translated=body.messages.at(-1).content.replace('请检查','Please inspect');return new Response(JSON.stringify({choices:[{finish_reason:'stop',message:{content:translated}}]}),{status:200});});
  assert.equal((await translator.translate('请检查 `中文.txt`','input',base,'literal')).text,'Please inspect `中文.txt`');

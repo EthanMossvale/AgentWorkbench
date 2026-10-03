@@ -315,7 +315,7 @@ export class WorkbenchController {
       'sessions.native-titles': nativeSessionTitles,
       'workbench.state': { get: () => this.publicState(this.store.snapshot()), update: (change: (state: AppState) => void) => this.update(change) },
       'workbench.store': this.store, 'workbench.secrets': this.secrets, 'workbench.actions': this.actions,
-      'models.account-export': this.accountExport, 'models.account-names': this.accountNames, 'models.accounts': this.localAccounts, 'models.account-access': this.localAccounts.access, 'model.connections': this.modelConnections, 'runtime.api': this.apiRunner, 'runtime.extensions': this.pluginRuntimes,
+      'models.account-export': this.accountExport, 'models.account-names': this.accountNames, 'models.accounts': this.localAccounts, 'models.account-access': this.localAccounts.access, 'model.connections': this.modelConnections, 'runtime.api': this.apiRunner, 'runtime.api.tools': this.apiRunner.local, 'runtime.extensions': this.pluginRuntimes,
       'remote.configurations': this.remoteConfigurations,
       'models.targets': this.targetCatalog,
       'runtime.native-provider': this.nativeProvider, 'runtime.codex': this.nativeCodex,
