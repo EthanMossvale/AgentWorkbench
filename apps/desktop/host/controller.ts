@@ -51,6 +51,7 @@ import type { AccountCatalog, AppState, Capability, DraftPreview, Message, Proje
 import { StateStore, SecretStore } from './store';
 import { InputGate } from '../../../packages/translation/gate';
 import { TranslationModule, translationEnabled } from '../../../packages/translation/module';
+import { TranslationLayouts } from '../../../packages/translation/layouts';
 import { NativeTranslationRunner } from '../../../packages/translation/native';
 import { recordTranslationUsage } from '../../../packages/translation/usage';
 import { WorkbenchTranslationTargets } from './translation-targets';
@@ -280,6 +281,7 @@ export class WorkbenchController {
     this.apiRunner=new ApiRunner(this.modelConnections,{attachments:actions.attachments,snapshot:()=>store.snapshot(),update:fn=>this.update(fn),peers:id=>this.nativePeerTools(id),peerContext:id=>this.nativePeerContext(id),context:async id=>this.shared?composeSharedContextInput('',await this.contextSnapshot(this.session(id))).input:'',translate:(id,message)=>{if(this.translationModule.enabled()&&(message.phase!=='commentary'||store.snapshot().translateIntermediate!==false))void this.translateMessage(id,message);}},new ApiLocalTools(actions.modelControlPaths??[]),actions.modelFetcher);
     if(shared?.native)this.nativeProvider=new NativeProviderRunner(this.modelConnections,shared.native.cli,{managedDirectory:store.directory,quota:actions.quotaAccounting,attachments:actions.attachments,snapshot:()=>store.snapshot(),update:fn=>this.update(fn),peers:id=>this.nativePeerTools(id),observe:(id,source)=>this.observeNativeSession(id,source),remoteClaude:actions.nativeClaude,assertRemoteClaude:session=>this.assertRemoteClaude(session),beforeRemoteClaude:async(session,signal)=>{signal.throwIfAborted();const host=this.host(session.binding.hostId);await this.readAccountCatalog(host);signal.throwIfAborted();this.assertRemoteClaude(session);const admin=this.store.snapshot().hosts.find(h=>h.role==='admin'&&h.username==='root'&&this.maintenanceKey(h,'claude')===this.maintenanceKey(host,'claude'));await actions.sessionStorage?.restoreFor(admin,session,{signal});},context:async id=>composeSharedContextInput('',await this.contextSnapshot(this.session(id))).input,translate:(id,message)=>{if(this.translationModule.enabled()&&(message.phase!=='commentary'||store.snapshot().translateIntermediate!==false))void this.translateMessage(id,message);}},actions.modelFetcher,this.localAccounts);
     this.followUps.modes.subscribe(()=>{if(!this.disposing)this.changed(this.publicState(this.store.snapshot()));});
+    this.translationLayouts.subscribe(()=>{if(!this.disposing)this.changed(this.publicState(this.store.snapshot()));});
     this.followUps.subscribe(()=>{if(!this.disposing)this.changed(this.publicState(this.store.snapshot()));});
     if(actions.nativeCodex)this.nativeCodex=new NativeCodexRunner(actions.nativeCodex,{beforeConnect:async(session,host,signal)=>{const admin=this.store.snapshot().hosts.find(h=>h.role==='admin'&&h.username==='root'&&this.maintenanceKey(h,session.binding.runtime)===this.maintenanceKey(host,session.binding.runtime));await actions.sessionStorage?.restoreFor(admin,session,{signal});},attachments:actions.attachments,quota:actions.quotaAccounting,snapshot:()=>this.store.snapshot(),update:change=>this.update(change),context:async id=>({snapshot:await this.contextSnapshot(this.session(id))}),peers:id=>({peerContext:this.nativePeerContext(id),peerTools:this.nativePeerTools(id)}),observe:(id,handle)=>this.observeNativeSession(id,handle.connection.rpc),translate:(id,message)=>{if(this.translationModule.enabled()&&(message.phase!=='commentary'||this.store.snapshot().translateIntermediate!==false))void this.translateMessage(id,message);}});
     if(shared?.native?.memory)shared.native.memory.background.registerExecutor(new NativeMemoryTaskExecutor(this.modelConnections,shared.native.cli,actions.modelFetcher,this.localAccounts,{remote:{
@@ -306,6 +308,9 @@ export class WorkbenchController {
       'composer.annotations': this.annotations,
       'sessions.follow-up-modes': this.followUps.modes,
       'files.navigation': this.fileNavigation,
+      'sessions.recovery': this.sessionRecovery,
+      'translation.layouts': this.translationLayouts,
+      'translation.workflow': this.translationWorkflow,
       'native.event-semantics': nativeEventSemantics,
       'sessions.native-titles': nativeSessionTitles,
       'workbench.state': { get: () => this.publicState(this.store.snapshot()), update: (change: (state: AppState) => void) => this.update(change) },
@@ -333,6 +338,34 @@ export class WorkbenchController {
   }
   readonly pluginRuntimes: PluginRuntimeHost;
   readonly fileNavigation = new FileNavigationService();
+  readonly translationLayouts = new TranslationLayouts();
+  readonly translationWorkflow:import('../../../packages/translation/layouts').TranslationWorkflowApi = {
+    seamless:async()=>{
+      const endChange=this.translationModule.beginConfigurationChange();this.gate.invalidatePending();
+      const operation=this.settingsQueue.then(()=>this.update(s=>{
+        s.plugins??={};s.plugins.translation={enabled:true};s.translationQuickToggle={show:s.translationQuickToggle?.show??true,paused:false};
+        s.translateInput=true;s.translateFinal=true;s.translationLayout='translated-only';s.autoSubmitTranslated=true;
+      }));this.settingsQueue=operation.then(()=>{},()=>{});
+      try{return await operation;}finally{endChange();}
+    }
+  };
+  readonly sessionRecovery:import('../../../packages/session-core/recovery').SessionRecoveryApi = {
+    endWait: async (sessionId:string,confirm:boolean):Promise<unknown> => {
+      const session=this.session(sessionId);
+      if(confirm!==true||session.status!=='uncertain')throw Error('SESSION_RECOVERY_CONFIRM_REQUIRED');
+      if(this.modelSwitching.has(sessionId)||this.permissionChanges.has(sessionId)||this.forking.has(sessionId)||this.sessionOperations.has(sessionId)||this.activeTurns.has(sessionId)||this.gate.hasPending(sessionId)||this.apiRunner.busy(sessionId)||this.nativeProvider?.hasTransport(sessionId)||this.nativeCodex?.busy(sessionId)||this.pluginRuntimes.busy(sessionId))throw Error('SESSION_RECOVERY_BUSY: 当前运行时仍有活动连接，请先停止任务并等待清理。');
+      return this.withSessionOperation(sessionId,()=>this.update(state=>{
+        const current=state.sessions.find(item=>item.id===sessionId)!;
+        if(current.status!=='uncertain')throw Error('SESSION_RECOVERY_CHANGED');
+        current.status='idle';current.nativeObservation='disconnected';current.nativeApprovals=[];
+        expireInteractions(current,'uncertain');
+        current.nativeError='已由你核对并结束等待；此前回合及进程清理结果仍未知，没有重发旧请求。';
+        for(const item of current.activities??[])if(item.status==='running')item.status='uncertain';
+        for(const child of current.nativeChildren??[])if(['spawn','progress'].includes(child.operation))child.status='uncertain';
+        for(const message of current.messages)if(message.delivery==='pending')message.delivery='uncertain';
+      }));
+    }
+  };
   readonly generatedImages?: WorkspaceGeneratedImages;
   private disposing=false;
   private worktreeMaintenance=false;
@@ -454,7 +487,7 @@ export class WorkbenchController {
       return models.length&&this.supportsRemoteClaude(sample)?{ready:true}:{ready:false,reason};
     }catch{return {ready:false,reason:current()?reason:'changed'};}
   }
-  private publicState(s:AppState){for(const session of s.sessions){session.messages.push(...draftRecovery.pendingMessages(session,new Date().toISOString()));session.nativeContextUsage??=nativeContextState.recover(session);}s.followUpModes=this.followUps.modes.list();s.runtimeExtensions=this.pluginRuntimes.registry.list();s.nativeCodexBindings=[];for(const host of s.hosts){const ref=selectedSharedAccountRef(s.accountCatalogs?.[host.id]);if(ref&&this.actions.nativeCodex?.supports(host,{binding:{runtime:'codex',provider:'openai',hostId:host.id,executionId:'local-device',egress:'vps',accountRef:ref,accountRuntime:s.accountCatalogs?.[host.id]?.source}} as Session))s.nativeCodexBindings.push({hostId:host.id,accountRef:ref});}for(const session of s.sessions)session.followUpError=this.followUps.status(session.id).error;for(const session of s.sessions)session.nativeReady=isPluginRuntime(session.binding.runtime)?!!s.runtimeExtensions.find(r=>r.id===session.binding.runtime&&r.owner===session.pluginRuntime?.owner&&r.ready):this.supportsRemoteClaude(session)||!!this.nativeCodex?.supports(session);return s;}
+  private publicState(s:AppState){s.translationLayouts=this.translationLayouts.list().map(option=>({...option,mode:this.translationLayouts.resolve(option.id)}));for(const session of s.sessions){session.messages.push(...draftRecovery.pendingMessages(session,new Date().toISOString()));session.nativeContextUsage??=nativeContextState.recover(session);}s.followUpModes=this.followUps.modes.list();s.runtimeExtensions=this.pluginRuntimes.registry.list();s.nativeCodexBindings=[];for(const host of s.hosts){const ref=selectedSharedAccountRef(s.accountCatalogs?.[host.id]);if(ref&&this.actions.nativeCodex?.supports(host,{binding:{runtime:'codex',provider:'openai',hostId:host.id,executionId:'local-device',egress:'vps',accountRef:ref,accountRuntime:s.accountCatalogs?.[host.id]?.source}} as Session))s.nativeCodexBindings.push({hostId:host.id,accountRef:ref});}for(const session of s.sessions)session.followUpError=this.followUps.status(session.id).error;for(const session of s.sessions)session.nativeReady=isPluginRuntime(session.binding.runtime)?!!s.runtimeExtensions.find(r=>r.id===session.binding.runtime&&r.owner===session.pluginRuntime?.owner&&r.ready):this.supportsRemoteClaude(session)||!!this.nativeCodex?.supports(session);return s;}
   private async update(fn:(state:AppState)=>void){const s=this.publicState(await this.store.update(state=>{rememberMemoryDefault(state);rememberRuntimeModel(state);fn(state);rememberMemoryDefault(state);rememberRuntimeModel(state);}));this.changed(s);this.interactionFlow?.observe(s);this.planFlow?.observe(s);this.followUps.observe();return s;}
   private sendInteraction(session:Session,id:RequestId,reply:InteractionReply){this.assertDraftRuntime(session);if(isPluginRuntime(session.binding.runtime))return this.pluginRuntimes.interaction(session.id,id,reply);if(this.providerBinding(session.binding)){if(!this.nativeProvider||session.binding.runtime==='api')throw Error('此会话未连接原生交互。');return this.nativeProvider.interaction(session.id,id,reply);}return this.nativeCodex!.interaction(session.id,id,reply);}
   private assertDraftRuntime(session:Session){if(isPluginRuntime(session.binding.runtime)){this.pluginRuntimes.entry(session);return;}if(session.binding.hostId)this.assertRemoteMaintenance(this.host(session.binding.hostId),session.binding.runtime);if(this.modelSwitching.has(session.id))throw Error('模型正在切换。');if(session.binding.runtime==='demo')return;if(this.providerBinding(session.binding)){if(session.binding.runtime==='claude'&&!this.nativeProvider)throw Error('Claude SSH 工具连接尚未就绪。');if(this.nativeProvider&&session.binding.runtime==='api')throw Error('请选择 Codex 或 Claude Code，再选择此模型来源；旧会话历史保留。');this.providerRunner(session).assertAllowed(session);return;}if(!this.nativeCodex)throw new Error('H 原生桥尚未完成该连接的工具/文件视图验收，提交已阻止。');this.nativeCodex.assertAllowed(session);}
@@ -933,9 +966,11 @@ export class WorkbenchController {
       }
       case 'translation/intermediate':return this.update(s=>{s.translateIntermediate=flag(p.enabled,'中途消息翻译');});
       case 'translation/layout':{
-        if(p.layout!=='panel'&&p.layout!=='inline')throw Error('请选择有效的翻译样式。');
-        const layout=p.layout;return this.update(s=>{s.translationLayout=layout;});
+        const layout=required(p.layout,'翻译样式');
+        if(!this.translationLayouts.list().some(option=>option.id===layout))throw Error('请选择有效的翻译样式。');
+        return this.update(s=>{s.translationLayout=layout;});
       }
+      case 'translation/seamless':return this.translationWorkflow.seamless();
       case 'session/plan':return this.planFlow.read(this.session(p.sessionId).id,parsePlanReference(p.reference));
       case 'plan/translate':return this.planFlow.translate(this.session(p.sessionId).id,parsePlanReference(p.reference),p.blockIndex);
       case 'session/plan/respond':{
@@ -1049,7 +1084,7 @@ export class WorkbenchController {
         const question=p.questionReply===undefined?undefined:prepareAsyncQuestion(session,p.questionReply);
         if(question&&(p.attachmentIds!==undefined||p.skills!==undefined||p.demo===true||p.bypass===true||p.text!==undefined))throw Error('ASYNC_QUESTION_INVALID');
         const attachments=p.attachmentIds===undefined?[]:await this.actions.attachments?.resolve(p.attachmentIds);if(!attachments)throw Error('附件存储不可用。');if(session.binding.runtime==='codex'&&attachments.filter(a=>a.mime.startsWith('image/')).reduce((sum,a)=>sum+a.size,0)>5*1024*1024)throw Error('当前原生连接每条消息最多发送 5 MB 图片，请减少图片或压缩后重新添加。');const input=question?.original??text(p.text,'输入',100000);const annotations=p.annotationRevision===undefined?undefined:this.annotations.read(session.id);if(annotations&&annotations.revision!==p.annotationRevision)throw Error('ANNOTATION_CONFLICT');if(!input.trim()&&!annotations?.items.length&&!attachments.length&&!(Array.isArray(p.skills)&&p.skills.length))throw new Error('输入不能为空。');const moduleDisabled=!this.translationModule.enabled(),demo=!moduleDisabled&&p.demo===true,bypass=moduleDisabled||p.bypass===true;
-        if(!moduleDisabled&&p.bypass===true&&/[\p{Script=Han}]/u.test(input))throw Error('翻译开启时必须先完成英文输入翻译；原稿未发送。');
+        if(!moduleDisabled&&p.bypass===true&&p.confirmOriginal!==true&&/[\p{Script=Han}]/u.test(input))throw Error('翻译开启时必须先完成英文输入翻译；原稿未发送。');
         if(demo&&input!==DEMO_INPUT)throw new Error('离线翻译只提供明确的固定样例；其他中文请配置真实翻译服务或本次直接发送原文。');
         if(!demo&&session.status==='idle')void this.prepareRuntime(session.id).catch(()=>{});
         const skills=await this.resolveComposerSkills(session,p.skills);
@@ -1067,7 +1102,7 @@ export class WorkbenchController {
             currentAsyncQuestion(this.session(session.id),question.reference.messageId,question.reference);this.translationModule.assertConfiguration(policy);
             return question.serialize(records);
           }
-          if(!moduleDisabled&&annotationsNeedInputTranslation(annotations?.items)&&(bypass||demo))throw Error('中文注释需要翻译并预览，请使用生成发送预览。');
+          if(!moduleDisabled&&annotationsNeedInputTranslation(annotations?.items)&&(bypass||demo)&&p.confirmOriginal!==true)throw Error('中文注释需要翻译并预览，请使用生成发送预览。');
           if(bypass)return source;
           if(demo)return DEMO_TRANSLATED;
           if(annotations?.items.length&&/[\p{Script=Han}]/u.test(source+annotations.items.map(item=>item.text).join(''))){
@@ -1099,6 +1134,7 @@ export class WorkbenchController {
         const session=this.session(p.sessionId);const id=required(p.id,'输入ID');this.assertDraftRuntime(session);const steering=this.steeringPreviews.get(id);if(steering?(session.nativeTurnId!==steering.expectedTurnId||!(session.status==='running'||steering.action==='queue'&&session.status==='idle')):session.status!=='idle')throw new Error('回合已结束或变化，请重新检查草稿；没有自动发送新任务。');
         if(p.automatic===true&&(!this.translationModule.enabled()||!this.store.snapshot().autoSubmitTranslated))throw new Error('直接发送已关闭，请检查预览后确认。');
         const preview=this.gate.getPreview(id,session.id);
+        if(p.automatic===true&&preview.bypass&&!preview.moduleDisabled)throw Error('原文发送需要核对预览后确认。');
         if(p.automatic===true&&!preview.moduleDisabled&&annotationsNeedInputTranslation(preview.annotations))throw Error('中文注释需要确认发送预览。');
         if(preview.annotationRevision!==undefined&&this.annotations.read(session.id).revision!==preview.annotationRevision)throw Error('ANNOTATION_CONFLICT');
         const question=this.questionPreviews.get(id);if(question)currentAsyncQuestion(session,question.reference.messageId,question.reference);
@@ -1175,7 +1211,8 @@ export class WorkbenchController {
         if(!item?.url||!this.actions.openWeb)throw Error('此确认链接已失效或当前无法打开。');
         await this.actions.openWeb(safeInteractionUrl(item.url));return null;
       }
-      case 'session/api-acknowledge':{const session=this.session(p.sessionId);if(!localModelBinding(session.binding)||session.status!=='uncertain'||p.confirm!==true||this.apiRunner.busy(session.id)||this.nativeProvider?.busy(session.id))throw Error('请确认结束等待当前 API 结果。');return this.update(s=>{const current=s.sessions.find(item=>item.id===session.id)!;current.status='idle';current.nativeError='已由你结束等待；上游结果仍未知，没有重发旧请求。';});}
+      case 'session/end-wait':return this.sessionRecovery.endWait(required(p.sessionId,'会话ID'),p.confirm===true);
+      case 'session/api-acknowledge':{const session=this.session(p.sessionId);if(!localModelBinding(session.binding))throw Error('请确认结束等待当前 API 结果。');return this.sessionRecovery.endWait(session.id,p.confirm===true);}
       case 'ssh/pick-file':{const service=this.actions.sshOnboarding;if(!service)throw Error('SSH 文件选择不可用。');return service.pick(required(p.kind,'文件类型') as 'key'|'config'|'known-hosts');}
       case 'ssh/import-file':{const service=this.actions.sshOnboarding;if(!service)throw Error('SSH 文件导入不可用。');return service.importFile(required(p.filePath,'文件路径'));}
       case 'ssh/scan-host-key':{const service=this.actions.sshOnboarding;if(!service)throw Error('SSH 身份读取不可用。');return service.scan(p.hostname,p.port);}

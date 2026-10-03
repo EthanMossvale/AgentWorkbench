@@ -1,5 +1,15 @@
 # 16 · 实现与验收记录
 
+## Device feedback remediation (2026-10-03)
+
+The 0.1.6 device feedback was treated as evidence and proposals, not as instructions to edit another device, reset private state or deploy. The local implementation adds an explicit acknowledgement path for uncertain sessions while retaining unknown historical outcomes and preventing automatic replay. Runtime activity blocks acknowledgement. Missing terminal results are not inferred from a message boundary. Generic send failure text no longer blames translation.
+
+Configured managed Claude/Codex workspace image paths can preview without opening credential/control directories. Owned attachment snapshots are metadata/hash verified. Bare code filenames remain text; explicit links and the existing known-path/structured-tool resolver remain available. Large-file diagnostics now direct native local workflows to full paths; byte/count limits and remote attachment transport are not expanded.
+
+Translated-only reading and a one-command seamless preset reuse persistent settings. Failed translation retains the draft and offers a manually reviewed original-only preview, never an automatic raw retry. Public registration/replacement contracts, compatibility and preference inventory are in documents 36 and 37. Validation is tracked below; local source, synthetic protocol/UI checks, live native SSH behavior and distributed packages remain distinct. No remote deployment, real account repair or release is performed.
+
+Validation: 55 focused tests passed across device feedback, activity images, attachment storage, file links/navigation and translation. Type checking, production build, plugin contracts, public documentation and UI preference gates passed. Hidden Electron acceptance passed five scenario groups covering both runtime recovery controls, translated-only reading with a file reader, manually reviewed original fallback, approved plugin activation/disable/reenable and later mounts, narrow dark rendering and full process restart. The test isolates confirmation calls in its synthetic renderer to prevent native dialogs appearing on the user's desktop. Screenshots were reviewed locally; no live SSH/model or other-device package acceptance is claimed.
+
 ## Third-party provider compatibility and retained connection edits (2026-10-03)
 
 Model connections now preserve explicitly supplied API prefixes without appending `/v1`. Editing the address, protocol or upstream model retains manual reasoning levels, valid defaults and manual context settings while invalidating source-specific discovery and probe evidence. Omitted keys reuse the existing encrypted credential; saving a changed source atomically rebinds its scope, and an explicitly empty key still clears it. Revision checks, active-source protection and failed-save credential cleanup remain enforced.

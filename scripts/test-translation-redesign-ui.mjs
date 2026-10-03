@@ -30,7 +30,7 @@ try{
  await launch();session=await call('session/create',{runtime:'demo'});await settings();
  await check('compact placement controls, no redundant input switch, and source tabs',async()=>{
   assert.equal(await page.getByText('输入先翻译为英文',{exact:true}).count(),0);
-  const boxes=await page.locator('.translation-layout-options label').evaluateAll(nodes=>nodes.map(n=>({w:n.getBoundingClientRect().width,h:n.getBoundingClientRect().height})));assert.equal(boxes.length,2);assert.ok(boxes.every(b=>b.h<=34&&b.w<160),JSON.stringify(boxes));
+  const boxes=await page.locator('.translation-layout-options label').evaluateAll(nodes=>nodes.map(n=>({w:n.getBoundingClientRect().width,h:n.getBoundingClientRect().height})));assert.equal(boxes.length,3);assert.ok(boxes.every(b=>b.h<=34&&b.w<160),JSON.stringify(boxes));
   await page.getByRole('tab',{name:'已启用模型',exact:true}).click();await page.getByTestId('translation-target').selectOption('api/fixture-api/model');await save('model');
   assert.equal(await page.getByTestId('translation-endpoint').count(),0);await page.screenshot({path:path.join(output,'settings-light.png')});
  });

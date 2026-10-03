@@ -1,7 +1,7 @@
-import { Fragment, memo, useEffect, useMemo, useState, type ReactNode } from 'react';
+import { Fragment, memo, useEffect, useMemo, useState, useSyncExternalStore, type ReactNode } from 'react';
 import type { Token, Tokens } from 'marked';
 import { markdownTokens, markdownLink, markdownText, markdownCode, markdownMath, type MarkdownMathToken } from '../../../packages/message-markdown';
-import { fileReference, webReference, linkedText, type LinkedText } from '../../../packages/navigation/file-links';
+import { fileReferenceRecognition, webReference, linkedText, type LinkedText } from '../../../packages/navigation/file-links';
 import { Icon } from './ui';
 import './MarkdownContent.css';
 import SyntaxCode from './SyntaxCode';
@@ -32,6 +32,7 @@ function CodeBlock({ token, onCopy, onCopyError }: { token: Tokens.Code } & Pick
   }}><Icon name={copied ? 'check' : 'copy'} size={13}/><span>{copied ? '已复制' : '复制'}</span></button></header><pre><SyntaxCode text={markdownCode(token)} language={token.lang??''}/></pre></div>;
 }
 export default memo(function MarkdownContent({ text, sessionId, renderLink, onCopy, onCopyError }: MarkdownContentProps) {
+  useSyncExternalStore(fileReferenceRecognition.subscribe,fileReferenceRecognition.revision);
   const tokens=useMemo(()=>markdownTokens(text),[text]);
   const plain = (text: string, key: string) => linkedText(markdownText(text)).map((item, index) => item.url || item.reference ? renderLink(item, `${key}-${index}`) : <Fragment key={`${key}-${index}`}>{item.text}</Fragment>);
   const render = (tokens: Token[], parent = 'md'): ReactNode[] => tokens.map((token, index) => {
@@ -50,7 +51,7 @@ export default memo(function MarkdownContent({ text, sessionId, renderLink, onCo
       case 'hr': return <hr key={key}/>;
       case 'heading': { const Tag = `h${token.depth}` as 'h1' | 'h2' | 'h3' | 'h4' | 'h5' | 'h6'; return <Tag key={key}>{inline(token.tokens)}</Tag>; }
       case 'blockquote': return <blockquote key={key}>{inline(token.tokens)}</blockquote>;
-      case 'codespan': { const value = token.text, url = webReference(value), reference = url ? undefined : fileReference(value), link = url ? { text: value, url } : reference ? { text: value, reference } : undefined; return <code className="markdown-inline-code" key={key}>{link ? renderLink(link, key) : value}</code>; }
+      case 'codespan': { const value = token.text, url = webReference(value), reference = url ? undefined : fileReferenceRecognition.code(value), link = url ? { text: value, url } : reference ? { text: value, reference } : undefined; return <code className="markdown-inline-code" key={key}>{link ? renderLink(link, key) : value}</code>; }
       case 'code': return <CodeBlock key={key} token={token as Tokens.Code} onCopy={onCopy} onCopyError={onCopyError}/>;
       case 'link': { const link = markdownLink(markdownText(token.href), markdownText(token.text)); return <Fragment key={key}>{link ? renderLink(link, key, inline(token.tokens)) : inline(token.tokens)}</Fragment>; }
       // Remote image URLs stay explicit links; model output never fetches tracking images automatically.

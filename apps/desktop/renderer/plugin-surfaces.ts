@@ -56,6 +56,8 @@ export const workbenchSurfaces = Object.freeze({
   'subagent-model-settings': '[data-testid="child-model-settings"]',
   'translation-toggle': '[data-testid="translation-quick-toggle"]',
   'translation-preview': '[data-workbench-preview]',
+  'translation-layout': '[data-workbench-translation-layout]',
+  'session-recovery': '[data-workbench-session-recovery]',
   'image-viewer': '.image-viewer', 'image-viewer-actions': '.image-viewer-actions',
   'image-viewer-zoom': '.image-zoom', 'attachment-list': '.attachment-list',
   'attachment-menu': '.attachment-context-actions', 'runtime-image-log': '.runtime-image-log',

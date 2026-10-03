@@ -1,5 +1,33 @@
 export interface FileReference { path: string; line?: number }
 export interface LinkedText { text: string; reference?: FileReference; url?: string }
+export interface FileReferenceRule { id:`plugin:${string}`; recognize(value:string):boolean|undefined }
+export interface FileReferenceRecognitionApi {
+  code(value:string):FileReference|undefined;
+  register(rule:FileReferenceRule):()=>void;
+  subscribe(listener:()=>void):()=>void;
+  revision():number;
+}
+const referenceRules=new Map<string,FileReferenceRule>();
+const referenceListeners=new Set<()=>void>();let referenceRevision=0;
+const referenceChanged=()=>{referenceRevision++;for(const listener of referenceListeners)listener();};
+export const fileReferenceRecognition:FileReferenceRecognitionApi={
+  subscribe(listener){referenceListeners.add(listener);return ()=>{referenceListeners.delete(listener);};},
+  revision:()=>referenceRevision,
+  code(value){
+    const reference=fileReference(value);if(!reference)return;
+    for(const rule of [...referenceRules.values()].reverse()){
+      const result=rule.recognize(value);
+      if(result!==undefined)return result?reference:undefined;
+    }
+    return /[\\/]/.test(reference.path)?reference:undefined;
+  },
+  register(rule){
+    if(!/^plugin:[a-z\d][a-z\d._-]*\/[a-z\d][a-z\d._-]*$/i.test(rule.id)||typeof rule.recognize!=='function')throw Error('FILE_REFERENCE_RULE_INVALID');
+    if(referenceRules.has(rule.id))throw Error('FILE_REFERENCE_RULE_DUPLICATE');
+    const entry={...rule};referenceRules.set(entry.id,entry);referenceChanged();
+    return ()=>{if(referenceRules.get(entry.id)===entry){referenceRules.delete(entry.id);referenceChanged();}};
+  }
+};
 export function isShortFileReference(value: string): boolean {
   return !!value && !/^(?:[a-z]:[\\/]|[\\/]|\.{1,2}[\\/]|~[\\/]|file:)/i.test(value);
 }
@@ -51,7 +79,7 @@ export function linkedText(source: string): LinkedText[] {
       trailing = raw.slice(trimmed.length); raw = trimmed;
     }
     raw = raw.replace(/^<|>$/g, '');
-    const url = webReference(raw), reference = url ? undefined : match[2] ? fileLinkDestination(raw) : fileReference(raw);
+    const url = webReference(raw), reference = url ? undefined : match[2] ? fileLinkDestination(raw) : match[3] ? fileReferenceRecognition.code(raw) : fileReference(raw);
     if (!url && !reference) continue;
     if (match.index! > cursor) result.push({ text: source.slice(cursor, match.index) });
     result.push({ text: match[1]?.replaceAll('`', '') ?? match[3] ?? match[4] ?? raw, ...(url ? { url } : { reference }) });

@@ -174,7 +174,8 @@ export interface AppState {
   /** Global preference, default on; existing translations are retained. */
   translateIntermediate?:boolean;
   /** Display only; moving a reader into the side panel does not trigger translation. */
-  translationLayout?:'panel'|'inline';
+  translationLayout?:string;
+  translationLayouts?:import('../translation/layouts').TranslationLayoutOption[];
   /** Global optional composer control; missing state defaults to shown and unpaused. */
   translationQuickToggle?:{show:boolean;paused:boolean};
   sidebarProjectOrder?:string[];

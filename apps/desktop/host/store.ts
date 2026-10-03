@@ -35,6 +35,7 @@ export class StateStore {
       this.state=saved;this.state.profiles??=[];
       delete this.state.runtimeExtensions;
       delete this.state.followUpModes;
+      delete this.state.translationLayouts;
       if(!isPluginRuntime(this.state.lastSelectedRuntime)&&!['demo','claude','codex','api'].includes(this.state.lastSelectedRuntime??''))this.state.lastSelectedRuntime='demo';
       this.state.modelConnections??=[];for(const connection of this.state.modelConnections){connection.enabled??=true;Object.assign(connection,API_DEFAULTS);}
       this.state.accountCatalogs??={};
@@ -48,7 +49,8 @@ export class StateStore {
       if(this.state.translationUsage)validateTranslationUsage(this.state.translationUsage);
       this.state.translationQuickToggle??={show:true,paused:false};
       if(typeof this.state.translationQuickToggle.show!=='boolean'||typeof this.state.translationQuickToggle.paused!=='boolean')throw new Error('临时翻译开关格式不正确；原文件未覆盖。');
-      if(!['panel','inline'].includes(this.state.translationLayout??''))this.state.translationLayout='panel';
+      if(this.state.translationLayout===undefined)this.state.translationLayout='panel';
+      else if(typeof this.state.translationLayout!=='string'||!this.state.translationLayout.trim()||this.state.translationLayout.length>160)throw Error('TRANSLATION_LAYOUT_INVALID: 原文件未覆盖。');
       if(this.state.plugins===undefined)this.state.plugins={translation:{enabled:true}};
       else if(!this.state.plugins||typeof this.state.plugins!=='object'||Array.isArray(this.state.plugins))throw new Error('模块设置格式不正确；原文件未覆盖。');
       const translationModule=this.state.plugins.translation;

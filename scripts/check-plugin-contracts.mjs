@@ -17,6 +17,7 @@ files.push('packages/model-api/types.ts','packages/workspace-control/native-runt
 files.push('services/claude-bridge/index.ts','services/claude-bridge/tools.ts','services/remote-supervisor/index.ts');
 files.push('services/claude-bridge/local-context.ts');
 files.push('packages/model-api/runtime-target.ts');
+files.push('packages/session-core/recovery.ts','packages/translation/layouts.ts');
 files.push('packages/model-api/context-state.ts');
 files.push('apps/desktop/host/workspace-management.ts');
 files.push('services/claude-bridge/policy.ts','services/claude-bridge/result-store.ts','services/claude-bridge/local-tasks.ts');

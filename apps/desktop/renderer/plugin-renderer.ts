@@ -10,6 +10,7 @@ import { fontPresets, type FontPluginApi, type FontPresetDefinition } from '../.
 import {imageViewerController,setComposerSizing,type MediaPluginApi} from './media-controller';
 import {textPastePolicies,type TextPastePolicy} from '../../../packages/attachments/paste';
 import { markdownApi } from '../../../packages/message-markdown';
+import {fileReferenceRecognition,type FileReferenceRecognitionApi} from '../../../packages/navigation/file-links';
 import {activityGrouping,type ActivityGroupingEntry,type ActivityGroupingRule} from '../../../packages/collaboration-core/activity-groups';
 import type { AppState, DesktopCommand, WorkbenchApi } from '../../../packages/contracts';
 import type { PluginRendererEntry, PluginHostEvent } from '../../../packages/plugins-core';
@@ -31,6 +32,7 @@ export interface RendererPluginApi {
   themes: ThemePluginApi;
   syntax: SyntaxPluginApi;
   markdown: typeof markdownApi;
+  fileReferences:FileReferenceRecognitionApi;
   media: MediaPluginApi;
   previews: PreviewPluginApi;
   version: 1; id: string; root: HTMLElement; signal: AbortSignal;
@@ -156,6 +158,7 @@ export function startPluginRenderers(bridge: WorkbenchApi | undefined, shell: HT
         subscribe:(listener:()=>void)=>{assertActive();return own(visualizations.subscribe(guarded(listener)));},
       }),
       markdown: markdownApi,
+      fileReferences: Object.freeze({code:(text:string)=>{assertActive();return fileReferenceRecognition.code(text);},subscribe:(listener:()=>void)=>{assertActive();return own(fileReferenceRecognition.subscribe(guarded(listener)));},revision:()=>{assertActive();return fileReferenceRecognition.revision();},register:(rule:import('../../../packages/navigation/file-links').FileReferenceRule)=>{assertActive();if(!rule.id.startsWith('plugin:'+entry.id+'/'))throw Error('FILE_REFERENCE_RULE_OWNER');return own(fileReferenceRecognition.register({...rule,recognize:text=>{try{assertActive();return rule.recognize(text);}catch(error){failed(error);return undefined;}}}));}}),
       version: 1 as const, id: entry.id, root: value.root, signal: value.abort.signal,
       media:Object.freeze({openImages:async(ids:string[],initialId?:string)=>{assertActive();const opened=await imageViewerController.open(ids,initialId);if(value.abort.signal.aborted||value.failed){if(imageViewerController.get()===opened)imageViewerController.close();return;}own(()=>{if(imageViewerController.get()===opened)imageViewerController.close();});},closeImages:()=>{assertActive();imageViewerController.close();},addToDraft:(ids:string[])=>{assertActive();return attachmentDraft.add(ids);},registerAttachmentAction:(definition:AttachmentActionDefinition)=>{assertActive();const handle=attachmentActions.register(entry.id,definition);return {id:handle.id,dispose:own(handle.dispose)};},setComposerSizing:(policy:Parameters<typeof setComposerSizing>[0])=>{assertActive();return own(setComposerSizing(policy));},decideTextPaste:(text:string)=>{assertActive();return textPastePolicies.decide(text);},registerTextPastePolicy:(definition:TextPastePolicy)=>{assertActive();const handle=textPastePolicies.register(entry.id,definition);return {id:handle.id,dispose:own(handle.dispose)};}}),
       previews: Object.freeze({get:()=>{assertActive();return previewController.get();},subscribe:(listener:Parameters<PreviewPluginApi['subscribe']>[0])=>{assertActive();return own(previewController.subscribe(listener));},confirm:(id:string)=>{assertActive();previewController.confirm(id);},edit:(id:string)=>{assertActive();previewController.edit(id);}}),

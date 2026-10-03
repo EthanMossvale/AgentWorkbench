@@ -81,6 +81,15 @@ export class AttachmentStore {
   /** Display-only snapshots of a bound native view; never attached to a model turn. */
   async importViewedImages(filePaths:string[],workspaceRoot:string):Promise<AttachmentView[]> {
     const root=path.isAbsolute(workspaceRoot)?await realpath(workspaceRoot):undefined;
+    // Reuse owned snapshots only after verifying metadata, path and content hash.
+    if(filePaths.length===1){
+      const file=filePaths[0]!,relative=path.relative(this.directory,file),parts=relative.split(path.sep);
+      if(parts.length===2&&validId(parts[0]!)){
+        const views=await this.views([parts[0]!]);
+        if(samePath(views[0]!.path,file))return views;
+        throw Error('ACTIVITY_IMAGE_PROTECTED');
+      }
+    }
     return this.importFiles(filePaths.map(filePath=>({filePath})),root,true);
   }
   async import(inputs: AttachmentInput[]): Promise<AttachmentView[]> {return this.importFiles(inputs);}
@@ -96,8 +105,11 @@ export class AttachmentStore {
         const workspaceImage=(value:string)=>{
           if(!viewed||!workspaceRoot)return false;
           const relative=path.relative(workspaceRoot,value);
-          if(!inside(workspaceRoot,value)||credentialPath(relative))return false;
-          if(this.controlPaths.some(root=>inside(path.join(root,'workspaces'),workspaceRoot)&&!credentialPath(path.relative(path.join(root,'workspaces'),workspaceRoot))))return true;
+          if(!inside(workspaceRoot,value)||credentialPath(relative)||relative.split(/[\\/]/).some(part=>['secrets','workspace-devices'].includes(part.toLowerCase())))return false;
+          if(this.controlPaths.some(root=>['workspaces','native-claude/workspaces','native-codex/workspaces'].some(subtree=>{
+            const base=path.join(root,...subtree.split('/'));
+            return inside(base,workspaceRoot)&&!credentialPath(path.relative(base,workspaceRoot));
+          })))return true;
           // Only the workbench's managed task subtree is exempt from the profile
           // guard. Selecting a credential/config directory never grants an exemption.
           const parts=workspaceRoot.split(/[\\/]/),index=parts.findIndex(part=>['.agent-workbench','.agentworkbench'].includes(part.toLowerCase()));
@@ -109,14 +121,14 @@ export class AttachmentStore {
         if(this.controlPaths.some(root=>(samePath(root,source)||inside(root,source))&&!(workspaceImage(source)&&inside(root,workspaceRoot!))))throw Error('ACTIVITY_IMAGE_PROTECTED: 工作台配置与凭据文件不能添加为附件。');
         if(credentialPath(source)&&!workspaceImage(source))throw Error('ACTIVITY_IMAGE_PROTECTED: 不能将原生凭据或私钥目录中的文件添加为附件。');
         const file=await open(source,'r');
-        try { const info=await file.stat(); if(!info.isFile()||info.nlink>1)throw Error('请添加普通文件，不能直接添加文件夹或硬链接。'); if(info.size>MAX_ATTACHMENT_BYTES)throw Error('单个附件不能超过 20 MB。'); data=Buffer.alloc(info.size);let offset=0;while(offset<data.length){const result=await file.read(data,offset,data.length-offset,offset);if(!result.bytesRead)throw Error('附件正在变化，请重新添加。');offset+=result.bytesRead;}const after=await file.stat();if(after.size!==info.size||after.mtimeMs!==info.mtimeMs||after.ctimeMs!==info.ctimeMs||await realpath(input.filePath)!==source)throw Error('附件正在变化，请重新添加。'); } finally { await file.close(); }
+        try { const info=await file.stat(); if(!info.isFile()||info.nlink>1)throw Error('请添加普通文件，不能直接添加文件夹或硬链接。'); if(info.size>MAX_ATTACHMENT_BYTES)throw Error('单个附件不能超过 20 MB。分析本机大文件时，可将完整文件路径粘贴到输入框，由原生运行时读取；文件不会作为附件上传。'); data=Buffer.alloc(info.size);let offset=0;while(offset<data.length){const result=await file.read(data,offset,data.length-offset,offset);if(!result.bytesRead)throw Error('附件正在变化，请重新添加。');offset+=result.bytesRead;}const after=await file.stat();if(after.size!==info.size||after.mtimeMs!==info.mtimeMs||after.ctimeMs!==info.ctimeMs||await realpath(input.filePath)!==source)throw Error('附件正在变化，请重新添加。'); } finally { await file.close(); }
         name=path.basename(source);
       } else {
         if (!(input.bytes instanceof Uint8Array) || input.bytes.byteLength>MAX_ATTACHMENT_BYTES) throw Error('附件数据无效或超过 20 MB。');
         data=Buffer.from(input.bytes);name=typeof input.name==='string'?path.basename(input.name.replaceAll('\\','/')):'粘贴图片.png';
       }
       name=name.replace(/[\x00-\x1f\x7f]/g,'').slice(0,180);if(!name||name==='.'||name==='..')throw Error('附件名称无效。');
-      total+=data.length;if(total>MAX_ATTACHMENT_TOTAL)throw Error('附件总大小不能超过 50 MB。');
+      total+=data.length;if(total>MAX_ATTACHMENT_TOTAL)throw Error('附件总大小不能超过 50 MB。分析本机文件时，可改为在输入框中提供完整文件路径。');
       const hash=digest(data);if(staged.some(v=>v.item.sha256===hash&&v.item.name===name))continue;
       const id=randomUUID(),safe=name.replace(/[<>:"/\\|?*]/g,'_');
       const type=mime(data,name),storage=this.options.nativePaths&&!viewed?(originalPath?'source':type.startsWith('image/')?'clipboard':'managed'):'managed';

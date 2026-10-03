@@ -1,5 +1,15 @@
 # 37 · UI preference persistence inventory
 
+## Device feedback reading and recovery (2026-10-03)
+
+`AppState.translationLayout` remains the global per-user reading preference in version-1 StateStore. Existing panel/inline values and the shipped panel default remain; translated-only and stable plugin IDs are additive. Unknown string IDs are retained with a visible panel fallback, and reenable restores the selected mode. Malformed non-string/empty/oversized values reject without rewriting the saved file. `translationLayouts` is a derived catalog, removed on load and never treated as the preference owner.
+
+The seamless preset updates the existing translation module, quick-toggle pause, input/final translation, layout and auto-submit owners in one serialized write. It is a command, not an independent persisted toggle; individual controls remain the reset path. Fresh installations still require translation preview by default. Existing profiles retain their settings across restart/rebuild/update. Pending previews are invalidated by preset changes; temporary file/child readers and narrow windows do not overwrite the preferred layout. User messages show the original input in translated-only mode; assistant final and intermediate messages prefer available translation and visibly fall back to source while pending/failed. Source bytes and copy actions remain available.
+
+Recovery acknowledgement, send errors, original-only confirmation previews and file-reference recognition are transient operations, not new UI preferences. Recovery preserves uncertain historical timing and delivery data. No new window geometry, zoom, split size, panel-visibility, tab, order, disclosure or editor-size key is added. Existing keys and reset behavior retain their owners; the plugin-settings disclosure persists as before. Named plugin APIs and surfaces are documented in document 36.
+
+Coverage: `tests/device-feedback.test.ts` verifies fresh defaults, persisted preset, unknown/plugin selection fallback, invalid-data preservation and approved activation/disable/reenable. `scripts/test-device-feedback-ui.mjs` covers full Electron exit/restart, both runtime recovery controls, mounted/later rule consumers, translated-only with readers and narrow fitting. UI preference checks retain the existing concurrency/geometry tests. These are isolated synthetic profiles; no real user profile or acceptance artifact is packaged.
+
 ## Model connection edits retain manual values (2026-10-03)
 
 Inventory: existing connection name, URL, protocol, enabled choice and models remain in AppState.modelConnections under stable connection/mapping IDs in versioned user state.json. ApiModel.manualEfforts/defaultEffort and manual contextWindow retain deliberate values, including legacy metadataSource:manual settings. SecretStore owns encrypted credentialRef under connection/address/protocol scope. No new key, format, layout, geometry, zoom, tab, disclosure or resizable control is added; models.expanded retains its shared preference owner.
