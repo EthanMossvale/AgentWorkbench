@@ -1,3 +1,4 @@
+import {translationDeadline} from './deadline';
 import {TranslationOutputs} from './output';
 import {apiEndpoints} from '../model-api/endpoints';
 import type { Protocol, TranslationDirection, TranslationProfile, TranslationResult } from '../contracts/index';
@@ -34,10 +35,9 @@ async function readJson(response: Response): Promise<JsonObject> {
   }
   const reader=response.body?.getReader();
   if(!reader) throw new Error('上游返回空响应。');
-  let size=0; const chunks:Uint8Array[]=[];
-  let oversized=false;
-  try { for(;;){const {done,value}=await reader.read(); if(done)break; size+=value.length; if(size>2_000_000){oversized=true;throw new Error();} chunks.push(value);} }
-  catch{throw new Error(oversized?'上游响应超过大小限制。':'读取翻译服务响应失败；响应详情未返回界面或日志。');}
+  const chunks:Uint8Array[]=[];
+  try { for(;;){const {done,value}=await reader.read(); if(done)break; chunks.push(value);} }
+  catch{throw new Error('读取翻译服务响应失败；响应详情未返回界面或日志。');}
   finally { await reader.cancel().catch(()=>{}); }
   let data:unknown;
   try{data=JSON.parse(Buffer.concat(chunks).toString('utf8'));}
@@ -63,19 +63,20 @@ export async function listModels(profile: TranslationProfile, key: string, fetch
   // Explicit directory discovery sends authentication only; text consent gates translate().
   const url=endpoint(profile.baseUrl,'models');
   const auth=headers(profile.protocol,key);
-  const combined=AbortSignal.any([...(profile.timeoutMs?[AbortSignal.timeout(profile.timeoutMs)]:[]),...(signal?[signal]:[])]);
+  const deadline=translationDeadline(profile.timeoutMs,signal),combined=deadline.signal;
+  try {
   const models=new Set<string>(); const cursors=new Set<string>();
   if(profile.protocol==='anthropic-messages')url.searchParams.set('limit','1000');
-  for(let page=0;page<10;page++){
+  for(;;){
     const data=await request(fetcher,url,{method:'GET',headers:auth},combined);
     if(!Array.isArray(data.data))throw new Error('目录格式不受支持；可手动填写模型 ID。');
-    for(const entry of data.data){if(object(entry)&&isModelId(entry.id))models.add(entry.id);if(models.size===2000)return [...models];}
+    for(const entry of data.data){if(object(entry)&&isModelId(entry.id))models.add(entry.id);}
     if(profile.protocol!=='anthropic-messages'||data.has_more!==true)return [...models];
     const cursor=data.last_id;
     if(!isModelId(cursor)||!data.data.some(entry=>object(entry)&&entry.id===cursor)||cursors.has(cursor))throw new Error('模型目录分页游标无效或重复；可手动填写模型 ID。');
     cursors.add(cursor);url.searchParams.set('after_id',cursor);
   }
-  throw new Error('模型目录分页超过安全限制；可手动填写模型 ID。');
+  }finally{deadline.dispose();}
 }
 export class Translator {
   readonly outputs=new TranslationOutputs();
@@ -101,7 +102,7 @@ export class Translator {
     const reasoning=validateReasoning(profile); const outputLimit=maxOutputTokens(profile);
     // Protect each field separately: protecting a JSON envelope as prose freezes the entire object.
     const segments:Record<string,string>|undefined=operation==='segments'?JSON.parse(text):undefined;
-    if(segments&&(!object(segments)||!Object.keys(segments).length||Object.keys(segments).length>512||Object.values(segments).some(value=>typeof value!=='string'||!value.trim())))throw Error('无效的分段翻译请求。');
+    if(segments&&(!object(segments)||!Object.keys(segments).length||Object.values(segments).some(value=>typeof value!=='string'||!value.trim())))throw Error('无效的分段翻译请求。');
     const protectedSegments=segments?Object.fromEntries(Object.entries(segments).map(([id,value])=>[id,protect(value)])):undefined;
     const protectedText=protectedSegments?{text:JSON.stringify(Object.fromEntries(Object.entries(protectedSegments).map(([id,value])=>[id,value.text]))),sourceHash:hashText(text),spans:[],nonce:''}:protect(text);
     const instruction=operation==='refine'
@@ -111,7 +112,8 @@ export class Translator {
     if(profile.protocol==='responses') {route='responses';body={model:profile.model,instructions:instruction,input:protectedText.text,store:false,max_output_tokens:outputLimit,...(reasoning?{reasoning:{effort:reasoning.effort}}:{})};}
     else if(profile.protocol==='anthropic-messages'){route='messages';body={model:profile.model,system:instruction,max_tokens:outputLimit,messages:[{role:'user',content:protectedText.text}],...(reasoning?.mode==='adaptive'?{thinking:{type:'adaptive'},...(reasoning.effort?{output_config:{effort:reasoning.effort}}:{})}:reasoning?.mode==='budget'?{thinking:{type:'enabled',budget_tokens:reasoning.budgetTokens}}:{})};}
     else {route='chat/completions';body={model:profile.model,max_completion_tokens:outputLimit,messages:[{role:'system',content:instruction},{role:'user',content:protectedText.text}],...(reasoning?{reasoning_effort:reasoning.effort}:{})};}
-    const combined=AbortSignal.any([...(profile.timeoutMs?[AbortSignal.timeout(profile.timeoutMs)]:[]),...(signal?[signal]:[])]);
+    const deadline=translationDeadline(profile.timeoutMs,signal),combined=deadline.signal;
+  try {
     const url=backend?.execute?undefined:endpoint(profile.baseUrl,route); const auth=backend?.execute?undefined:headers(profile.protocol,key,backend?.auth==='none');
     assertActive(combined);
     if(this.reserve&&sessionId!=='runtime')await this.reserve(sessionId,profile.maxCalls);
@@ -148,6 +150,7 @@ export class Translator {
     } finally {
       await this.observe({...counts,id:randomUUID(),sourceId:backend?.sourceId??profile.id,runtime:backend?.runtime??'api',model:reportedModel,direction,operation,status,reasoningTokens,at:new Date().toISOString(),elapsedMs:Date.now()-started});
     }
+    }finally{deadline.dispose();}
   }
   async integrateSupplement(original:string,supplement:string,profile:TranslationProfile,key:string,signal?:AbortSignal,backend?:TranslationBackend,sessionId='runtime'){
     if(!supplement.trim())throw new Error('请输入要补充或调整的要求。');

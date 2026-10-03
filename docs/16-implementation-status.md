@@ -2410,3 +2410,8 @@ HTTP and LAN/link-local addresses are accepted without extra hostname intercepti
 ## D030 partial translation delivery (2026-10-03)
 
 Readable partial translations now reach the existing input/answer preview and all output reading consumers with a visible incomplete indication. Three API response protocols and both native runtime completions propagate optional incomplete metadata. Original inputs remain available, missing/mismatched segments keep their own source, and automatic submission never consumes partial text; explicit confirmation retains once-only dispatch. No retries or new approval flow. The production output-reader service supports approved registration/replacement and disposal; docs 36/37 and contract declarations are synchronized. 135 focused source/protocol cases and type checks pass; isolated hidden production UI validates plugin lifecycle and restart. This is source and synthetic acceptance only, not an installed desktop upgrade, real model or remote deployment.
+
+
+## D031 translation capacity delivery (2026-10-03)
+
+Translation retains queued work beyond 64 requests, reads responses beyond 2 MB, preserves more than 512 associated fields, and follows model catalogs beyond ten pages/2000 entries. The actual queue exposes a typed scheduling registry with cleanup and production interception. Existing user budgets remain authoritative and accept larger explicit values; long deadlines preserve duration without timer overflow. The same settings and persistence contract remain. 119 translation tests and hidden production settings/restart coverage verify this change; docs 36/37 describe the public contracts. No real model or installed desktop update is included.

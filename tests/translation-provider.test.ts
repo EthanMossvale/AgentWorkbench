@@ -104,7 +104,7 @@ test('Anthropic adaptive effort and fixed thinking budget have separate wire con
 test('invalid configuration fails before fetch and valid model-less setup can be saved',async()=>{
   assert.equal(validateTranslationProfile({...base,model:''}).model,'');
   let calls=0;const translator=new Translator(async()=>{calls++;return completed(base.protocol);});
-  for(const patch of [{model:' bad '},{model:'a\nb'},{maxOutputTokens:255},{maxOutputTokens:128001},{timeoutMs:Infinity},{maxCalls:NaN},{protocol:'invalid'},{maxCharacters:1.5}])await assert.rejects(translator.translate('测试','input',{...base,...patch} as TranslationProfile,'fixture'));
+  for(const patch of [{model:' bad '},{model:'a\nb'},{maxOutputTokens:0},{maxOutputTokens:Infinity},{timeoutMs:Infinity},{maxCalls:NaN},{protocol:'invalid'},{maxCharacters:1.5}])await assert.rejects(translator.translate('测试','input',{...base,...patch} as TranslationProfile,'fixture'));
   assert.equal(calls,0);
 });
 
@@ -119,8 +119,8 @@ test('Anthropic model catalog follows only returned cursors with supplied fetche
   assert.ok(urls.every(url=>new URL(url).pathname==='/custom/v1/models'));
 });
 
-test('catalog caps actual model IDs and rejects malformed or repeated pagination',async()=>{
-  const many=await listModels(base,'fixture',async()=>Response.json({data:Array.from({length:2100},(_,i)=>({id:`model-${i}`}))}));assert.equal(many.length,2000);
+test('catalog retains all actual model IDs and rejects malformed or repeated pagination',async()=>{
+  const many=await listModels(base,'fixture',async()=>Response.json({data:Array.from({length:2100},(_,i)=>({id:`model-${i}`}))}));assert.equal(many.length,2100);
   let pages=0;await assert.rejects(listModels({...base,protocol:'anthropic-messages'},'fixture',async()=>{pages++;return Response.json({data:[{id:'same'}],has_more:true,last_id:'same'});}),/游标/);assert.equal(pages,2);
   await assert.rejects(listModels({...base,protocol:'anthropic-messages'},'fixture',async()=>Response.json({data:[],has_more:true,last_id:'not-returned'})),/游标/);
   await assert.rejects(listModels(base,'fixture',async()=>Response.json({models:[{id:'not-a-standard-envelope'}]})),/目录格式/);

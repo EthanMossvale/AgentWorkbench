@@ -33,7 +33,7 @@ function integer(value: unknown, min: number, max: number, label: string): numbe
 }
 
 export function maxOutputTokens(profile: TranslationProfile): number {
-  return integer(profile.maxOutputTokens ?? DEFAULT_MAX_OUTPUT_TOKENS, 256, 128000, '输出 token 上限');
+  return integer(profile.maxOutputTokens ?? DEFAULT_MAX_OUTPUT_TOKENS, 1, Number.MAX_SAFE_INTEGER, '输出 token 上限');
 }
 
 export function validateReasoning(profile: TranslationProfile): TranslationReasoning | undefined {
@@ -53,7 +53,7 @@ export function validateReasoning(profile: TranslationProfile): TranslationReaso
     }
     if (value.mode === 'budget') {
       if (profile.protocol !== 'anthropic-messages' || value.effort !== undefined) throw new Error('固定思考预算仅支持 Anthropic 协议，不能混入 effort。');
-      const budgetTokens = integer(value.budgetTokens, 1024, 127999, '思考 token 预算');
+      const budgetTokens = integer(value.budgetTokens, 1024, Number.MAX_SAFE_INTEGER, '思考 token 预算');
       if (budgetTokens >= maxOutputTokens(profile)) throw new Error('思考 token 预算必须小于输出 token 上限，为译文保留空间。');
       return { mode: 'budget', budgetTokens, confirmed: true };
     }
@@ -72,9 +72,9 @@ export function validateTranslationProfile(profile: TranslationProfile): Transla
   if (!protocols.includes(profile.protocol)) throw new Error('不支持的翻译协议。');
   const baseUrl = normalizeBaseUrl(profile.baseUrl);
   if (typeof profile.model !== 'string' || (profile.model !== '' && !isModelId(profile.model))) throw new Error('模型 ID 格式不正确。');
-  integer(profile.maxCharacters, 0, 10000000, '待译字符上限（0 为不限）');
-  integer(profile.maxCalls, 0, 1000000, '调用预算（0 为不限）');
-  integer(profile.timeoutMs, 0, 86400000, '等待上限毫秒数（0 为不限）');
+  integer(profile.maxCharacters, 0, Number.MAX_SAFE_INTEGER, '待译字符上限（0 为不限）');
+  integer(profile.maxCalls, 0, Number.MAX_SAFE_INTEGER, '调用预算（0 为不限）');
+  integer(profile.timeoutMs, 0, Number.MAX_SAFE_INTEGER, '等待上限毫秒数（0 为不限）');
   if (profile.source && (profile.source.kind !== 'custom' && profile.source.kind !== 'model' || profile.source.kind === 'model' && (typeof profile.source.targetId !== 'string' || !profile.source.targetId || profile.source.targetId.length > 512 || profile.source.effort !== undefined && typeof profile.source.effort !== 'string'))) throw Error('TRANSLATION_SOURCE_INVALID');
   maxOutputTokens(profile);
   validateReasoning(profile);

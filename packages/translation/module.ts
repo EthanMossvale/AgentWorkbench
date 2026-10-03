@@ -19,7 +19,7 @@ export interface TranslationDelivery<T> { value: T; policy: TranslationPolicyTok
 export class TranslationModule {
   readonly targets = new TranslationTargetRegistry();
   private policy = new TranslationPolicyGate();
-  private queue = new TranslationQueue(2, 64);
+  readonly queue = new TranslationQueue();
   private translator: Translator;
   private disposed = false;
   private pending = new Map<symbol,{source:string;done:Promise<void>}>();

@@ -331,7 +331,7 @@ export class WorkbenchController {
       'native.memory-background': this.shared?.native?.memory?.background,
       'native.memory-default': this.memoryDefaults,
       'native.memory-reference-writer': this.shared?.native?.memory?.referenceWriter,
-      'translation.outputs':this.translationModule.outputs, 'translation.targets': this.translationModule.targets, 'translation.workbench-targets': this.translationTargets, 'runtime.translation-native': this.translationNative, 'translation': this.translationModule, 'interactions': this.interactionFlow,
+      'translation.scheduling':this.translationModule.queue, 'translation.outputs':this.translationModule.outputs, 'translation.targets': this.translationModule.targets, 'translation.workbench-targets': this.translationTargets, 'runtime.translation-native': this.translationNative, 'translation': this.translationModule, 'interactions': this.interactionFlow,
       'collaboration': this.peerInbox, 'submission.gate': this.gate, 'composer.recovery': draftRecovery,
       'sessions.agent-tools': this.chatSessions,
       'attachments.payload-policies': this.actions.attachments?.payloadPolicies,
@@ -1054,7 +1054,7 @@ export class WorkbenchController {
         }));this.settingsQueue=operation.then(()=>{},()=>{});
         try{return await operation;}finally{endChange();}
       }
-      case 'translation/candidates':return protocolCandidates(required(p.baseUrl,'翻译端点',2048));
+      case 'translation/candidates':return protocolCandidates(required(p.baseUrl,'翻译端点',Infinity));
       case 'translation/quick-toggle':{
         const show=p.show===undefined?undefined:flag(p.show,'显示临时翻译开关');
         const paused=p.paused===undefined?undefined:flag(p.paused,'临时暂停翻译');
