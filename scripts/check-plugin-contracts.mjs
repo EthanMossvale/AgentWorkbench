@@ -21,7 +21,7 @@ files.push('packages/session-core/recovery.ts','packages/translation/layouts.ts'
 files.push('packages/model-api/context-state.ts');
 files.push('apps/desktop/host/workspace-management.ts');
 files.push('services/claude-bridge/policy.ts','services/claude-bridge/result-store.ts','services/claude-bridge/local-tasks.ts');
-files.push('packages/attachments/paste.ts','packages/attachments/types.ts','packages/attachments/payload.ts');
+files.push('packages/generated-images/types.ts','packages/attachments/paste.ts','packages/attachments/types.ts','packages/attachments/payload.ts');
 files.push('packages/context-annotations/index.ts','apps/desktop/renderer/annotation-controller.ts');
 files.push('apps/desktop/host/memory-background.ts');
 files.push('packages/desktop-updates/index.ts','packages/app-data/service.ts','packages/native-runtime/cli.ts');

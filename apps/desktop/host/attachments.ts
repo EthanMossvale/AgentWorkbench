@@ -11,7 +11,7 @@ const digest = (data: Uint8Array) => createHash('sha256').update(data).digest('h
 const validId = (id: string) => /^[0-9a-f-]{36}$/.test(id);
 const specialPath=(value:string)=>process.platform==='win32'&&(/^(?:\\\\|\/\/)[.?][\\/]/.test(value)||value.slice(2).includes(':'));
 const samePath=(a:string,b:string)=>process.platform==='win32'?a.toLowerCase()===b.toLowerCase():a===b;
-const generatedPath=(item:Pick<Attachment,'id'|'path'|'generatedRoot'>)=>typeof item.generatedRoot==='string'&&path.isAbsolute(item.generatedRoot)&&samePath(item.path,path.join(item.generatedRoot,'generated_images','image-'+item.id.replaceAll('-','')+'.png'));
+const generatedPath=(item:Pick<Attachment,'id'|'path'|'generatedRoot'>,extension='png')=>/^[a-z\d]+$/i.test(extension)&&typeof item.generatedRoot==='string'&&path.isAbsolute(item.generatedRoot)&&samePath(item.path,path.join(item.generatedRoot,'generated_images','image-'+item.id.replaceAll('-','')+'.'+extension));
 const mime=(data:Buffer,_name:string)=>attachmentMime(data);
 export class AttachmentStore {
   readonly payloadPolicies=new AttachmentPayloadPolicies();
@@ -27,12 +27,16 @@ export class AttachmentStore {
   private get temporaryDirectory(){return this.options.temporaryDirectory??path.join(tmpdir(),'agentworkbench-clipboard');}
   locations(){return {managed:this.directory,clipboard:this.temporaryDirectory,files:'original' as const};}
   /** Register an already-saved workspace image without making another image copy. */
-  async registerGenerated(filePath:string,sha256:string,size:number,identity:string):Promise<Attachment>{
+  async generatedRecord(identity:string):Promise<Attachment|undefined>{
+    const id=`${identity.slice(0,8)}-${identity.slice(8,12)}-${identity.slice(12,16)}-${identity.slice(16,20)}-${identity.slice(20,32)}`;
+    try{return (await this.resolve([id]))[0];}catch(error){if((error as NodeJS.ErrnoException).code==='ENOENT')return;throw error;}
+  }
+  async registerGenerated(filePath:string,sha256:string,size:number,identity:string,format:Pick<import('../../../packages/generated-images/types').GeneratedImageFormat,'mime'|'extension'>={mime:'image/png',extension:'png'}):Promise<Attachment>{
     if(!/^[a-f0-9]{64}$/.test(identity)||!/^[a-f0-9]{64}$/.test(sha256)||!Number.isSafeInteger(size)||size<1||!path.isAbsolute(filePath)||specialPath(filePath)||!samePath(await realpath(filePath),filePath))throw Error('GENERATED_IMAGE_RECORD_INVALID');
     const id=`${identity.slice(0,8)}-${identity.slice(8,12)}-${identity.slice(12,16)}-${identity.slice(16,20)}-${identity.slice(20,32)}`;
-    const item:Attachment={id,name:path.basename(filePath),path:filePath,size,mime:'image/png',sha256,storage:'source',generatedRoot:path.dirname(path.dirname(filePath)),createdAt:new Date().toISOString()};
-    if(!generatedPath(item))throw Error('GENERATED_IMAGE_RECORD_INVALID');
-    const handle=await open(filePath,'r');try{const stat=await handle.stat();if(!stat.isFile()||stat.size!==size)throw Error('GENERATED_IMAGE_FILE_CHANGED');const bytes=Buffer.alloc(size);let offset=0;while(offset<size){const result=await handle.read(bytes,offset,size-offset,offset);if(!result.bytesRead)break;offset+=result.bytesRead;}const after=await handle.stat();if(offset!==size||after.size!==size||after.mtimeMs!==stat.mtimeMs||after.ctimeMs!==stat.ctimeMs||digest(bytes)!==sha256||mime(bytes,'')!=='image/png'||!samePath(await realpath(filePath),filePath))throw Error('GENERATED_IMAGE_FILE_CHANGED');}finally{await handle.close();}
+    const item:Attachment={id,name:path.basename(filePath),path:filePath,size,mime:format.mime,sha256,storage:'source',generatedRoot:path.dirname(path.dirname(filePath)),createdAt:new Date().toISOString()};
+    if(!generatedPath(item,format.extension))throw Error('GENERATED_IMAGE_RECORD_INVALID');
+    const handle=await open(filePath,'r');try{const stat=await handle.stat();if(!stat.isFile()||stat.size!==size)throw Error('GENERATED_IMAGE_FILE_CHANGED');const bytes=Buffer.alloc(size);let offset=0;while(offset<size){const result=await handle.read(bytes,offset,size-offset,offset);if(!result.bytesRead)break;offset+=result.bytesRead;}const after=await handle.stat();if(offset!==size||after.size!==size||after.mtimeMs!==stat.mtimeMs||after.ctimeMs!==stat.ctimeMs||digest(bytes)!==sha256||!samePath(await realpath(filePath),filePath))throw Error('GENERATED_IMAGE_FILE_CHANGED');}finally{await handle.close();}
     await mkdir(path.join(this.directory,id),{recursive:true,mode:0o700});
     const metadata=path.join(this.directory,id,'metadata.json');
     try{await writeFile(metadata,JSON.stringify(item),{flag:'wx',mode:0o600});}

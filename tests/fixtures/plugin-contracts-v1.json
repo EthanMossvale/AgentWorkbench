@@ -505,6 +505,15 @@
       "export interface LocalClaudeTask {\n    id: string;\n    requestId: string;\n    shell: LocalClaudeShell;\n    command: string;\n    description?: string;\n    state: 'starting' | 'running' | 'completed' | 'failed' | 'cancelled' | 'uncertain';\n    startedAt: string;\n    finishedAt?: string;\n    collected: boolean;\n    result?: unknown;\n    error?: string;\n    output?: ClaudeResultReference;\n    outputError?: string;\n}",
       "export type LocalClaudeShell = 'Bash' | 'PowerShell';"
     ],
+    "packages/generated-images/types.ts": [
+      "export interface GeneratedImageDecoder {\n    id: `plugin:${string}`;\n    decode(bytes: Uint8Array): GeneratedImageFormat | undefined | Promise<GeneratedImageFormat | undefined>;\n}",
+      "export interface GeneratedImageDelivery {\n    status: 'receiving' | 'saved' | 'failed';\n    attachment?: Attachment;\n    remoteCopy?: 'pending' | 'removed' | 'retained' | 'not-applicable';\n    error?: string;\n}",
+      "export interface GeneratedImageFormat {\n    mime: string;\n    extension: string;\n    width: number;\n    height: number;\n}",
+      "export interface GeneratedImageInput {\n    sessionId: string;\n    threadId: string;\n    turnId: string;\n    itemId: string;\n    projectPath: string;\n    result: string;\n}",
+      "export interface GeneratedImageReceipt {\n    threadId: string;\n    turnId: string;\n    itemId: string;\n    sha256: string;\n    size: number;\n}",
+      "export interface GeneratedImageService {\n    receive(input: GeneratedImageInput): Promise<Attachment>;\n    decode?(bytes: Uint8Array): Promise<GeneratedImageFormat>;\n    registerDecoder?(decoder: GeneratedImageDecoder): () => void;\n}",
+      "export type NativeImageDecoder = (bytes: Uint8Array) => GeneratedImageFormat | Promise<GeneratedImageFormat>;"
+    ],
     "packages/attachments/paste.ts": [
       "export interface TextPasteDecision {\n    attachment: boolean;\n    byteLength: number;\n    thresholdBytes: number;\n    policyId: string;\n}",
       "export interface TextPastePolicy {\n    id: string;\n    thresholdBytes: number;\n}",

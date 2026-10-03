@@ -506,3 +506,7 @@ File-pagination provides a named multi-instance replacement surface; file-link-c
 ## D022: larger attachment drafts (2026-10-03)
 
 Removing the count and size gates adds no adjustable UI node or shipped default. Composer attachments remain part of the existing draft/message owner; imported bytes and thumbnails are transient materializations. Existing image viewer zoom/annotation state, attachment surfaces, sidebar state and editor dimensions retain their contracts. Channel choice is derived from the send protocol, not saved as a competing UI preference. Hidden drag acceptance verifies the actual preload/IPC/composer path, cancellation and full restart without writing real user data.
+
+## D023: large image display and annotation (2026-10-03)
+
+Image pixel/format handling adds no adjustable UI node or preference schema. Existing image scale and viewing owners, window geometry, reading modes, panels and settings retain their local-profile keys, defaults, restoration and reset. Annotation strokes, decoded pixels, save progress and native destination dialogs are transient editing/actions; original bytes remain unchanged and the saved copy has its own path. The existing image-viewer/attachment surfaces continue to support mounted/later replacements and disposal. No responsive fallback rewrites a preferred value. Hidden production acceptance covers a 42-megapixel image and JPEG viewing; existing persistence/conflict/damaged-file tests remain the evidence for unchanged preference behavior, not a new restart claim for this change.

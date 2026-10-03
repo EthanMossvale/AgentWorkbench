@@ -135,7 +135,7 @@ export interface HostActions { sessionStorage?:import('../../../packages/remote-
 export interface HostActions { remoteCliPolicies?:Pick<import('../../../packages/remote-account-catalog/cli').RemoteCliService,'configure'|'autoUpdate'> }
 export interface HostActions { runtimeExtensions?:RuntimeExtensionRegistry }
 export interface HostActions { worktrees?:WorktreeService }
-export interface HostActions { attachments?:AttachmentStore;pickAttachments?():Promise<string[]> }
+export interface HostActions { generatedImageDecoder?:import('../../../packages/generated-images/types').NativeImageDecoder;attachments?:AttachmentStore;pickAttachments?():Promise<string[]> }
 export interface HostActions { modelFetcher?:typeof fetch;modelControlPaths?:string[] }
 export interface HostActions { accountSetup?:Pick<AccountServiceSetup,'plan'|'apply'>; quotaAccounting?:NativeQuotaAccounting; accountUsage?:AccountUsageService; nativeAccounts?:Pick<NativeRuntimeControl,'status'|'createClaude'|'loginCommand'> & Partial<Pick<NativeRuntimeControl,'enrollLegacy'|'remove'|'models'|'prepareClaude'|'discardClaude'|'draft'>>; verifyWorkspaceMember?:typeof verifyWorkspaceMember }
 export class WorkbenchController {
@@ -270,7 +270,7 @@ export class WorkbenchController {
   }
   constructor(private store:StateStore,private secrets:SecretStore,private actions:HostActions,private changed:(state:AppState)=>void,private shared?:SharedServices){this.translationModule=new TranslationModule(()=>this.store.snapshot(),scope=>this.secrets.get(scope),actions.translationFetcher??fetch,async receipt=>{await this.update(state=>{state.translationUsage=recordTranslationUsage(state.translationUsage,receipt);});},async(sessionId,limit)=>{if(sessionId==='runtime')return;await this.update(state=>{const session=state.sessions.find(item=>item.id===sessionId);if(!session)throw Error('TRANSLATION_SESSION_MISSING');const calls=session.translationCalls??0;if(limit>0&&calls>=limit)throw Error('本会话翻译调用预算已用完。');session.translationCalls=calls+1;});});this.accountCatalog=actions.accountCatalog??new RemoteAccountCatalogService();
     if(actions.attachments)this.viewedImages=new ActivityImageReader(()=>this.store.snapshot(),change=>this.update(change),actions.attachments);
-    if(actions.attachments)this.generatedImages=new WorkspaceGeneratedImages(actions.attachments);
+    if(actions.attachments)this.generatedImages=new WorkspaceGeneratedImages(actions.attachments,[],undefined,actions.generatedImageDecoder);
     this.pluginRuntimes=new PluginRuntimeHost(actions.runtimeExtensions??shared?.native?.plugins?.runtimes??new RuntimeExtensionRegistry(),{snapshot:()=>store.snapshot(),update:fn=>this.update(fn),translate:(id,message)=>{if(this.translationModule.enabled())void this.translateMessage(id,message);}});
     this.interactionFlow=new NativeInteractionFlow(this.translationModule,{snapshot:()=>store.snapshot(),update:fn=>this.update(fn),send:(session,id,reply)=>this.sendInteraction(session,id,reply)});
     this.planFlow=new NativePlanFlow(this.translationModule,{snapshot:()=>store.snapshot(),update:fn=>this.update(fn)});

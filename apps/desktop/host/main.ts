@@ -1,3 +1,4 @@
+import {decodeGeneratedImage,imagePng} from './image-decoder';
 import {DesktopUpdates,desktopUpdatesEnabled} from '../../../packages/desktop-updates';
 import {readFileSync} from 'node:fs';
 import {createDesktopUpdateBackend} from './desktop-updates';
@@ -118,7 +119,8 @@ async function boot(){
  ].map(item=>accepted()&&['codex-h-native','local-executor-contract','egress'].includes(item.id)?{...item,status:'implemented' as const,detail:item.id==='egress'?'已验收绑定的 Codex 0.155.1：真实模型任务期间，VPS 原生进程具有外部 HTTPS 连接；未宣称工具网络也统一从 VPS 出口。':'已验收绑定的 Codex 0.155.1：VPS 原生认证、本机文件读取/补丁/PowerShell、审批、恢复和停止清理；其它连接仍须独立验收。'}:item);
  const controller=new WorkbenchController(state,secrets,{
   worktrees:new WorktreeService(directory),
-  attachments:new AttachmentStore(path.join(directory,'attachments'),data=>{const image=nativeImage.createFromBuffer(data);return image.isEmpty()?undefined:image.resize({width:240,quality:'good'}).toDataURL();},[directory],async name=>{const picked=await dialog.showSaveDialog(window,{title:'附件另存为',defaultPath:name});return picked.canceled?null:picked.filePath??null;},{nativePaths:true,copyImage:async data=>{const image=nativeImage.createFromBuffer(Buffer.from(data));const size=image.getSize();if(image.isEmpty()||size.width*size.height>40000000)throw Error('ATTACHMENT_IMAGE_INVALID');await clipboard.write([new ClipboardItem({'image/png':new Blob([new Uint8Array(image.toPNG())],{type:'image/png'})})]);},...(userDataOverride||installedLocation?{temporaryDirectory:path.join(directory,'clipboard-temp')}:{})}),
+  generatedImageDecoder:data=>decodeGeneratedImage(data,script=>window.webContents.executeJavaScript(script)),
+  attachments:new AttachmentStore(path.join(directory,'attachments'),data=>{const image=nativeImage.createFromBuffer(data);return image.isEmpty()?undefined:image.resize({width:240,quality:'good'}).toDataURL();},[directory],async name=>{const picked=await dialog.showSaveDialog(window,{title:'附件另存为',defaultPath:name});return picked.canceled?null:picked.filePath??null;},{nativePaths:true,copyImage:async data=>{const png=await imagePng(data,script=>window.webContents.executeJavaScript(script));await clipboard.write([new ClipboardItem({'image/png':new Blob([new Uint8Array(png)],{type:'image/png'})})]);},...(userDataOverride||installedLocation?{temporaryDirectory:path.join(directory,'clipboard-temp')}:{})}),
   pickAttachments:async()=>{const picked=await dialog.showOpenDialog(window,{properties:['openFile','multiSelections'],title:'添加附件'});return picked.canceled?[]:picked.filePaths;},
   pickAccountExport:async fileName=>{const picked=await dialog.showSaveDialog(window,{title:'导出账号 JSON',defaultPath:fileName,filters:[{name:'JSON',extensions:['json']}]});return picked.canceled?null:picked.filePath??null;},
   modelControlPaths:[directory],

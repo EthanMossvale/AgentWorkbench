@@ -3,7 +3,7 @@ export interface Attachment {
   id: string; name: string; size: number; mime: string; sha256: string;
   path: string;
   storage?:'source'|'clipboard'|'managed';createdAt?:string;
-  /** Host-registered generated image source; constrained to generated_images/image-<identity>.png. */
+  /** Host-registered generated image source; constrained to generated_images/image-<identity>.<decoded extension>. */
   generatedRoot?:string;
 }
 export interface AttachmentView extends Attachment { preview?: string }

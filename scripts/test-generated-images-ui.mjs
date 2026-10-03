@@ -36,6 +36,6 @@ try{
  await page.evaluate(()=>window.qaShow('receiving','pending'));await page.getByText('正在保存到本地工作区…',{exact:true}).waitFor();pass('receiving state is visible before local save completion');
  await page.evaluate(()=>window.qaShow('failed','retained'));await page.getByRole('alert').filter({hasText:'目标文件已变化'}).waitFor();assert.equal(await page.locator('.generated-image-result img').count(),0);pass('failed delivery does not pretend a local image exists');
  await page.evaluate(()=>window.qaShow('failed','not-applicable'));assert.ok(!(await page.getByRole('alert').innerText()).includes('远端'));pass('local image delivery failure does not claim remote storage');
- await page.evaluate(()=>window.qaShow('saved','retained'));await page.getByText('本地图片已保存；远端 PNG 清理未确认。',{exact:true}).waitFor();await page.screenshot({path:path.join(output,'cleanup-unconfirmed.png')});pass('unconfirmed remote cleanup remains distinct from successful local delivery');
+ await page.evaluate(()=>window.qaShow('saved','retained'));await page.getByText('本地图片已保存；远端图片清理未确认。',{exact:true}).waitFor();await page.screenshot({path:path.join(output,'cleanup-unconfirmed.png')});pass('unconfirmed remote cleanup remains distinct from successful local delivery');
  assert.deepEqual(errors,[]);
 }finally{await app?.close();await writeFile(path.join(output,'report.json'),JSON.stringify({checks,errors,scope:'Hidden isolated Electron; real production image components with synthetic attachment API'},null,2));}

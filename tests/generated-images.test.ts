@@ -21,10 +21,12 @@ import type { Session } from '../packages/contracts';
 
 const png='iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR4nGP4z8DwHwAFAAH/iZk9HQAAAABJRU5ErkJggg==';
 const bytes=Buffer.from(png,'base64');
+// Sink unit tests inject decoding; production nativeImage decoding is exercised in hidden Electron.
+const fixtureDecoder=(data:Uint8Array)=>{if(!Buffer.from(data).subarray(0,bytes.length).equals(bytes))throw Error('GENERATED_IMAGE_FORMAT_INVALID');return {mime:'image/png',extension:'png',width:1,height:1};};
 async function fixture(){
   const directory=await mkdtemp(path.join(tmpdir(),'awb-generated-')),projectPath=path.join(directory,'workspace');await mkdir(projectPath);
   const attachments=new AttachmentStore(path.join(directory,'attachments'),undefined,[],undefined,{nativePaths:true});
-  const service=new WorkspaceGeneratedImages(attachments);
+  const service=new WorkspaceGeneratedImages(attachments,[],undefined,fixtureDecoder);
   const input:GeneratedImageInput={sessionId:'session',threadId:'thread',turnId:'turn',itemId:'image',projectPath,result:png};
   const state=initialState();state.hosts.push({id:'host',name:'Fixture',hostname:'fixture.example',port:22,username:'member',role:'workspace',identityFile:'fixture',knownHostsFile:'fixture',ownerId:'owner',workspaceGeneration:'one'});
   state.sessions.push({id:'session',title:'Fixture',projectId:null,projectPath,archived:false,pinned:false,group:'',createdAt:new Date().toISOString(),status:'running',messages:[],binding:{runtime:'codex',provider:'openai',accountRef:'fixture',executionId:'local-device',egress:'vps',hostId:'host',nativeSessionId:'thread'}} as Session);
@@ -35,12 +37,12 @@ async function fixture(){
 
 test('image sink writes one workspace PNG, verifies bytes, persists source metadata and replays without duplicates',async()=>{
   const f=await fixture();try{const a=await f.service.receive(f.input);assert.equal(a.storage,'source');assert.ok(a.path.startsWith(path.join(f.projectPath,'generated_images')+path.sep));assert.deepEqual(await readFile(a.path),bytes);
-    const restart=new WorkspaceGeneratedImages(new AttachmentStore(path.join(f.directory,'attachments')));
+    const restart=new WorkspaceGeneratedImages(new AttachmentStore(path.join(f.directory,'attachments')),[],undefined,fixtureDecoder);
     const again=await restart.receive(f.input);assert.equal(again.id,a.id);assert.equal((await readdir(path.dirname(a.path))).length,1);assert.equal((await readdir(path.join(f.directory,'attachments',a.id))).length,1);
     await f.attachments.cleanup([a.id],Date.now()+10*86400000);assert.equal((await f.attachments.payloads([a.id]))[0]!.data.length,bytes.length);
   }finally{await f.close();}
 });
-test('image sink rejects encoding, non-PNG, size without creating files',async()=>{
+test('image sink rejects invalid encoding and undecodable bytes without creating files',async()=>{
  const f=await fixture();try{for(const result of ['https://example.invalid/image.png','data:image/png;base64,'+png,'AAAA',png+'====','a'.repeat(28*1024*1024)])await assert.rejects(f.service.receive({...f.input,result}),/GENERATED_IMAGE_/);
   assert.deepEqual(await readdir(f.projectPath),[]);
   const named=path.join(f.projectPath,'.codex');await mkdir(named);const image=await f.service.receive({...f.input,projectPath:named});assert.deepEqual(await readFile(image.path),bytes);
@@ -56,8 +58,8 @@ test('image source hardlinks preserve verified replay and arbitrary identifiers 
  }finally{await f.close();}
 });
 test('managed image records retain content integrity after source paths change',async()=>{
- const f=await fixture();try{const protectedStore=new AttachmentStore(path.join(f.directory,'controlled-attachments'),undefined,[f.directory]);const unrestricted=new WorkspaceGeneratedImages(protectedStore,[f.directory]);assert.deepEqual(await readFile((await unrestricted.receive(f.input)).path),bytes);
-  const allowed=new WorkspaceGeneratedImages(protectedStore,[f.directory],async(id,root)=>id===f.input.sessionId&&root===f.projectPath);const a=await allowed.receive(f.input);assert.equal((await protectedStore.payloads([a.id]))[0]!.data.length,bytes.length);
+ const f=await fixture();try{const protectedStore=new AttachmentStore(path.join(f.directory,'controlled-attachments'),undefined,[f.directory]);const unrestricted=new WorkspaceGeneratedImages(protectedStore,[f.directory],undefined,fixtureDecoder);assert.deepEqual(await readFile((await unrestricted.receive(f.input)).path),bytes);
+  const allowed=new WorkspaceGeneratedImages(protectedStore,[f.directory],async(id,root)=>id===f.input.sessionId&&root===f.projectPath,fixtureDecoder);const a=await allowed.receive(f.input);assert.equal((await protectedStore.payloads([a.id]))[0]!.data.length,bytes.length);
   const metadata=path.join(f.directory,'controlled-attachments',a.id,'metadata.json');await writeFile(metadata,JSON.stringify({...a,path:path.join(f.directory,'secret.json')}));await assert.rejects(protectedStore.payloads([a.id]),/ENOENT/);
  }finally{await f.close();}
 });
@@ -104,7 +106,7 @@ test('local provider delivery and interrupted recovery never claim a remote copy
  }finally{await observer.dispose();await f.close();}
 });
 test('host plugin service intercepts the actual native path and release restores core implementation',async()=>{
- const f=await fixture();const store=new StateStore(path.join(f.directory,'state'));await store.load();await store.update(s=>Object.assign(s,f.state));const controller=new WorkbenchController(store,new SecretStore(f.directory,{encrypt:()=>Buffer.alloc(0),decrypt:()=>''}),{attachments:f.attachments,pickDirectory:async()=>null,copy:()=>{},openPath:async()=>{},nativeCapabilities:()=>[]},()=>{});
+ const f=await fixture();const store=new StateStore(path.join(f.directory,'state'));await store.load();await store.update(s=>Object.assign(s,f.state));const controller=new WorkbenchController(store,new SecretStore(f.directory,{encrypt:()=>Buffer.alloc(0),decrypt:()=>''}),{attachments:f.attachments,generatedImageDecoder:fixtureDecoder,pickDirectory:async()=>null,copy:()=>{},openPath:async()=>{},nativeCapabilities:()=>[]},()=>{});
  const registry=new HostServiceRegistry();registry.register('images.generated',controller.developmentServices()['images.generated']!);let called=0;const release=registry.intercept('images.generated','receive',async(next,...args)=>{called++;return next(...args);});
  try{const observation=await controller.observeNativeSession('session',f.source);f.source.emit('event',normalizeCodexEvent(f.complete(),'session',1));await observation.flush();assert.equal(called,1);release();f.source.emit('event',normalizeCodexEvent(f.complete({id:'second'}),'session',2));await observation.flush();assert.equal(called,1);assert.ok(store.snapshot().sessions[0]!.activities!.every(a=>a.imageDelivery?.status==='saved'));
   await assert.rejects(controller.call('workbench/generatedImage/acknowledge',{}));
@@ -112,4 +114,21 @@ test('host plugin service intercepts the actual native path and release restores
 });
 test('broker image receipts validate native ownership and fail closed on platforms without secure deletion',()=>{
  const result=spawnSync('python',['scripts/test-generated-image-receipts.py'],{encoding:'utf8',windowsHide:true});assert.equal(result.status,0,result.stdout+result.stderr);
+});
+
+
+test('decoder registry delegates, coexists and ignores disabled asynchronous success or failure',async()=>{
+ const f=await fixture();try{
+  const release=f.service.registerDecoder({id:'plugin:fixture/first',decode:()=>({mime:'image/png',extension:'custom',width:1,height:1})});
+  const delegate=f.service.registerDecoder({id:'plugin:fixture/delegate',decode:()=>undefined});
+  assert.equal((await f.service.decode(bytes)).extension,'custom');
+  assert.throws(()=>f.service.registerDecoder({id:'plugin:fixture/first',decode:()=>undefined}),/DUPLICATE/);
+  for(const fail of [false,true]){
+   let done!:(value:any)=>void;const pending=new Promise<any>((resolve,reject)=>{done=fail?reject:resolve;});
+   const dispose=f.service.registerDecoder({id:'plugin:fixture/late',decode:()=>pending});
+   const result=f.service.decode(bytes);dispose();done(fail?Error('disabled'): {mime:'image/png',extension:'late',width:1,height:1});
+   assert.equal((await result).extension,'custom');
+  }
+  delegate();release();assert.equal((await f.service.decode(bytes)).extension,'png');
+ }finally{await f.close();}
 });

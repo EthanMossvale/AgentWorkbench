@@ -16,8 +16,16 @@ export interface GeneratedImageDelivery {
 }
 export interface GeneratedImageService {
   receive(input: GeneratedImageInput): Promise<Attachment>;
+  decode?(bytes:Uint8Array):Promise<GeneratedImageFormat>;
+  registerDecoder?(decoder:GeneratedImageDecoder):()=>void;
 }
-// Existing attachment preview/export contract bounds each image to 20 MiB.
+export interface GeneratedImageFormat { mime:string; extension:string; width:number; height:number }
+export interface GeneratedImageDecoder {
+  id:`plugin:${string}`;
+  decode(bytes:Uint8Array):GeneratedImageFormat|undefined|Promise<GeneratedImageFormat|undefined>;
+}
+export type NativeImageDecoder = (bytes:Uint8Array)=>GeneratedImageFormat|Promise<GeneratedImageFormat>;
+// Legacy source-compatible value; no longer a workbench image-size policy.
 export const MAX_GENERATED_IMAGE_BYTES = 20 * 1024 * 1024;
 // Native tools allow up to 32 MiB; transport must also carry an oversized result
 // so the UI can report a delivery error without silently losing the native turn.
