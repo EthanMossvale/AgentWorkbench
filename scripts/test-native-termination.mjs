@@ -31,7 +31,7 @@ const runner = new NativeProviderRunner({ connection: () => connection, key: asy
   observe: async (_id, source) => {
     source.on('raw', frame => { if (frame.value.method === 'turn/completed') current.terminal.push(frame.value.params.turn.status); if(frame.value.method==='error') (current.nativeErrors??=[]).push(frame.value.params); });
     source.on('event', event => { if (event.raw?.value?.type === 'result') current.terminal.push(event.raw.value.subtype); });
-  }, failure: e => { if (String(e).includes('NATIVE_COMPLETION_REQUIRED') && current.scenario === 'unmarked') return; errors.push(String(e)); },
+  }, failure: e => { errors.push(String(e)); },
 }, async (_url, init) => {
   current.requests++; assert.ok(current.requests <= 32, 'Native retry acceptance guard');
   const body = JSON.parse(init.body), protocol = connection.protocol;
@@ -44,8 +44,9 @@ const runner = new NativeProviderRunner({ connection: () => connection, key: asy
   }
   if (native) return response(protocol, 'Native final response.');
   const complete = body.tools.map(t => t.function ?? t).find(t => t.name === 'awb_complete_turn'); assert.ok(complete, 'Explicit completion contract is present');
-  assert.match(protocol === 'chat-completions' ? body.messages[0].content : protocol === 'anthropic-messages' ? body.system : body.instructions, /A text-only reply is not a valid completion/);
+  assert.match(protocol === 'chat-completions' ? body.messages[0].content : protocol === 'anthropic-messages' ? body.system : body.instructions, /A normal text answer/);
   if (current.scenario === 'unmarked') return response(protocol, 'I am still checking the remaining step.');
+  if (current.scenario === 'repeated') return response(protocol, 'One final answer.', [{ id: 'finish_call', name: complete.name, arguments: JSON.stringify({ outcome: 'completed', message: 'One final answer.' }) }]);
   if (current.requests === 1) {
     const tool = body.tools.map(t => t.function ?? t).find(t => t.name.includes('termination_fixture')); assert.ok(tool);
     return response(protocol, 'Checking the fixture.', [{ id: 'fixture_call', name: tool.name, arguments: '{}' }]);
@@ -67,7 +68,7 @@ try {
   await plugins.importZip(zip); const plugin = (await plugins.list())[0];
   await assert.rejects(plugins.setEnabled(manifest.id, plugin.hash, true), /Explicit approval/);
   const cross = [['codex', 'chat-completions'], ['claude', 'chat-completions'], ['codex', 'anthropic-messages'], ['claude', 'responses']];
-  const scenarios = cross.flatMap(([runtime, protocol]) => ['unmarked', 'tools'].map(scenario => ({ runtime, protocol, scenario, phase: 'core' })));
+  const scenarios = cross.flatMap(([runtime, protocol]) => ['unmarked', 'repeated', 'tools'].map(scenario => ({ runtime, protocol, scenario, phase: 'core' })));
   scenarios.push(...['codex', 'claude'].map(runtime => ({ runtime, protocol: runtime === 'codex' ? 'responses' : 'anthropic-messages', scenario: 'native', phase: 'core' })));
   scenarios.push(...['enabled', 'disabled', 'reenabled', 'removed'].map(phase => ({ runtime: 'codex', protocol: 'chat-completions', scenario: 'tools', phase })));
   for (const { runtime, protocol, scenario, phase } of scenarios) {
@@ -88,12 +89,18 @@ try {
     }
     assert.equal(runner.busy(id), false, JSON.stringify({ runtime, scenario, errors }));
     if (scenario === 'unmarked') {
-      assert.equal(session.nativeTurnStatus, 'failed'); assert.match(session.nativeError, /NATIVE_COMPLETION_REQUIRED/);
+      assert.equal(session.nativeTurnStatus, 'completed'); assert.equal(session.nativeError, undefined);
+      assert.equal(current.requests, 1); assert.equal(session.messages.filter(m => m.role === 'assistant').length, 1);
+      assert.equal(session.messages.at(-1).original, 'I am still checking the remaining step.');
       assert.ok(session.nativeProviderReceipts.some(r => r.boundary === 'unmarked'));
       assert.equal(current.executions, 0);
     } else {
       assert.equal(session.nativeTurnStatus, 'completed');
-      if (scenario === 'tools') {
+      if (scenario === 'repeated') {
+        assert.equal(current.requests, 1); assert.equal(current.executions, 0);
+        assert.equal(session.messages.filter(m => m.role === 'assistant').length, 1);
+        assert.equal(session.messages.at(-1).original, 'One final answer.');
+      } else if (scenario === 'tools') {
         assert.equal(current.requests, 2); assert.equal(current.executions, 1);
         assert.deepEqual(session.nativeProviderReceipts.map(r => r.boundary), ['tools', 'explicit']);
         if (runtime === 'codex') assert.deepEqual(session.messages.filter(m => m.role === 'assistant').map(m => m.phase), ['commentary', 'final']);
@@ -101,12 +108,12 @@ try {
       } else { assert.equal(current.requests, 1); assert.equal(session.messages.at(-1).original, 'Native final response.'); }
     }
     if (['enabled', 'reenabled'].includes(phase)) assert.deepEqual(await plugins.command(manifest.id, 'counts', {}), { prepared: 2, disposed: 2 });
-    current.errorCode = scenario === 'unmarked' ? 'NATIVE_COMPLETION_REQUIRED' : undefined;
+    current.errorCode = undefined;
     console.log('PASS', runtime, protocol, scenario, phase, current.requests, 'requests');
   }
   assert.deepEqual(errors, []);
 } finally {
   await plugins.dispose(); await runner.dispose(); await cli.dispose();
-  await writeFile(path.join(output, 'report.json'), JSON.stringify({ results, errors, realModelCalls: 0, scope: 'Installed native CLIs; explicit completion/tool round trips and rejected unmarked progress; synthetic providers; approved plugin lifecycle. No real-model semantic-quality claim.' }, null, 2));
+  await writeFile(path.join(output, 'report.json'), JSON.stringify({ results, errors, realModelCalls: 0, scope: 'Installed native CLIs; explicit completion/tool round trips and normal protocol completion without a custom envelope; synthetic providers; approved plugin lifecycle. No real-model semantic-quality claim.' }, null, 2));
   assert.equal(path.dirname(home), path.resolve(os.tmpdir())); assert.ok(path.basename(home).startsWith('awb-terminal-native-')); await rm(home, { recursive: true, force: true, maxRetries: 3 });
 }

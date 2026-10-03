@@ -28,7 +28,7 @@ const outcomes = ['completed', 'needs_input', 'blocked'] as const;
 const validOutcome = (value: unknown): value is NativeCompletionOutcome => outcomes.includes(value as NativeCompletionOutcome);
 const choiceName = (tool: Json) => tool.function?.name ?? tool.name;
 
-/** Cross-protocol completion must be an explicit model decision, never guessed from prose. */
+/** Preserve protocol completion; the optional envelope adds a declared outcome, not proof of task success. */
 export const nativeCompletionCodec: NativeCompletionCodec = {
   prepare(request, protocol) {
     if (!request.tools?.length || request.tool_choice === 'none' || request.tool_choice?.type === 'none') return;
@@ -44,10 +44,11 @@ export const nativeCompletionCodec: NativeCompletionCodec = {
     const declaration = protocol === 'chat-completions' ? { type: 'function', function: { name, description, parameters } }
       : protocol === 'responses' ? { type: 'function', name, description, parameters }
       : { name, description, input_schema: parameters };
-    const instruction = `Provider completion contract: This connection has no separate commentary turn. To continue working, include actual tool calls with any progress text. To end the turn, call ${name} with an outcome and the final message. A text-only reply is not a valid completion. Do not call ${name} for a progress update, a plan to act, or while authorized work remains. Do not invent tool calls, ask for unnecessary permission, or claim unperformed work.`;
+    const instruction = `Provider completion contract: To continue working, include actual tool calls with any progress text. A normal text answer with the protocol's successful stop ends this turn. Optionally call ${name} to declare a completed, needs_input, or blocked outcome instead of repeating the answer in text. Do not use the envelope for a progress update, invent tool calls, ask for unnecessary permission, or claim unperformed work.`;
     // Adding the completion envelope must not force a provider's tool policy.
     // Thinking-mode providers may reject required/any even for valid tools.
-    // The finish validator still refuses an unmarked text-only completion.
+    // An explicit required/any policy remains binding; auto allows plain text.
+    const requiresTool = request.tool_choice === 'required' || request.tool_choice?.type === 'any';
     const mapped: Json = { ...request, tools: [...request.tools, declaration],
       tool_choice: request.tool_choice ?? (protocol === 'anthropic-messages' ? { type: 'auto' } : 'auto') };
     if (protocol === 'chat-completions') mapped.messages = request.messages[0]?.role === 'system'
@@ -70,20 +71,23 @@ export const nativeCompletionCodec: NativeCompletionCodec = {
         if (draft.name !== name) return [{ ...delta, argumentsDelta }];
         const text = decoder.push(argumentsDelta);
         if (!text) return [];
-        const separator = !finalStarted && prefix ? '\n\n' : ''; finalStarted = true; decoded += text;
-        return [{ type: 'text', delta: separator + text }];
+        finalStarted = true; decoded += text;
+        // A provider may repeat its already-streamed answer in the envelope.
+        // Hold only that envelope until finish can compare complete messages.
+        return prefix ? [] : [{ type: 'text', delta: text }];
       },
       finish(turn) {
         const complete = turn.calls.filter(call => call.name === name);
         if (!complete.length) {
-          if (!turn.calls.length) throw Error('NATIVE_COMPLETION_REQUIRED');
+          if (!turn.calls.length && requiresTool) throw Error('NATIVE_COMPLETION_REQUIRED');
           return turn;
         }
         if (complete.length !== 1 || turn.calls.length !== 1) throw Error('NATIVE_COMPLETION_MIXED');
         let value: Json; try { value = JSON.parse(complete[0]!.arguments); } catch { throw Error('NATIVE_COMPLETION_INVALID'); }
         if (!value || !validOutcome(value.outcome) || typeof value.message !== 'string' || !value.message.trim() || Object.keys(value).some(key => !['outcome', 'message'].includes(key))) throw Error('NATIVE_COMPLETION_INVALID');
         if (!value.message.startsWith(decoded)) throw Error('NATIVE_COMPLETION_INVALID');
-        return { ...turn, text: turn.text + (turn.text ? '\n\n' : '') + value.message, calls: [], completionOutcome: value.outcome };
+        const text = turn.text.trim() === value.message.trim() ? turn.text : turn.text + (turn.text ? '\n\n' : '') + value.message;
+        return { ...turn, text, calls: [], completionOutcome: value.outcome };
       },
     };
   },

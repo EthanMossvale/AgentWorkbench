@@ -12,7 +12,7 @@ const turn = (text = '', calls: ApiTurn['calls'] = []): ApiTurn => ({ text, call
 const prepare = () => nativeCompletionCodec.prepare(nativeWireRequest(request, 'responses', 'chat-completions', model), 'chat-completions')!;
 const complete = (name: string, value: unknown) => ({ id: 'completion', name, arguments: JSON.stringify(value) });
 
-test('ordinary progress cannot silently complete a tool-bearing cross-protocol request', async () => {
+test('normal provider stop completes a tool-bearing request without a custom envelope or replay', async () => {
   let calls = 0; const receipts: unknown[] = [], diagnostics: any[] = [];
   const gateway = await openNativeGateway({ runtime: 'codex', model, credentials: async () => ({ connection, key: '' }), completionReceipt: r => receipts.push(r), diagnostic: d => diagnostics.push(d), fetcher: async (_url, init) => {
     calls++; const body = JSON.parse(String(init?.body)); assert.equal(body.tool_choice, 'auto');
@@ -21,9 +21,9 @@ test('ordinary progress cannot silently complete a tool-bearing cross-protocol r
   } });
   try {
     const response = await fetch(gateway.baseUrl + '/v1/responses', { method: 'POST', headers: { authorization: 'Bearer ' + gateway.token }, body: JSON.stringify(request) });
-    assert.equal(response.status, 422); const text = await response.text();
-    assert.match(text, /NATIVE_COMPLETION_REQUIRED/); assert.doesNotMatch(text, /response.completed/);
-    assert.equal(calls, 1); assert.equal(diagnostics[0].code, 'NATIVE_COMPLETION_REQUIRED');
+    assert.equal(response.status, 200); const text = await response.text();
+    assert.doesNotMatch(text, /NATIVE_COMPLETION_REQUIRED/); assert.match(text, /I am checking the remaining step/);
+    assert.equal(calls, 1); assert.deepEqual(diagnostics, []);
     assert.deepEqual(receipts, [{ protocol: 'chat-completions', finishReason: 'stop', toolCalls: 0, textChars: 33, boundary: 'unmarked' }]);
   } finally { await gateway.close(); }
 });
@@ -42,7 +42,7 @@ for (const protocol of ['responses', 'anthropic-messages', 'chat-completions'] a
 });
 
 test('completion outcome is not a guess about natural-language task success', () => {
-  for (const message of ['I am checking.', 'Done.', '继续检查', '']) assert.throws(() => prepare().finish(turn(message)), /COMPLETION_REQUIRED/);
+  for (const message of ['I am checking.', 'Done.', '继续检查']) { const result = prepare().finish(turn(message)); assert.equal(result.text, message); assert.equal(result.completionOutcome, undefined); }
   const boundary = prepare(), call = complete('awb_complete_turn', { outcome: 'completed', message: 'Task verified.' });
   for (const value of [{ message: 'Reply' }, { outcome: 'continue', message: 'Reply' }, { outcome: 'completed', message: '' }, { outcome: 'blocked', message: 'Reply', command: 'private' }, null]) assert.throws(() => boundary.finish(turn('', [complete(call.name, value)])), /COMPLETION_INVALID/);
   assert.throws(() => boundary.finish(turn('', [call, { id: 'read', name: 'inspect', arguments: '{}' }])), /COMPLETION_MIXED/);
@@ -72,6 +72,22 @@ test('tool progress stays attached to its calls in the next model request', () =
   assert.deepEqual(mapped.messages.slice(-2).map((m: any) => m.tool_call_id), ['inspect1', 'inspect2']);
 });
 
+for (const protocol of ['responses', 'anthropic-messages'] as const) for (const repeated of [true, false]) test(`${protocol}: text plus envelope ${repeated ? 'repetition is emitted once' : 'preserves distinct progress'}`, () => {
+  const boundary = prepare(), wire = nativeWireStream(protocol, request), events: any[] = [];
+  const prefix = repeated ? '中文 answer.😀' : 'Checking evidence.';
+  const message = '中文 answer.😀';
+  const call = complete('awb_complete_turn', { outcome: 'completed', message });
+  for (const delta of [{ type: 'text' as const, delta: prefix }, ...[...call.arguments].map(argumentsDelta => ({ type: 'tool' as const, index: 0, id: call.id, name: call.name, argumentsDelta }))]) {
+    for (const part of boundary.push(delta)) events.push(...wire.push(part));
+  }
+  const final = boundary.finish(turn(prefix, [call]));
+  events.push(...wire.finish(final));
+  const visible = events.filter(e => e.type === 'response.output_text.delta' || e.delta?.type === 'text_delta').map(e => typeof e.delta === 'string' ? e.delta : e.delta.text).join('');
+  assert.equal(visible, repeated ? message : prefix + '\n\n' + message);
+  assert.equal(final.text, visible);
+  assert.equal(prepare().finish(turn(prefix, [call])).text, visible, 'JSON and streaming agree');
+});
+
 test('tool-free and explicitly forced requests retain their original control', () => {
   for (const from of ['responses', 'anthropic-messages'] as const) for (const to of ['responses', 'anthropic-messages', 'chat-completions'] as const) {
     if (from === to) continue;
@@ -92,10 +108,10 @@ test('a native tool name collision does not steal the native tool', () => {
   const native = turn('', [{ id: 'native', name: 'awb_complete_turn', arguments: '{}' }]); assert.equal(boundary.finish(native), native);
 });
 
-test('thinking requests retain automatic tool choice while still requiring an explicit final boundary', () => {
+test('thinking requests retain automatic tool choice and normal protocol completion', () => {
   const mapped = nativeWireRequest(request, 'responses', 'anthropic-messages', { ...model, adaptiveThinking: true });
   const boundary = nativeCompletionCodec.prepare(mapped, 'anthropic-messages')!;
   assert.deepEqual(boundary.request.thinking, { type: 'adaptive' });
   assert.deepEqual(boundary.request.tool_choice, { type: 'auto' });
-  assert.throws(() => boundary.finish(turn('Progress only.')), /COMPLETION_REQUIRED/);
+  assert.equal(boundary.finish(turn('Progress only.')).completionOutcome, undefined);
 });
