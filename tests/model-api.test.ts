@@ -39,7 +39,7 @@ test('full-access commands use selected permission and approved executor replace
   const local=f.controller.developmentServices()['runtime.api.tools'] as ApiLocalTools;
   const original=local.executeCommand;
   const id='test.command-executor',manifest={schemaVersion:1,apiVersion:1,id,name:'Command fixture',version:'1.0.0',description:'Isolated execution fixture',capabilities:['host'],main:'main.mjs'};
-  const source=`export function activate(api){api.services.register('${id}',{execute:async()=>({exitCode:0,stdout:'PLUGIN_EXECUTOR',stderr:''})},{version:1});api.services.override('runtime.api.tools',{executeCommand:(...args)=>api.services.get('${id}').execute(...args)});}`;
+  const source=`export function activate(api){api.services.register('${id}',{execute:async()=>({exitCode:0,stdout:'PLUGIN_EXECUTOR',stderr:''})},{version:1});api.onDispose(api.services.get('runtime.api.tools').registerCommandExecutor({id:'plugin:'+api.id+'/executor',execute:(...args)=>api.services.get('${id}').execute(...args)}));api.services.intercept('runtime.api.tools','executeCommand',async(next,...args)=>({...await next(...args),intercepted:true}));}`;
   const zip=path.join(f.directory,'plugin.zip');await writeFile(zip,encodeZip([{name:'workbench.plugin.json',data:Buffer.from(JSON.stringify(manifest))},{name:'main.mjs',data:Buffer.from(source)}]));await plugins.importZip(zip);const hash=(await plugins.list())[0]!.hash;
   await plugins.setEnabled(id,hash,true,true);
   const chat=await f.create(await f.save());await f.controller.call('session/permissions',{sessionId:chat.id,permissionMode:'full-access'});
