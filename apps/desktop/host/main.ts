@@ -225,7 +225,7 @@ async function boot(){
  const lifecycle=installTray(created,async()=>{quitting=true;lifecycleState();desktopUpdates.dispose();stopUpdateEvents();stopBootWatch();await flushRenderer();await windowState.flush();windowState.dispose();await core.call('shutdown').catch(()=>{});
   // The core holds plugin modules, data files and child processes; it is gone before this process exits.
   child.kill();await Promise.race([coreExited,new Promise(resolve=>setTimeout(resolve,3000))]);stopRecoveryMirror();if(coreCrashed)return;await recovery.closed();guardian?.close();},!!userDataOverride,branding);
- notifier=new DesktopNotifier(created,uiPreferences,sessionId=>{if(lifecycle.isQuitting())return;if(!hiddenQa)lifecycle.show();try{void core.call('navigate.link',threadDeepLink(sessionId)).catch(()=>{});}catch{/* Not a local thread identifier. */}},!!userDataOverride);
+ notifier=new DesktopNotifier(created,uiPreferences,sessionId=>{if(lifecycle.isQuitting())return;if(!hiddenQa)lifecycle.show();try{void core.call('navigate.link',threadDeepLink(sessionId)).catch(()=>{});}catch{/* Not a local thread identifier. */}},!!userDataOverride&&process.env.AGENT_WORKBENCH_TEST_REAL_NOTIFICATIONS!=='1');
  core.handle('notifications.focused',((sessionId:string)=>notifier!.focused(sessionId)) as never);
  core.handle('notifications.show',((notice:unknown)=>lifecycle.isQuitting()?{shown:false,sound:false}:notifier!.show(notice)) as never);
  // Host plugins in the core reach these services asynchronously by id.
