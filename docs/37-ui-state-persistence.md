@@ -1,5 +1,10 @@
 # 37 · UI preference persistence inventory
 
+## Desktop installer rollback (2026-10-04)
+
+The recovery backup, ready marker, registry snapshot and commit marker are transient installation transaction state. They are not user preferences, are not packaged in application releases, and are removed after successful install/recovery. Failed recovery deliberately preserves its backup. Installation directory and Windows uninstall registration retain their existing owners; the prior registration is restored when an upgrade fails. Existing workbench data location, geometry, tabs, panes, editors and model/runtime preferences are not rewritten or migrated. No new UI node, saved choice or default is introduced.
+
+
 ## Claude local tool surface (2026-10-04)
 
 This change adds no user-adjustable UI node. Tool text and attached instruction envelopes are derived per-connection data; the original visible user message remains unchanged. The context deduplication ledger and file-read stamps are transient and reset on full service restart; a restarted service intentionally refreshes context. Native memory/settings remain their existing on-disk owners. Background output logs belong to the active tool connection and are removed at cleanup. Window geometry, layout, tabs, ordering, editors, model selection and plugin configuration retain their existing preference owners; no migration or new shipped preference is introduced.

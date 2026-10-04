@@ -1,5 +1,17 @@
 # 36 · 工作台插件开发接口
 
+## Desktop installer recovery semantics (2026-10-04)
+
+| Capability | Call / register / replace | Production verification |
+| --- | --- | --- |
+| Desktop update backend | Existing `desktop-updates/check`, `desktop-updates/install`, `updates.desktop` service and `DesktopUpdates.register({id,create})` returning a disposer | Approved ZIP backend tests in `tests/desktop-updates.test.ts` continue to drive actual check/install and restore core behavior on disable/reenable. |
+| Packaged installation transaction | Existing electron-builder `nsis.include` points to `scripts/installer/paths.nsh`; the build-time NSIS customInit/customHeader/customInstall hooks own backup, commit and rollback | Actual compiled installers in `scripts/test-installer-update-rollback.mjs`, including the pre-fix reproduction and four failure modes. `rollback.ps1 -InstallerProcessId -InstallDirectory -BackupDirectory` is an internal installer helper, not a new plugin service or arbitrary remote operation. |
+
+Public API signatures, renderer states/events, permissions and update-provider registration remain unchanged; no SDK snapshot change comes from the installer. Existing plugins may invoke, register or replace the update backend. Once the application has quit, in-process host plugins cannot own installer recovery; custom installer distributions use the existing NSIS build-time extension entry rather than a fictitious runtime plugin hook. The updater continues requiring explicit install and idle tasks. Handled installation failures now return a nonzero status and restore the prior files/registration; abrupt exits are handled by the independent recovery process. The closed desktop cannot receive a post-exit renderer event, so no such receipt is invented. Recovery data is transient, locally owned and excluded from release payloads; failed recovery retains files and a readable diagnostic. Versioned installer replacement is required; deployed old installers are not modified by a source commit.
+
+Compatibility tests preserve existing-directory and `/D` choices, fresh installs, backend plugin activation/disable/reenable, and normal upgrades. No new model, account, UI catalog or persistent preference is added. The original external device's exact failure cause remains unverified; the reproduced uninstall-before-extract loss window is repaired.
+
+
 ## Claude model-facing local tool surface (2026-10-04)
 
 | Capability | Call / register / replace | Production consumer and lifecycle |

@@ -1,8 +1,10 @@
 # 07 · 研究、来源与证据边界
 
-## Claude bridge source review (2026-10-04)
+## Claude bridge and installer source review (2026-10-04)
 
 The installed official Claude MCP tool process was exercised with a disposable home and model traffic directed to an unreachable loopback endpoint. This verifies actual Read/Edit envelopes, native foreground PowerShell and background-command output; it does not establish live remote model or Agent behavior. The bridge implements explicit support for local synchronous command hooks and reports other configured hook types/events as unavailable, rather than claiming complete native hook equivalence. Core load hints are delivered as `anthropic/alwaysLoad` metadata; model obedience is a separate layer.
+
+The installed MIT-licensed electron-builder 26.15.3 NSIS templates were inspected in place: `installSection.nsh` invokes `uninstallOldVersion` before `installApplicationFiles`; `include/extractAppPackage.nsh` has Quit paths after extraction failures, while the old app has already been removed. The inspected electron-updater 6.8.9 `NsisUpdater.doInstall` starts the installer with `--updated /S --force-run`. These are dependency-source observations, not proof of a particular remote device's failure trigger. No third-party implementation source is copied into the product by this repair.
 
 
 ## ZIP compatibility dependency (2026-10-03)

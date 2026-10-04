@@ -1,5 +1,14 @@
 # 16 · 实现与验收记录
 
+## Desktop update rollback after old-app removal (2026-10-04)
+
+Source review identified a concrete loss window in the shipped NSIS upgrade: the old application is removed before the new package is extracted, and extraction can exit without restoring the old files. An isolated synthetic installer reproduced a missing EXE while returning success when the new executable disappeared after extraction. Ordinary fresh and successful upgrade paths alone did not reproduce the reported failure. The affected external device's actual trigger remains unknown.
+
+The installer now retains a complete previous application copy and registry snapshot outside the install directory until the new EXE and app.asar exist. A hidden local PowerShell recovery owner waits for the installer process to exit, restores the previous application/registration after failure or abrupt termination, and removes only its marked backup after successful installation or recovery. Handled failures return a nonzero exit; unavailable backup/recovery preparation leaves the existing installation untouched. Recovery errors retain the backup and write a diagnostic. No native runtime profile, login or workbench preference is migrated.
+
+`scripts/test-installer-update-rollback.mjs` builds and runs actual NSIS packages with random application/registry identities and an isolated directory. The frozen pre-fix macro reproduces disappearance; missing EXE, Quit, Abort and forced process termination restore the old executable, resource version and DisplayVersion. A successful new version commits normally. `scripts/test-installer-paths.mjs` retains fresh/existing/explicit-directory cases. Existing updater tests cover approved backend registration and busy-session lifecycle. These checks do not prove the unknown remote incident trigger, disk/power failure recovery, antivirus behavior, or a published update. The repair takes effect only in newly built installers; no running installation was replaced.
+
+
 ## Claude local tool experience completion (2026-10-04)
 
 The SSH Claude bridge now attaches local instruction imports and the first 200 memory-index lines to the initial user turn, preserves the original visible user message, and refreshes context on the next user input or tool result after compaction. Reconnects in the same service avoid resending an unchanged context. Path-scoped rules accompany matching file-tool results; topic memory files remain demand-loaded. The native MCP initialization supplies the local workflow to child agents, including an explicit LocalContext(includeContents:true) entry; it does not pretend to inject private native Agent prompts.

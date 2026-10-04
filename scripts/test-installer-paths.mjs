@@ -29,8 +29,13 @@ OutFile ${quote(path.join(output,'probe.exe'))}
 !define APP_GUID "fixture"
 !define APP_FILENAME "AgentWorkbench"
 !define INSTALL_REGISTRY_KEY ${quote(registry)}
+!define UNINSTALL_REGISTRY_KEY ${quote(registry+'-uninstall')}
+!define APP_EXECUTABLE_FILENAME "fixture.exe"
+!define UNINSTALL_FILENAME "Uninstall fixture.exe"
+!define PROJECT_DIR ${quote(root)}
 !include ${quote(path.join(root,'node_modules/app-builder-lib/templates/nsis/multiUser.nsh'))}
 !include ${quote(path.join(root,'scripts/installer/paths.nsh'))}
+!insertmacro customHeader
 Function .onInit
  SetRegView 64
  DeleteRegKey HKCU "${dollar}{INSTALL_REGISTRY_KEY}"
