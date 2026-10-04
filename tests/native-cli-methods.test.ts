@@ -65,8 +65,10 @@ test('official installer failures expose only bounded stage codes', async () => 
   assert.equal(cliFailureCode('The remote certificate is invalid according to the validation procedure'), 'CLI_INSTALL_TLS_FAILED');
   assert.equal(cliFailureCode('Installation failed (exit code 1)'), 'CLI_INSTALL_NATIVE_SETUP_FAILED');
   assert.equal(cliFailureCode('unexpected secret text'), 'CLI_COMMAND_FAILED');
-  await assert.rejects(runCommand({ executable: process.execPath, args: ['-e', "process.stderr.write('Failed to download binary: private detail');process.exit(1)"] }, { cwd: process.cwd(), env: process.env, timeout: 5000 }), error => (error as Error).message === 'CLI_INSTALL_DOWNLOAD_FAILED');
-  await assert.rejects(runCommand({ executable: process.execPath, args: ['-e', "process.stdout.write('Git Bash was not found');process.stderr.write('Installation failed (exit code 1)');process.exit(1)"] }, { cwd: process.cwd(), env: process.env, timeout: 5000 }), error => (error as Error).message === 'CLI_INSTALL_GIT_BASH_REQUIRED');
+  await assert.rejects(runCommand({ executable: process.execPath, args: ['-e', "process.stderr.write('Failed to download binary: private detail');process.exit(1)"] }, { cwd: process.cwd(), env: process.env, timeout: 5000 }), error => (error as Error).message === 'CLI_INSTALL_DOWNLOAD_FAILED\nFailed to download binary: private detail');
+  await assert.rejects(runCommand({ executable: process.execPath, args: ['-e', "process.stdout.write('Git Bash was not found');process.stderr.write('Installation failed (exit code 1)');process.exit(1)"] }, { cwd: process.cwd(), env: process.env, timeout: 5000 }), error => (error as Error).message.startsWith('CLI_INSTALL_GIT_BASH_REQUIRED\n') && (error as Error).message.endsWith('Installation failed (exit code 1)'));
+  // The real reason is kept, ANSI-free, as the last lines of output.
+  await assert.rejects(runCommand({ executable: process.execPath, args: ['-e', "for(let i=0;i<40;i++)console.log('line '+i);process.stderr.write('\\x1b[31mError: EBUSY: resource busy or locked\\x1b[0m\\nInstallation failed (exit code 1)');process.exit(1)"] }, { cwd: process.cwd(), env: process.env, timeout: 5000 }), error => { const lines = (error as Error).message.split('\n'); return lines[0] === 'CLI_INSTALL_NATIVE_SETUP_FAILED' && lines.length === 13 && lines.at(-2) === 'Error: EBUSY: resource busy or locked' && !lines.includes('line 0'); });
 });
 
 const put = async (file: string, value = 'fixture') => { await mkdir(path.dirname(file), { recursive: true }); await writeFile(file, value); };
@@ -170,4 +172,22 @@ test('Claude npm removal verifies the package prefix and preserves its native se
   const f = await fixture(t), commands: Command[] = []; await put(f.npm.claude); await put(path.join(f.env.CLAUDE_CONFIG_DIR, 'settings.json'), '{"sentinel":true}');
   const service = f.service({ run: async command => { if (command.args[0] === '--version') return '2.1.283'; commands.push(command); if (command.args.at(-1)!.includes('prefix -g')) return f.prefix; await rm(f.npm.claude); return ''; } });
   await service.uninstall('claude', (await service.list())[1]!.revision); assert.match(commands[1]!.args.at(-1)!, /uninstall -g '@anthropic-ai\/claude-code'/); assert.equal(await readFile(path.join(f.env.CLAUDE_CONFIG_DIR, 'settings.json'), 'utf8'), '{"sentinel":true}');
+});
+
+test('a native CLI whose version cannot be read shows the reason and can be reinstalled in place', async t => {
+  const f = await fixture(t), commands: Command[] = []; let repaired = false;
+  await put(f.claude);
+  const service = f.service({ isolated: false, run: async command => {
+    if (command.args[0] === '--version') { if (repaired) return '2.1.289 (Claude Code)'; throw Error('CLI_COMMAND_TIMED_OUT\nstill scanning'); }
+    commands.push(command); repaired = true; await put(f.claude, 'repaired'); return '';
+  } });
+  const before = (await service.list()).find(item => item.runtime === 'claude')!;
+  assert.equal(before.installed, true); assert.equal(before.version, undefined); assert.equal(before.canInstall, true); assert.equal(before.canUpdate, false);
+  assert.equal(before.error, 'CLI_VERSION_UNVERIFIED\nCLI_COMMAND_TIMED_OUT\nstill scanning');
+  await assert.rejects(service.install('claude', false, false, 'npm'), /CLI_INSTALL_STATE_CHANGED/);
+  await service.install('claude', false, false, 'native');
+  assert.equal(commands.length, 1); assert.match(commands[0]!.args.at(-1)!, /claude.ai\/install.ps1/);
+  const after = (await service.list()).find(item => item.runtime === 'claude')!;
+  assert.equal(after.version, '2.1.289'); assert.equal(after.canInstall, false); assert.equal(after.error, undefined);
+  await assert.rejects(service.install('claude', false, false, 'native'), /CLI_INSTALL_STATE_CHANGED/);
 });

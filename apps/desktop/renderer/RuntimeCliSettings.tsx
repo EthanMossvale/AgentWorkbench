@@ -13,18 +13,20 @@ const errors: Record<string, string> = {
   CLI_OTHER_INSTALLATION_REMAINS: '已卸载选中的安装，但还发现另一份 CLI，当前显示的是剩余安装。',
   CLI_INSTALL_PREREQUISITE: '当前安装方式暂不可用。npm 方式需要 Node.js 和 npm；可以选择原生安装。',
   CLI_INSTALL_METHOD_INVALID: '请选择原生或 npm 安装方式。',
-  CLI_UPDATE_CHECK_FAILED: '暂时无法获取官方版本，请稍后重试。', CLI_VERSION_UNVERIFIED: '已找到程序，但无法确认版本。',
+  CLI_UPDATE_CHECK_FAILED: '暂时无法获取官方版本，请稍后重试。', CLI_VERSION_UNVERIFIED: '已找到程序，但无法确认版本。可点击“重新安装”修复，原因见下方输出。',
   CLI_COMMAND_FAILED: '官方命令未成功完成，原因尚未确认。请通过安装详情中的官方命令核查。', CLI_INSTALL_DOWNLOAD_FAILED: '官方安装器获取版本、清单或程序失败；请稍后检查官方服务连接。',
   CLI_INSTALL_GIT_BASH_REQUIRED: 'Claude Code 原生安装需要 Git for Windows（Git Bash）。安装或修复 Git Bash 后重试；不需要 Node.js/npm。',
   CLI_INSTALL_PROXY_AUTH_REQUIRED: '代理要求身份验证，官方安装器无法下载。请检查当前用户的系统代理后重试。',
   CLI_INSTALL_TLS_FAILED: '官方连接的 TLS/证书校验失败。请检查当前设备的证书和代理；不要关闭证书校验。',
-  CLI_INSTALL_NATIVE_SETUP_FAILED: '官方程序已下载，但其本机安装步骤失败。请在此设备的 PowerShell 中运行安装详情里的官方命令，查看原始错误；不需要 Node.js/npm。',
+  CLI_INSTALL_NATIVE_SETUP_FAILED: '官方程序已下载，但其本机安装步骤失败，原因见下方输出；不需要 Node.js/npm。',
   CLI_INSTALL_CHECKSUM_FAILED: '官方安装包校验失败，未继续安装。', CLI_INSTALL_PLATFORM_UNSUPPORTED: '官方安装器不支持当前系统或架构。', CLI_INSTALL_PERMISSION_DENIED: '官方安装器被系统权限阻止。', CLI_COMMAND_TIMED_OUT: '安装超时，已停止本次安装进程；请刷新安装状态。',
   CLI_OUTPUT_TOO_LARGE: '安装程序输出异常，已停止。', CLI_INSTALL_NOT_DISCOVERED: '安装结束，但尚未找到 CLI；请刷新或检查官方安装结果。',
   CLI_PROCESS_STATE_UNKNOWN: '无法确认安装进程已退出。请检查本机进程后重启工作台，再进行更新。',
   CLI_UPDATE_NOT_APPLIED: '官方命令已结束，但版本尚未达到检查到的更新版本；请刷新后检查原安装渠道。',
   CLI_INSTALL_DIRECTORY_INVALID: '请选择有效的 Windows 磁盘目录。',
 };
+/** Native output kept after the error code; shown locally only. */
+export const cliDetail = (message: string) => message.split('\n').slice(1).join('\n').trim();
 export const cliError = (message: string) => Object.entries(errors).find(([code]) => message.includes(code))?.[1] ?? '暂时无法完成操作，请刷新后重试。';
 
 export default function RuntimeCliSettings({ notify }: { notify: (message: string) => void }) {
@@ -48,12 +50,12 @@ export default function RuntimeCliSettings({ notify }: { notify: (message: strin
       window.dispatchEvent(new Event('local-cli-changed'));
       if (action === 'install') notify(`${runtimeName(runtime)} ${extra.update ? '更新' : '安装'}完成`);
       if (action === 'uninstall') notify(`${runtimeName(runtime)} 已卸载，配置和记忆已保留`);
-    } catch (failure) { if (active.current) setFailures(value => ({ ...value, [runtime]: cliError(errorText(failure)) })); }
+    } catch (failure) { if (active.current) setFailures(value => ({ ...value, [runtime]: errorText(failure) })); }
     finally { pending.current.delete(key); if (active.current) { setBusy([...pending.current]); await refresh().catch(() => {}); } }
   };
   const chooseCodexDirectory=async()=>{
     try{const directory=await api<string|null>('desktop/data-directory/choose',{kind:'codex'});if(!directory)return;await api('local-cli/install-directory',{directory});await refresh();}
-    catch(failure){setFailures(value=>({...value,codex:cliError(errorText(failure))}));}
+    catch(failure){setFailures(value=>({...value,codex:errorText(failure)}));}
   };
   return <section className="settings-section native-resources runtime-cli-settings" data-testid="runtime-cli-settings">
     <p className="inline-note runtime-cli-intro">管理本机 Codex 与 Claude Code，沿用各自的原生配置。</p>
@@ -73,7 +75,8 @@ export default function RuntimeCliSettings({ notify }: { notify: (message: strin
       </div></RememberedDetails>
       {showCatalog && item.latest && <p className="runtime-cli-status">官方{item.channel === 'stable' ? '稳定' : '最新'}版本 {item.latest}{item.installed && !item.updateAvailable && item.version ? ' · 无可用更新' : ''}</p>}
       {(busy.includes(item.runtime) || item.busy) && <p className="runtime-cli-status" role="status">正在处理…</p>}
-      {(failures[item.runtime] || item.error) && <p className="inline-error" role="alert">{failures[item.runtime] || cliError(item.error!)}</p>}
+      {(failures[item.runtime] || item.error) && (() => { const message = failures[item.runtime] || item.error!, detail = cliDetail(message); return <div className="inline-error" role="alert"><p>{cliError(message)}</p>{detail && <pre className="runtime-cli-output">{detail}</pre>}</div>; })()}
+      {item.installed && item.source === 'native' && !item.version && item.canInstall && <button className="button secondary" disabled={busy.includes(item.runtime) || item.busy} onClick={() => void act(item.runtime, 'install', { installMethod: 'native' })}>重新安装</button>}
       {item.installed && !item.canUpdate && !item.error && <p className="inline-note">{item.source === 'path' ? '检测到其他渠道的 CLI，无法确认其更新方式。可查看安装详情，或安装可由工作台更新的独立 CLI。' : item.source === 'npm' ? '此 CLI 由 npm 安装；请先恢复可用的 Node.js 和 npm，再更新。' : '请通过原安装渠道更新此 CLI。'}</p>}
       {item.installed && item.source === 'path' && item.canInstall && <button className="button secondary" disabled={busy.includes(item.runtime) || item.busy} onClick={() => setStandalone(item)}>安装独立 {runtimeName(item.runtime)} CLI</button>}
       {item.installed && <fieldset className="resource-fieldset" disabled={busy.includes(item.runtime + '-configure') || !item.canUpdate}><Toggle label={`自动更新 ${runtimeName(item.runtime)}`} description="每天在工作台空闲时检查并更新。" checked={item.autoUpdate} onChange={enabled => void act(item.runtime, 'configure', { enabled })}/></fieldset>}

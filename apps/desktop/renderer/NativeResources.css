@@ -56,3 +56,4 @@ html[data-plugin-background] .desktop-frame>:not(.plugin-background){position:re
 .native-plugin-copy p { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .native-plugin-copy small { color: var(--muted); overflow-wrap: anywhere; }
 .native-plugin-settings .plugin-row>header>.button { flex: 0 0 auto; padding: 6px 12px; border: 1px solid var(--line); }
+.runtime-cli-output{margin:8px 0 0;max-height:12em;overflow:auto;white-space:pre-wrap;overflow-wrap:anywhere;font-family:var(--font-mono,monospace);font-size:0.846154rem;line-height:1.6;color:var(--text);user-select:text}

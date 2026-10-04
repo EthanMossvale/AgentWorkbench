@@ -2,7 +2,7 @@ import path from 'node:path';
 import os from 'node:os';
 import { lstat, stat, realpath } from 'node:fs/promises';
 import { atomicWrite, digest, noLinks, readJson, samePath, SerialQueue } from '../native-resources/files';
-import { runCommand, type Command, type RunCommand } from './process';
+import { cliFailureDetail, runCommand, type Command, type RunCommand } from './process';
 import { codexWindowsInstall, codexWindowsRemoval } from './native-install';
 
 export type LocalRuntime = 'codex' | 'claude';
@@ -116,7 +116,8 @@ export class LocalCliService {
   private async nativeVersion(executable: string) {
     const info = await stat(executable), key = `${await realpath(executable)}:${info.size}:${info.mtimeMs}`;
     let result = this.versions.get(key);
-    if (!result) { result = (this.options.run ?? runCommand)({ executable, args: ['--version'] }, { cwd: this.home, env: this.env, timeout: 10000 }).then(text => { const match = text.match(/\b\d+\.\d+\.\d+(?:-[\w.-]+)?\b/); if (!match) throw Error('CLI_VERSION_UNVERIFIED'); return match[0]; }); this.versions.set(key, result); }
+    // A freshly installed 250 MB binary can take tens of seconds on its first, antivirus-scanned launch.
+    if (!result) { result = (this.options.run ?? runCommand)({ executable, args: ['--version'] }, { cwd: this.home, env: this.env, timeout: 60000 }).then(text => { const match = text.match(/\b\d+\.\d+\.\d+(?:-[\w.-]+)?\b/); if (!match) throw Error(`CLI_VERSION_UNVERIFIED\n${cliFailureDetail(text) || '--version printed no version.'}`); return match[0]; }, error => { throw Error(`CLI_VERSION_UNVERIFIED\n${(error as Error).message}`); }); this.versions.set(key, result); }
     try { return await result; } catch (error) { this.versions.delete(key); throw error; }
   }
   private async command(runtime: LocalRuntime, update: boolean, found?: Awaited<ReturnType<LocalCliService['locate']>>, method: InstallMethod = 'native'): Promise<{ spec: Command; label: string } | undefined> {
@@ -141,11 +142,11 @@ export class LocalCliService {
   async list(): Promise<LocalCli[]> {
     return Promise.all(providers.map(async runtime => {
       const found = await this.locate(runtime); let version: string | undefined, error = this.errors[runtime];
-      if (found) try { version = await this.nativeVersion(found.executable); } catch { error = 'CLI_VERSION_UNVERIFIED'; }
+      if (found) try { version = await this.nativeVersion(found.executable); } catch (failure) { error = (failure as Error).message; }
       const command = await this.command(runtime, !!found, found), catalog = this.catalog[runtime];
       const installMethods = await Promise.all((['native', 'npm'] as const).map(async method => { const value = await this.command(runtime, false, undefined, method); return { method, available: !!value, command: value?.label }; }));
       const revision = await this.revision(found).catch(() => '');
-      return { runtime, installed: !!found, ...found, version, channel: catalog?.channel ?? 'latest', ...catalog, installMethods, installDirectory:runtime==='codex'?this.preferences.codexInstallDirectory:undefined, updateAvailable: !!(version && catalog?.latest && (!catalog.checkedMethod || catalog.checkedMethod === found?.source) && newerVersion(catalog.latest, version)), autoUpdate: this.preferences.autoUpdate[runtime], busy: this.busy.has(runtime), canInstall: !found ? !!command : found.source === 'path' && installMethods.some(item => item.method === 'native' && item.available), canUpdate: !!found && !!command && !!version && !!revision, canUninstall: !!revision && await this.removable(runtime, found), revision, command: command?.label, error: error ?? (!found && !command ? 'CLI_INSTALL_PREREQUISITE' : undefined) };
+      return { runtime, installed: !!found, ...found, version, channel: catalog?.channel ?? 'latest', ...catalog, installMethods, installDirectory:runtime==='codex'?this.preferences.codexInstallDirectory:undefined, updateAvailable: !!(version && catalog?.latest && (!catalog.checkedMethod || catalog.checkedMethod === found?.source) && newerVersion(catalog.latest, version)), autoUpdate: this.preferences.autoUpdate[runtime], busy: this.busy.has(runtime), canInstall: !found ? !!command : (found.source === 'path' || found.source === 'native' && !version) && installMethods.some(item => item.method === 'native' && item.available), canUpdate: !!found && !!command && !!version && !!revision, canUninstall: !!revision && await this.removable(runtime, found), revision, command: command?.label, error: error ?? (!found && !command ? 'CLI_INSTALL_PREREQUISITE' : undefined) };
     }));
   }
   async check(runtime: LocalRuntime, requestedMethod: InstallMethod = 'native') {
@@ -171,7 +172,9 @@ export class LocalCliService {
       // Only an explicit native installation may coexist with an unowned PATH
       // binary. Updating or automatically replacing that binary stays forbidden.
       const separate = !update && !automatic && requestedMethod === 'native' && found?.source === 'path';
-      if (update !== !!found && !separate) throw Error('CLI_INSTALL_STATE_CHANGED');
+      // A native install whose version cannot be read is repaired by rerunning the official installer.
+      const repair = !update && !automatic && requestedMethod === 'native' && found?.source === 'native' && !await this.nativeVersion(found.executable).then(() => true, () => false);
+      if (update !== !!found && !separate && !repair) throw Error('CLI_INSTALL_STATE_CHANGED');
       if (requestedMethod !== undefined && requestedMethod !== 'native' && requestedMethod !== 'npm') throw Error('CLI_INSTALL_METHOD_INVALID');
       if (update && requestedMethod && requestedMethod !== found?.source) throw Error('CLI_INSTALL_STATE_CHANGED');
       const method = update && found?.source === 'npm' ? 'npm' : update ? 'native' : requestedMethod ?? 'native';
