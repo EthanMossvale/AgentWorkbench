@@ -2462,3 +2462,8 @@ Root cause of the lag while any model runs: each streamed batch and tool-activit
 ## D039 interaction decoupled from model output (2026-10-04)
 
 Historical turns no longer re-render while a model streams or while the user types: each turn renders only when its own records or the workspace reading context change. Callbacks in history read the current workspace through a ref. The composer grows by CSS content sizing without per-keystroke layout, and the shortcut handler only checks for open dialogs when a key matches a binding. In a hidden production window with a 200-turn session and a ~12k-character streaming Markdown reply, keydown handling delay while streaming fell from 5.0/7.6/9.5 ms (p50/p95/max) to 0.2/1.9/4.9 ms, the renderer went from ~17% to ~74% idle during streaming, and no long animation frame occurred. Wheel delivery in the offscreen harness is frame-aligned and not attributable to the app. Codex and Claude share these paths. Evidence is hidden-window and unit level; physical-display, installed-package and live model acceptance were not performed. Details are in documents 36 and 37.
+
+
+## D040 thinking rows (2026-10-04)
+
+Thinking no longer stacks "思考已结束" rows. All thinking between two pieces of visible output is one row at its first position. It shows "正在思考" while any of it runs and "思考已结束" otherwise, and thinking that resumes after tools reuses that row instead of adding one below. Tool runs that were split by repeated thinking now form one batch; images and other events still stack individually. The next visible output starts a new segment. Shared by Codex and Claude; verified by unit tests and hidden-window acceptance for both runtimes, not with live models. Details are in document 36.

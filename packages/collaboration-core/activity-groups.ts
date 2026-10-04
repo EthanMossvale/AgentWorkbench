@@ -46,6 +46,32 @@ function batchLabel(items:RuntimeActivity[]){
   if(tools)parts.push(`调用了 ${tools} 次工具`);
   return parts.length>1?parts.slice(0,-1).join('、')+'并'+parts.at(-1):parts[0]??'运行记录';
 }
+const isThinking=(a?:RuntimeActivity)=>!!a&&a.category==='reasoning'&&!diagnostic(a);
+/**
+ * Thinking between two pieces of visible output (a reply, user message or other
+ * non-activity entry) is one segment shown as a single row at the position of its
+ * first thinking record: "thinking" while any of it runs, otherwise the latest
+ * state. The first item is that merged row; every original record stays in items.
+ */
+function thinkingSegments<T extends ActivityGroupingEntry>(entries:readonly T[]){
+  const segments=new Map<T,{first:T;items:T[]}>();let current:T[]=[];
+  const close=()=>{
+    if(!current.length)return;
+    const activities=current.map(entry=>entry.activity!),first=current[0]!,base=first.activity!;
+    const status=activities.some(a=>a.status==='running')?'running':activities.at(-1)!.status;
+    const updatedAt=activities.map(a=>a.updatedAt).sort().at(-1)??base.updatedAt;
+    const row=status===base.status&&updatedAt===base.updatedAt?first:{...first,activity:{...base,status,updatedAt}};
+    const segment={first,items:[row,...current.slice(1)]};
+    for(const entry of current)segments.set(entry,segment);
+    current=[];
+  };
+  for(const entry of entries){
+    if(!entry.activity){close();continue;}
+    if(isThinking(entry.activity))current.push(entry);
+  }
+  close();
+  return segments;
+}
 /** Presentation only: no entry is removed, and boundaries never cross non-tool content. */
 export class ActivityGroupingRegistry {
   private chatRules=new Map<string,ActivityChatRule>();
@@ -89,10 +115,15 @@ export class ActivityGroupingRegistry {
       metadata.items.push(entry);if(needsAttention(entry.activity))metadata.attention++;
     }
     if(metadata.items.length)output.push(metadata);
+    const thinking=thinkingSegments(entries);
     let previousKey:string|undefined;
     for(const entry of entries){
       const a=entry.activity;
       if(a&&diagnostic(a))continue;
+      // Later thinking in a segment is shown by the segment's first thinking row.
+      const segment=thinking.get(entry);
+      if(segment&&segment.first!==entry)continue;
+      if(segment){output.push({id:entry.id,items:segment.items,label:'',diagnostic:false,attention:0});previousKey=undefined;continue;}
       const chat=a&&this.chat(a);
       const info=chat?{key:'chat',label:''}:a&&eligible(a)?this.classify(a):undefined;
       const key=info&&JSON.stringify([a!.runtime,a!.nativeChildId??'',a!.turnId??'',info.key]);

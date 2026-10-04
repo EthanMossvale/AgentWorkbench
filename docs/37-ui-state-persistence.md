@@ -560,3 +560,9 @@ Verification: TypeScript, the shared UI preference inventory and plugin contract
 ## D039: static history and composer sizing (2026-10-04)
 
 No adjustable node, key, default or storage changes. Disclosure choices (`disclosure.open`) still belong to their mounted `RememberedDetails` owners, which subscribe to the shared preference store themselves, so restoring, overriding and resetting them works for memoized history as before. The composer's height remains derived state, not a preference: it follows its content between the shipped minimum and the registered sizing ceiling. The reading context and per-turn identity signatures are transient render state and are not persisted.
+
+
+
+## D040: thinking rows (2026-10-04)
+
+Presentation of thinking records only; no adjustable node, key, default or storage changes. The merged thinking row has no disclosure of its own. Tool batch disclosures keep their `ActivityGroups.details.1` scopes, keyed by the batch's first entry.

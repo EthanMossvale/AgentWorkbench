@@ -58,3 +58,27 @@ test('legacy classification, namespaced coexistence, invalid contributions and d
   }
   await Promise.resolve();second.dispose();assert.equal(registry.group(items).length,1);first.dispose();first.dispose();unsubscribe();assert.equal(changes,10);assert.match(registry.group(items)[0]!.label,/正在运行/);
 });
+
+test('thinking between visible output stays one row at its first position and follows the latest state',()=>{
+  const registry=new ActivityGroupingRegistry();
+  const think=(id:string,status:RuntimeActivity['status'],updatedAt=at)=>entry(id,{kind:'tool',category:'reasoning',status,updatedAt});
+  const done=(id:string)=>entry(id,{status:'completed'});
+  // Thinking -> thinking ended + tools -> thinking again: no new row, the first row is live again.
+  let entries=[think('t1','completed'),done('c1'),think('t2','running','2026-09-30T00:00:05.000Z'),done('c2')];
+  let groups=registry.group(entries);
+  assert.deepEqual(groups.map(g=>g.id),['t1','c1']);
+  assert.equal(groups[0]!.items[0]!.activity!.status,'running');
+  assert.equal(groups[0]!.items[0]!.activity!.updatedAt,'2026-09-30T00:00:05.000Z');
+  assert.deepEqual(groups[0]!.items.map(i=>i.id),['t1','t2'],'every thinking record is kept');
+  assert.deepEqual(groups[1]!.items.map(i=>i.id),['c1','c2'],'later thinking no longer splits tool batches');
+  assert.equal(groups[1]!.label,'运行了 2 个命令');
+  // Consecutive ended thinking collapses into one ended row.
+  groups=registry.group([think('a','completed'),think('b','completed'),done('c')]);
+  assert.deepEqual(groups.map(g=>g.id),['a','c']);assert.equal(groups[0]!.items[0]!.activity!.status,'completed');
+  // Visible output starts a new segment; images still stack on their own.
+  entries=[think('s1','completed'),entry('image',{kind:'tool',category:'image',status:'completed'}),{id:'reply'} as any,think('s2','running'),done('c3'),think('s3','completed')];
+  groups=registry.group(entries);
+  assert.deepEqual(groups.map(g=>g.id),['s1','image','reply','s2','c3']);
+  assert.equal(groups[3]!.items[0]!.activity!.status,'running');
+  assert.equal(entries[0]!.activity!.status,'completed','records themselves are not modified');
+});
