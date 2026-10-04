@@ -806,11 +806,13 @@ export class WorkbenchController {
     if(method==='runtime/choice'){
       const state=this.store.snapshot(),runtime=required(p.runtime,'Runtime') as RuntimeKind;
       const session=p.sessionId?this.session(p.sessionId):{binding:{hostId:p.hostId}} as Session;
-      const targets=await this.targetCatalog.list(false),preferred=state.runtimeModelPreferences?.version===1?state.runtimeModelPreferences.entries[runtime]:undefined;
+      const preferred=state.runtimeModelPreferences?.version===1?state.runtimeModelPreferences.entries[runtime]:undefined;
       const owner=session.binding.hostId?this.host(session.binding.hostId).ownerId:'local-owner';
-      const available=targets.filter(t=>(t.binding.hostId?this.host(t.binding.hostId).ownerId:'local-owner')===owner);
-      const target=runtimeTarget(available,runtime,session,preferred);
-      if(!target)throw Error('RUNTIME_MODEL_UNAVAILABLE: No available model for the destination runtime.');
+      const owned=(targets:ModelTarget[])=>targets.filter(t=>(t.binding.hostId?this.host(t.binding.hostId).ownerId:'local-owner')===owner);
+      let available=owned(await this.targetCatalog.list(false)),target=runtimeTarget(available,runtime,session,preferred);
+      // A cached catalog skips the readiness probe (e.g. a workspace connected moments ago); probe once before failing.
+      if(!target){available=owned(await this.targetCatalog.list(true).catch(()=>available));target=runtimeTarget(available,runtime,session,preferred);}
+      if(!target){const reason=available.find(t=>t.runtime===runtime&&(!session.binding.hostId||t.binding.hostId===session.binding.hostId)&&t.unavailableReason)?.unavailableReason;throw Error('RUNTIME_MODEL_UNAVAILABLE: '+(reason??'No available model for the destination runtime.'));}
       const lane=session.modelLanes?.find(l=>l.targetId===target.id);
       const selection=lane?.modelSelection??(preferred?.targetId===target.id?preferred.selection:undefined)??target.selection;
       return {target,selection};

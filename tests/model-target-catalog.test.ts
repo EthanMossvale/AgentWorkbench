@@ -138,3 +138,19 @@ test('first ordinary SSH listing discovers models and failed refresh retains the
  f.remote.models=async()=>{throw Error('temporary network failure');};assert.ok((await f.targets(true)).some(t=>t.selection?.model==='first'));
  await f.store.update(s=>{s.accountCatalogs![f.host.id]!.accounts.find(a=>a.id==='claude')!.generation='new';});assert.ok(!(await f.targets(false)).some(t=>t.selection?.model==='first'));
  }finally{await f.close();}});
+
+test('runtime choice probes once when the cached catalog has no ready target and reports the reason',async()=>{
+ const f=await fixture();try{
+  const models=async()=>[{id:'m',model:'m',name:'M',isDefault:true,efforts:[],serviceTiers:[]}];
+  f.native.supports=(_host,s)=>s.binding.runtime==='codex';f.native.models=models;f.remote.models=models;
+  let refreshed=false;
+  const plugin=await f.install('test.choice-probe',`export function activate(api){api.services.intercept('models.targets','list',async(next,refresh)=>{const rows=await next(refresh);if(refresh)globalThis.__probed=true;return rows.map(t=>t.runtime==='claude'?{...t,ready:!!globalThis.__probed,unavailableReason:globalThis.__probed?undefined:'Install the local Claude CLI.'}:t);});}`);
+  await f.plugins.setEnabled(plugin.manifest.id,plugin.hash,true,true);
+  const choice=await f.controller.call('runtime/choice',{runtime:'claude',hostId:f.host.id}) as {target:ModelTarget};
+  assert.equal(choice.target.runtime,'claude');refreshed=!!(globalThis as {__probed?:boolean}).__probed;assert.ok(refreshed);
+  await f.plugins.setEnabled(plugin.manifest.id,plugin.hash,false);delete (globalThis as {__probed?:boolean}).__probed;
+  const blocked=await f.install('test.choice-reason',`export function activate(api){api.services.intercept('models.targets','list',async(next,refresh)=>(await next(refresh)).map(t=>t.runtime==='claude'?{...t,ready:false,unavailableReason:'Install the local Claude CLI.'}:t));}`);
+  await f.plugins.setEnabled(blocked.manifest.id,blocked.hash,true,true);
+  await assert.rejects(f.controller.call('runtime/choice',{runtime:'claude',hostId:f.host.id}),/RUNTIME_MODEL_UNAVAILABLE: Install the local Claude CLI\./);
+ }finally{await f.close();}
+});
