@@ -95,3 +95,23 @@ for(const ttl of [3600,21600,43200,86400,604800])test(`server controls ${ttl}s e
   try{await assert.rejects(other.import((await other.preview(f.file)).previewId,'Behind device'),/文件已失效/);}finally{await other.dispose();}
  }finally{t.mock.restoreAll();await f.close();}
 });
+test('administrator connect writes the device key over root SSH without an invitation and is repeatable',{skip:process.platform!=='win32'&&!process.env.CI_KEYGEN},async()=>{
+ const directory=await mkdtemp(path.join(os.tmpdir(),'awb-direct-'));
+ try{
+  const admin:SshHost={id:'admin',name:'Fixture',hostname:'fixture.invalid',port:2222,username:'root',role:'admin',identityFile:path.join(directory,'admin-unread'),knownHostsFile:path.join(directory,'pins-unread'),ownerId:'local-owner',workspaceGeneration:'g'};
+  const authorized=new Set<string>();const lines:string[]=[];
+  const runner:SshRunner=async(host,command,options)=>{
+   const reply=(stdout:string,exitCode=0,stderr='')=>({stdout,exitCode,stderr,signal:null});
+   if(command.startsWith('exec /usr/bin/python3')){assert.equal(host.role,'admin');const request=JSON.parse(options!.stdin!);assert.equal(request.username,'member');assert.match(request.line,/^ssh-ed25519 \S+ aw-device:[a-f0-9-]{36}:[A-Za-z0-9_-]+:\d+$/);if(!authorized.has(request.publicKey)){authorized.add(request.publicKey);lines.push(request.line);}return reply(JSON.stringify({hostPublicKey:hostKey}));}
+   assert.equal(command,'id -un');assert.equal(await readFile(host.knownHostsFile,'utf8'),`[fixture.invalid]:2222 ${hostKey}\n`);
+   const key=(await readFile(host.identityFile+'.pub','utf8')).trim().split(' ').slice(0,2).join(' ');
+   return authorized.has(key)?reply('member\n'):reply('',255,'Permission denied (publickey).');
+  };
+  const service=new PortableWorkspaceService(directory,runner);
+  const member={...admin,name:'Study · pc',username:'member',role:'workspace' as const,remoteWorkspaceId:'workspace-one',workspaceGeneration:'wg'};
+  const first=await service.connectDirect(admin,member,'pc');
+  assert.equal(first.role,'workspace');assert.equal(first.username,'member');assert.equal(first.remoteWorkspaceId,'workspace-one');assert.match(first.deviceId!,/^ssh-[a-f0-9-]{36}$/);
+  const second=await service.connectDirect(admin,member,'pc');
+  assert.equal(second.identityFile,first.identityFile);assert.equal(second.deviceId,first.deviceId);assert.equal(lines.length,1);
+ }finally{await rm(directory,{recursive:true,force:true});}
+});

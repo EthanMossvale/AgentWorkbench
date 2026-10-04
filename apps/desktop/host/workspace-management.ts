@@ -1,7 +1,6 @@
 import { hostname } from 'node:os';
 import { randomUUID } from 'node:crypto';
-import { writeFile,readFile,lstat,mkdir,unlink } from 'node:fs/promises';
-import path from 'node:path';
+import { writeFile,readFile,lstat } from 'node:fs/promises';
 import type { SshHost } from '../../../packages/contracts';
 import { RemoteWorkspaceControl, workspaceHostIdentity } from '../../../packages/workspace-control';
 import { WorkspaceEnrollmentService } from '../../../packages/workspace-control/enrollment';
@@ -72,12 +71,8 @@ export class WorkspaceManagementService {
   private async connectOnce(host:SshHost,workspaceId:string){
     this.assertOpen();const snapshot=await this.remote.list(host),workspace=snapshot.workspaces.find(item=>item.id===workspaceId);
     if(snapshot.availability!=='ready'||!workspace||workspace.status!=='active'||workspace.controlState==='recovery-required')throw Error('请先读取有效的工作空间。');
-    const directory=path.join(this.options.directory,'workspace-local-enrollment');await mkdir(directory,{recursive:true});
-    const file=path.join(directory,workspaceHostIdentity(host)+'-'+workspace.generation+'.awworkspace');
-    let exists=false;try{const info=await lstat(file);if(!info.isFile()||info.isSymbolicLink())throw Error('本机登记恢复文件无效。');exists=true;}catch(error){if((error as NodeJS.ErrnoException).code!=='ENOENT')throw error;}
-    if(!exists)await this.portable.export(host,{...host,id:workspace.id,name:workspace.name,username:workspace.username,role:'workspace',authorityId:snapshot.authorityId,authorityGeneration:snapshot.generation,remoteWorkspaceId:workspace.id,workspaceGeneration:workspace.generation},file);
-    const preview=await this.portable.preview(file),member=await this.portable.import(preview.previewId,hostname());
-    await unlink(file).catch(()=>{});return {...member,ownerId:host.ownerId,remoteWorkspaceId:workspace.id,workspaceGeneration:workspace.generation,deviceId:member.deviceId};
+    const label=hostname();
+    return this.portable.connectDirect(host,{...host,name:workspace.name+' · '+label,username:workspace.username,role:'workspace',authorityId:snapshot.authorityId,authorityGeneration:snapshot.generation,remoteWorkspaceId:workspace.id,workspaceGeneration:workspace.generation},label);
   }
   async importPreview() { this.assertOpen(); const file = await this.options.pickImport(); this.assertOpen();if(!file)return null;const info=await lstat(file);if(!info.isFile()||info.isSymbolicLink()||info.size>65536)throw new Error('工作空间邀请文件无效。');const value=JSON.parse(await readFile(file,'utf8'));return value?.schema==='agent-workbench-ssh-invite'?this.portable.preview(file):this.enrollment.preview(file); }
   import(previewId: string, label: string) { this.assertOpen(); return this.portable.has(previewId)?this.portable.import(previewId,label):this.enrollment.import(previewId, label); }

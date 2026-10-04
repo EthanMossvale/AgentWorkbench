@@ -18,6 +18,25 @@ const keygen=process.platform==='win32'?path.join(process.env.SystemRoot||'C:\\W
 const python=(source:string)=>`exec /usr/bin/python3 -c "import base64;exec(base64.b64decode('${Buffer.from(source).toString('base64')}'))"`;
 const digest=(value:string)=>createHash('sha256').update(value).digest('hex');
 export const INVALID_WORKSPACE_FILE='文件已失效，请向管理员重新获取。';
+// Runs as root over the administrator connection: append the device key to the member's
+// authorized_keys once (idempotent by key blob) and return the server's pinned host key.
+const DIRECT_AUTHORIZE=String.raw`
+import os,sys,json,pwd
+request=json.loads(sys.stdin.readline())
+user=pwd.getpwnam(request['username'])
+folder=os.path.join(user.pw_dir,'.ssh')
+os.makedirs(folder,mode=0o700,exist_ok=True)
+os.chown(folder,user.pw_uid,user.pw_gid)
+path=os.path.join(folder,'authorized_keys')
+try:content=open(path,'rb').read()
+except FileNotFoundError:content=b''
+if request['publicKey'].split()[1].encode() not in content:
+    with open(path,'ab') as output:output.write((b'' if not content or content.endswith(b'\n') else b'\n')+request['line'].encode()+b'\n')
+os.chown(path,user.pw_uid,user.pw_gid)
+os.chmod(path,0o600)
+with open('/etc/ssh/ssh_host_ed25519_key.pub') as source:hostkey=' '.join(source.read().split()[:2])
+print(json.dumps({'hostPublicKey':hostkey}))
+`;
 type ImportStage='PROBE'|'ENROLL'|'VERIFY';
 /** Classify locally; remote output, addresses and key material never become UI diagnostics. */
 function importFailure(stage:ImportStage,result?:SshResult,error?:unknown){
@@ -61,6 +80,25 @@ export class PortableWorkspaceService{
   if(!Number.isSafeInteger(remote.issuedAtEpoch)||!Number.isSafeInteger(remote.expiresAtEpoch)||remote.expiresAtEpoch-remote.issuedAtEpoch!==ttlSeconds)throw new Error('远端授权有效期回执无效；请核实后重新导出。');
   const descriptor=bundle({schema:'agent-workbench-ssh-invite',version:1,inviteId:id,expiresAt:new Date(remote.expiresAtEpoch*1000).toISOString(),workspaceName:member.name,username:member.username,uid:remote.uid,root:remote.root,hostname:member.hostname,port:member.port,hostPublicKeys:remote.hostPublicKeys,bootstrapKey:await small(keyfile),bootstrapPublicKey:publickey,...(member.authorityId?{authorityId:member.authorityId,authorityGeneration:member.authorityGeneration,workspaceId:member.remoteWorkspaceId,workspaceGeneration:member.workspaceGeneration}:{})});
   await atomic(file,JSON.stringify(descriptor,null,2));return {saved:true,path:file,expiresAt:descriptor.expiresAt};
+ }
+ /** The administrator's root SSH writes this device's key directly; no invitation or expiry is involved. */
+ connectDirect(admin:SshHost,member:SshHost,label:string){this.assertOpen();return this.track(this.connectDirectOnce(admin,member,label));}
+ private async connectDirectOnce(admin:SshHost,member:SshHost,label:string):Promise<SshHost>{
+  const directory=path.join(this.directory,'workspace-devices','admin-'+digest(`${admin.hostname}:${admin.port}:${member.username}`).slice(0,32));await privateDirectory(directory);
+  const identityFile=path.join(directory,'device-key'),knownHostsFile=path.join(directory,'known_hosts');
+  try{await lstat(identityFile);}catch(e){if((e as NodeJS.ErrnoException).code!=='ENOENT')throw e;await generate(identityFile);}
+  restrictPrivatePath(identityFile,'file');
+  const key=publicKey((await small(identityFile+'.pub')).trim(),true),hex=digest(key),deviceId=`${hex.slice(0,8)}-${hex.slice(8,12)}-${hex.slice(12,16)}-${hex.slice(16,20)}-${hex.slice(20,32)}`;
+  const line=`${key} aw-device:${deviceId}:${Buffer.from(label).toString('base64url')}:${Math.floor(Date.now()/1000)}`;
+  const response=await this.runner(admin,python(DIRECT_AUTHORIZE),{stdin:JSON.stringify({username:member.username,publicKey:key,line})+'\n',timeoutMs:20000,maxOutputBytes:4096});
+  let remote;try{remote=JSON.parse(response.stdout);}catch{}
+  if(response.exitCode!==0||!remote?.hostPublicKey)throw new Error(`管理员 SSH 未能为成员登记本机密钥。${sshFailure(response)?.message??''}`);
+  const knownName=member.port===22?member.hostname:`[${member.hostname}]:${member.port}`;
+  await atomic(knownHostsFile,`${knownName} ${remote.hostPublicKey}\n`);
+  const host:SshHost={...member,id:randomUUID(),identityFile,knownHostsFile,deviceId:'ssh-'+deviceId};
+  const observed=await this.runner(host,'id -un',{timeoutMs:15000,maxOutputBytes:1024}).catch(error=>{throw new Error(`本机密钥已登记，但成员 SSH 登录失败：${sshFailure(undefined,error)?.message??String(error)}`);});
+  if(observed.exitCode!==0||observed.stdout.trim()!==member.username)throw new Error(`本机密钥已登记，但成员 SSH 登录失败：${sshFailure(observed)?.message??'返回的用户不匹配。'}`);
+  return host;
  }
  async preview(file:string):Promise<WorkspaceImportPreview>{
   this.assertOpen();const b=bundle(JSON.parse(await small(file)));const directory=path.join(this.directory,'workspace-devices','ssh-'+b.inviteId);
