@@ -25,14 +25,15 @@ export class TranslationModule {
   private pending = new Map<symbol,{source:string;done:Promise<void>}>();
   busy(id?:string){return id?[...this.pending.values()].some(({source})=>source.startsWith('api/'+encodeURIComponent(id)+'/')||source.startsWith('account/'+id+'/')):this.pending.size>0;}
   private begin(){const token=Symbol(),source=this.state().translation.source;let resolve!:()=>void;const done=new Promise<void>(yes=>resolve=yes);this.pending.set(token,{source:source?.kind==='model'?source.targetId:'custom',done});return()=>{this.pending.delete(token);resolve();};}
-  constructor(private state: () => AppState, private key: (scope: string) => Promise<string>, private fetcher: Fetcher = fetch, observed?:(receipt:TranslationUsageReceipt)=>Promise<void>, reserve?:(sessionId:string,limit:number)=>Promise<void>) {
+  /** `read` is an optional copy-free view for the flag checks that run on every state change. */
+  constructor(private state: () => AppState, private key: (scope: string) => Promise<string>, private fetcher: Fetcher = fetch, observed?:(receipt:TranslationUsageReceipt)=>Promise<void>, reserve?:(sessionId:string,limit:number)=>Promise<void>, private read: () => Readonly<AppState> = state) {
     this.translator = new Translator(fetcher, observed, reserve);
   }
   get outputs(){return this.translator.outputs;}
-  enabled() { return !this.disposed && translationEnabled(this.state()); }
-  private assertModuleEnabled() { if (this.disposed || !translationModuleEnabled(this.state())) throw new Error('翻译模块已关闭；请先在设置中开启。'); }
+  enabled() { return !this.disposed && translationEnabled(this.read() as AppState); }
+  private assertModuleEnabled() { if (this.disposed || !translationModuleEnabled(this.read() as AppState)) throw new Error('翻译模块已关闭；请先在设置中开启。'); }
   assertEnabled() { this.assertModuleEnabled(); if (!this.enabled()) throw new Error('翻译已临时暂停；请在会话框左下角恢复翻译。'); }
-  describe() { return { ...translationManifest, enabled: !this.disposed && translationModuleEnabled(this.state()) }; }
+  describe() { return { ...translationManifest, enabled: !this.disposed && translationModuleEnabled(this.read() as AppState) }; }
   usage(sessionId?:string) {
     const state=this.state(),session=sessionId===undefined?undefined:state.sessions.find(item=>item.id===sessionId);
     if(sessionId!==undefined&&!session)throw Error('TRANSLATION_SESSION_MISSING');

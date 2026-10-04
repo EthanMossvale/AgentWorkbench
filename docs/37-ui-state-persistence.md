@@ -566,3 +566,9 @@ No adjustable node, key, default or storage changes. Disclosure choices (`disclo
 ## D040: thinking rows (2026-10-04)
 
 Presentation of thinking records only; no adjustable node, key, default or storage changes. The merged thinking row has no disclosure of its own. Tool batch disclosures keep their `ActivityGroups.details.1` scopes, keyed by the batch's first entry.
+
+
+
+## D041: hover pairing and layout state classes (2026-10-04)
+
+No adjustable node, key or default changes. The paired hover highlight remains transient interaction state; it is now applied as a DOM class instead of React state. Sidebar dragging and plugin backgrounds are reflected as document classes only while active; the sidebar width preference and plugin appearance ownership are unchanged.

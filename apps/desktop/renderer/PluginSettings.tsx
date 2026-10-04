@@ -15,6 +15,9 @@ export function PluginAppearanceLayer() {
   const [appearance, setAppearance] = useState<PluginAppearance>({ variables: {} });
   useEffect(() => { let active = true; const refresh = () => { void api<PluginAppearance>('extensions/appearance').then(value => { if (active) setAppearance(value); }).catch(() => { if (active) setAppearance({ variables: {} }); }); }; refresh(); const unsubscribe = window.workbench?.onExtensions?.(refresh); return () => { active = false; unsubscribe?.(); }; }, []);
   useEffect(() => { const element = document.documentElement, before = new Map<string, string>(); for (const [key, value] of Object.entries(appearance.variables)) { before.set(key, element.style.getPropertyValue(key)); element.style.setProperty(key, value); } return () => { for (const [key, value] of before) value ? element.style.setProperty(key, value) : element.style.removeProperty(key); }; }, [appearance]);
+  // Marked on the document rather than matched with a root :has() rule, which would
+  // restyle the whole document after every DOM change.
+  useEffect(()=>{if(!appearance.background)return;document.documentElement.dataset.pluginBackground='';return()=>{delete document.documentElement.dataset.pluginBackground;};},[!!appearance.background]);
   return appearance.background ? <div aria-hidden="true" className="plugin-background" data-testid="plugin-background" style={{ backgroundImage: `url("${appearance.background}")`, opacity: appearance.opacity }}/> : null;
 }
 export default function PluginSettings(props: PageProps) {

@@ -1,4 +1,6 @@
 .reading-turn{content-visibility:auto;contain-intrinsic-block-size:auto 360px}
+/* Off-screen translations skip style, layout, paint and hit testing like history turns. */
+.translation-timeline>.translated-message{content-visibility:auto;contain-intrinsic-block-size:auto 240px}
 .message-translation-note{margin:6px 0 0;padding:6px 0 0;border-top:1px solid var(--line);color:var(--text);line-height:1.8}
 .original-messages .native-message .message-text,.original-messages .user-message .message-text,.child-conversation-dock .message-text{font-family:var(--font-content,Georgia,"Noto Serif CJK SC","Microsoft YaHei",serif);font-size:1.076923rem;line-height:1.8}
 .original-messages .message-translation-note .message-text,.child-conversation-dock .message-translation-note .message-text{font-size:1.076923rem;line-height:1.8}

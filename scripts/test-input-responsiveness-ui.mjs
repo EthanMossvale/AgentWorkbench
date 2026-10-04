@@ -15,6 +15,7 @@ import {encodeZip} from '../packages/native-resources/archive.ts';
 // approved fixture plugin streaming through the session-scoped runner path.
 const root=path.resolve(process.env.AWB_INPUT_UI_SOURCE??process.cwd()),label=process.env.AWB_INPUT_UI_LABEL??'candidate';
 const runtime=process.env.AWB_INPUT_UI_RUNTIME??'codex',turns=Number(process.env.AWB_INPUT_UI_TURNS??200),sessionsCount=Number(process.env.AWB_INPUT_UI_SESSIONS??30);
+const translated=process.env.AWB_INPUT_UI_TRANSLATION==='1';
 const streamMs=Number(process.env.AWB_INPUT_UI_STREAM_MS??15000),sections=Number(process.env.AWB_INPUT_UI_REPLY_SECTIONS??60);
 assert.ok(['codex','claude'].includes(runtime));
 const output=path.resolve('build/qa/input-responsiveness-'+label+'-'+Date.now()),appRoot=path.join(output,'app'),profile=path.join(output,'.agent-workbench'),workspace=path.join(profile,'workspaces','fixture');
@@ -31,11 +32,11 @@ const chunks=['Streaming words arrive ','with **emphasis** and ','`code` ','cont
 const session=(id,title,count,shift=0)=>{const at=n=>new Date(base+(n-shift)*1000).toISOString(),messages=[],activities=[];
  for(let i=0;i<count;i++){messages.push({id:id+'-user-'+i,role:'user',original:'Historical task '+i,timestamp:at(i*10),demo:false});
   for(let j=0;j<3;j++)activities.push({id:id+'-tool-'+i+'-'+j,runtime,kind:'command',status:'completed',startedAt:at(i*10+j+1),updatedAt:at(i*10+j+2),input:'Synthetic public command',output:'Bounded output\n'.repeat(200)});
-  messages.push({id:id+'-reply-'+i,role:'assistant',phase:'final',original:prose,timestamp:at(i*10+7),demo:false});}
+  messages.push({id:id+'-reply-'+i,role:'assistant',phase:'final',original:prose,timestamp:at(i*10+7),demo:false,...(translated?{translation:'译文：'+prose,translationStatus:'complete',translationSource:'synthetic'}:{})});}
  messages.push({id:id+'-current',role:'user',original:'Current task',timestamp:at(count*10+1),demo:false});
  return {id,projectId:null,projectPath:workspace,title,createdAt:at(0),status:'idle',messages,activities,pinned:false,archived:false,group:'',binding:{runtime,provider:'native',accountRef:'fixture',executionId:'local-device',egress:'runtime-managed'}};};
 const store=new StateStore(profile);await store.load();
-await store.update(s=>{s.plugins={translation:{enabled:false}};s.sessions=[{...session('live','Live session',turns),pinned:true},...Array.from({length:sessionsCount},(_,i)=>session('idle'+i,'Idle session '+i,8,86400*(i+1)))];});
+await store.update(s=>{s.plugins={translation:{enabled:translated}};s.sessions=[{...session('live','Live session',turns),pinned:true},...Array.from({length:sessionsCount},(_,i)=>session('idle'+i,'Idle session '+i,8,86400*(i+1)))];});
 await store.flush();
 
 // Like the native runners: a text batch every 32 ms into a long Markdown reply,
@@ -59,13 +60,13 @@ await writeFile(zip,encodeZip([{name:'workbench.plugin.json',data:Buffer.from(JS
 const env={...process.env,AGENT_WORKBENCH_TEST_DATA:profile,AGENT_WORKBENCH_TEST_HIDDEN:'1',AGENT_WORKBENCH_TEST_CODEX_EXECUTABLE:process.execPath,AGENT_WORKBENCH_TEST_CLAUDE_EXECUTABLE:process.execPath};delete env.ELECTRON_RUN_AS_NODE;
 
 const stats=values=>{if(!values.length)return {n:0};const s=values.toSorted((a,b)=>a-b),pick=p=>Math.round(s[Math.min(s.length-1,Math.ceil(s.length*p)-1)]*10)/10;return {n:s.length,p50:pick(.5),p95:pick(.95),max:pick(1)};};
-let app;const report={label,runtime,turns,sessions:sessionsCount+1,replyChars:longReply.length,errors:[]};
+let app;const report={label,translated,runtime,turns,sessions:sessionsCount+1,replyChars:longReply.length,errors:[]};
 try{
  app=await electron.launch({executablePath:electronPath,args:[appRoot],cwd:appRoot,env,timeout:60000});const page=await app.firstWindow();page.setDefaultTimeout(30000);page.on('pageerror',e=>report.errors.push(e.message));await page.waitForFunction(()=>!!window.workbench);
  const call=(method,payload={})=>page.evaluate(({method,payload})=>window.workbench.call(method,payload),{method,payload});
  await call('extensions/import',{filePath:zip});const plugin=(await call('extensions/list')).find(p=>p.manifest.id===manifest.id);await call('extensions/toggle',{id:manifest.id,hash:plugin.hash,enabled:true,approveHost:true});
  const command=name=>call('extensions/command',{id:manifest.id,name});
- await page.getByTestId('sidebar-session-live').click();await page.locator('[data-sync-key^="live-reply-"]').first().waitFor();await page.waitForTimeout(1500);
+ await page.getByTestId('sidebar-session-live').click();if(translated){await page.getByTestId('translation-pane').waitFor();report.translationItems=await page.locator('.translated-message').count();}await page.locator('[data-sync-key^="live-reply-"]').first().waitFor();await page.waitForTimeout(1500);
  const input=page.getByTestId('composer-input'),pane=page.getByTestId('original-pane');
  const measure=async phase=>{
   await page.evaluate(()=>{const q=window.qaInput={events:[],received:[],wheel:[],frames:[]};
@@ -92,7 +93,9 @@ try{
  await measure('idle');
  const stream=command('stream');await page.waitForTimeout(1000);
  const cdp=process.env.AWB_INPUT_UI_PROFILE?await page.context().newCDPSession(page):undefined;if(cdp){await cdp.send('Profiler.enable');await cdp.send('Profiler.setSamplingInterval',{interval:200});await cdp.send('Profiler.start');}
+ const trace=process.env.AWB_INPUT_UI_TRACE?await page.context().newCDPSession(page):undefined,traceEvents=[];if(trace){trace.on('Tracing.dataCollected',e=>traceEvents.push(...e.value));await trace.send('Tracing.start',{categories:'devtools.timeline,disabled-by-default-devtools.timeline,blink,cc'+(process.env.AWB_INPUT_UI_TRACE==='invalidation'?',disabled-by-default-devtools.timeline.invalidationTracking':''),transferMode:'ReportEvents'});}
  await measure('streaming');
+ if(trace){const done=new Promise(r=>trace.once('Tracing.tracingComplete',r));await trace.send('Tracing.end');await done;const main=traceEvents.find(e=>e.name==='thread_name'&&e.args?.name==='CrRendererMain');const sums={};for(const e of traceEvents)if(e.ph==='X'&&e.dur&&(!main||e.tid===main.tid)){sums[e.name]=(sums[e.name]??0)+e.dur/1000;}report.trace=Object.entries(sums).sort((a,b)=>b[1]-a[1]).slice(0,25).map(([k,v])=>[k,Math.round(v)]);const layouts=traceEvents.filter(e=>e.name==='Layout'&&e.ph==='X'&&(!main||e.tid===main.tid));report.layoutCount=layouts.length;const reasons={};for(const e of traceEvents){if(!/Invalidation|ScheduleStyle/.test(e.name))continue;const d=e.args?.data??{};const k=e.name+' | '+(d.reason??d.invalidationList?.[0]?.classes?.join?.('.')??'')+' | '+(d.nodeName??'')+' | '+JSON.stringify(d.invalidationList??d.extraData??'').slice(0,160);reasons[k]=(reasons[k]??0)+1;}report.invalidations=Object.entries(reasons).sort((a,b)=>b[1]-a[1]).slice(0,25);report.layoutObjects=layouts.slice(0,3).map(e=>e.args);}
  if(cdp){await writeFile(path.join(output,'streaming.cpuprofile'),JSON.stringify((await cdp.send('Profiler.stop')).profile));report.profile=path.join(output,'streaming.cpuprofile');}
  await command('stop');report.batches=await stream;
  assert.ok(report.batches>100,'stream ran: '+report.batches);

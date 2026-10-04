@@ -3,4 +3,4 @@
 .sidebar-resize-handle{position:absolute;z-index:25;top:0;bottom:0;right:-3px;width:7px;cursor:col-resize;touch-action:none;user-select:none;outline:none}
 .sidebar-resize-handle:after{content:"";position:absolute;top:0;bottom:0;left:3px;width:1px;background:transparent}
 .sidebar-resize-handle:hover:after,.sidebar-resize-handle:focus-visible:after,.is-resizing>.sidebar-resize-handle:after{width:2px;left:2px;background:var(--muted)}
-.desktop-frame:has(.sidebar-slot.is-resizing),.desktop-frame:has(.sidebar-slot.is-resizing) *{cursor:col-resize!important;user-select:none!important}
+html.sidebar-resizing,html.sidebar-resizing *{cursor:col-resize!important;user-select:none!important}

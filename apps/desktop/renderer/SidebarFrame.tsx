@@ -13,6 +13,9 @@ export default function SidebarFrame({ layout, onWidth, hidden, children }: {
 }) {
   const [viewport, setViewport] = useState(window.innerWidth);
   const [dragging, setDragging] = useState(false);
+  // A document class instead of a root :has() rule: a :has() on the app frame made
+  // Chromium restyle the whole document after every DOM change (typing, streaming).
+  useEffect(()=>{if(!dragging)return;document.documentElement.classList.add('sidebar-resizing');return()=>document.documentElement.classList.remove('sidebar-resizing');},[dragging]);
   const divider = useRef<HTMLDivElement>(null);
   const drag = useRef<{ pointerId: number; startX: number; width: number; previous: number } | null>(null);
   const width = sidebarWidth(layout.width, viewport);

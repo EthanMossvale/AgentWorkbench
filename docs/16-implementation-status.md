@@ -2467,3 +2467,8 @@ Historical turns no longer re-render while a model streams or while the user typ
 ## D040 thinking rows (2026-10-04)
 
 Thinking no longer stacks "思考已结束" rows. All thinking between two pieces of visible output is one row at its first position. It shows "正在思考" while any of it runs and "思考已结束" otherwise, and thinking that resumes after tools reuses that row instead of adding one below. Tool runs that were split by repeated thinking now form one batch; images and other events still stack individually. The next visible output starts a new segment. Shared by Codex and Claude; verified by unit tests and hidden-window acceptance for both runtimes, not with live models. Details are in document 36.
+
+
+## D041 whole-document restyles (2026-10-04)
+
+Two root-level `:has()` rules made Chromium restyle the entire document (~92,000 objects) after every DOM change, so typing, streaming and hovering were slow even without a running model, worst in the bilingual view. They are replaced by document classes set only when the sidebar is dragged or a plugin background is shown. Paired translation highlighting no longer re-renders the panes, translated items are memoized and contained, and two per-event full-state copies in the main process are removed. In a hidden bilingual production window, long frames went from ~125 per run to 0–1 and slow input handlers from ~115 ms to ~3 ms (p95). With real Codex/Claude CLIs, main-process busy time while streaming fell from ~42% to 6–7%. Details are in documents 36 and 37; physical-display and live-model acceptance were not performed.

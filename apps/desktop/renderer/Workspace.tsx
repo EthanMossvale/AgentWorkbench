@@ -28,7 +28,7 @@ import {useComposerSize} from './useComposerSize';
 import './SessionControls.css';
 import './ComposerControls.css';
 import SessionMetrics from './SessionMetrics';
-import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
+import { memo, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import type { AppState, DraftPreview, Message, NewSessionDraft, PermissionMode, Session } from '../../../packages/contracts';
 import { useAttachments, AttachmentList } from './Attachments';
 import type { Attachment } from '../../../packages/attachments/types';
@@ -140,7 +140,7 @@ export default function Workspace({ repairDraft,onRepairDraftApplied,onRememberM
   const programmaticTop = useRef<number | null>(null);
   const readingRef=useRef<ConversationReadingHandle>(null);
   const composing = useRef(false);
-  const [showTranslation, setShowTranslation] = useState(translationEnabled && !!session?.messages.length && window.innerWidth >= 980); const [compact, setCompact] = useState(false); const [preferredLeftWidth, setLeftWidth] = useUiPreference<number>('workspace.split'); const [activeBlock, setActiveBlock] = useState<string | null>(null); const [retrying, setRetrying] = useState<Set<string>>(new Set()); const [progressIds,setProgressIds]=useUiPreference<string[]>('workspace.progress-expanded',session?.id??'draft'); const showProgress=new Set(progressIds);
+  const [showTranslation, setShowTranslation] = useState(translationEnabled && !!session?.messages.length && window.innerWidth >= 980); const [compact, setCompact] = useState(false); const [preferredLeftWidth, setLeftWidth] = useUiPreference<number>('workspace.split'); const matchedBlock = useRef<string | null>(null); const [retrying, setRetrying] = useState<Set<string>>(new Set()); const [progressIds,setProgressIds]=useUiPreference<string[]>('workspace.progress-expanded',session?.id??'draft'); const showProgress=new Set(progressIds);
   const [resizeBounds, setResizeBounds] = useState({ min: 300 / 900 * 100, max: 611 / 900 * 100 });
   const leftWidth=Math.max(resizeBounds.min,Math.min(resizeBounds.max,preferredLeftWidth));
   const [translationPreference,setTranslationPreference]=useUiPreference<boolean|null>('workspace.translation-visible');
@@ -174,6 +174,15 @@ export default function Workspace({ repairDraft,onRepairDraftApplied,onRememberM
   const inlineTranslations=placement==='inline',translationVisible=showTranslation&&placement==='panel';
   const trackingEnabled=translationTrackingEnabled(placement,translationVisible,compact);
   const trackingCurrent=useRef(trackingEnabled);trackingCurrent.current=trackingEnabled;
+  // Paired highlighting is applied to the DOM directly: hovering a block must never
+  // re-render the conversation or translation panes.
+  const setActiveBlock=(next:string|null|((current:string|null)=>string|null))=>{
+    const key=typeof next==='function'?next(matchedBlock.current):next,root=splitRef.current;
+    if(key===matchedBlock.current)return;
+    matchedBlock.current=key;if(!root)return;
+    for(const element of root.querySelectorAll('.mapped-block.is-matched'))element.classList.remove('is-matched');
+    if(key)for(const element of root.querySelectorAll(`[data-sync-key="${CSS.escape(key)}"]`))element.classList.add('is-matched');
+  };
   useLayoutEffect(()=>{if(!trackingEnabled)setActiveBlock(null);},[trackingEnabled]);
   const childReaderSession=reader?.type==='child'?state?.sessions.find(item=>item.id===reader.sessionId):undefined;
   const conversationEntries=useMemo(()=>session?conversationTimeline(session,state?.collaboration?.messages,state?.sessions):[],[session,state?.collaboration?.messages,state?.sessions]);
@@ -442,7 +451,7 @@ export default function Workspace({ repairDraft,onRepairDraftApplied,onRememberM
   };
   const blockProps = (message: Pick<Message, 'id'>, index: number, side: 'source' | 'translation') => {
     const key = `${message.id}:${index}`;
-    return { 'data-sync-key': key, 'data-message-id': message.id, 'data-testid': `${side}-block-${message.id}-${index}`, tabIndex: trackingEnabled?0:-1, className: `mapped-block ${trackingEnabled&&activeBlock === key ? 'is-matched' : ''}`, ...(trackingEnabled?{onMouseEnter: () => setActiveBlock(key), onMouseLeave: () => setActiveBlock(current => current === key ? null : current), onFocus: () => setActiveBlock(key), onBlur: () => setActiveBlock(current => current === key ? null : current), onClick: () => followBlock(message.id, index, side), onKeyDown: (e: React.KeyboardEvent) => { if (e.target !== e.currentTarget) return; if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); followBlock(message.id, index, side); } }}:{}) };
+    return { 'data-sync-key': key, 'data-message-id': message.id, 'data-testid': `${side}-block-${message.id}-${index}`, tabIndex: trackingEnabled?0:-1, className: 'mapped-block', ...(trackingEnabled?{onMouseEnter: () => setActiveBlock(key), onMouseLeave: () => setActiveBlock(current => current === key ? null : current), onFocus: () => setActiveBlock(key), onBlur: () => setActiveBlock(current => current === key ? null : current), onClick: () => followBlock(message.id, index, side), onKeyDown: (e: React.KeyboardEvent) => { if (e.target !== e.currentTarget) return; if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); followBlock(message.id, index, side); } }}:{}) };
   };
   const resize = (percent: number) => setLeftWidth(Math.min(resizeBounds.max, Math.max(resizeBounds.min, percent)));
   const locateOriginal = (id: string) => { if (compact) setShowTranslation(false); requestAnimationFrame(() => { flushSync(()=>readingRef.current?.revealMessage(id)); const block = originalRef.current?.querySelector<HTMLElement>(`[data-message-id="${id}"]`); const folded=block?.closest<HTMLDetailsElement>('details.turn-process');if(folded)folded.open=true;block?.scrollIntoView({ behavior: 'smooth', block: 'start' }); setActiveBlock(trackingCurrent.current?`${id}:0`:null); block?.focus({ preventScroll: true }); }); };
@@ -456,11 +465,28 @@ export default function Workspace({ repairDraft,onRepairDraftApplied,onRememberM
   // Rendered history stays static while a model streams or the composer changes:
   // turns re-render only for their own records or this context. Callbacks inside
   // history run through readingActions so they always see the current workspace.
-  const readingActions=useRef({openChanges,closeChanges,openChild,onOpenSource,copy,editMessage,retry,toggleProgress,openPlan,cancel});
-  readingActions.current={openChanges,closeChanges,openChild,onOpenSource,copy,editMessage,retry,toggleProgress,openPlan,cancel};
+  const readingActions=useRef({openChanges,closeChanges,openChild,onOpenSource,copy,editMessage,retry,toggleProgress,openPlan,cancel,locateOriginal});
+  readingActions.current={openChanges,closeChanges,openChild,onOpenSource,copy,editMessage,retry,toggleProgress,openPlan,cancel,locateOriginal};
   const latestOrigin=useRef(origin);latestOrigin.current=origin;
   const stableOrigin=useCallback(()=>latestOrigin.current(),[]);
-  const readingContext=useMemo(()=>({}),[session?.id,session?.status,session?.projectPath,session?.agentParent,session?.binding,session?.branch,session?.modelTargetId,session?.pluginRuntime,branchSource?.id,branchSource?.title,translatedOnly,inlineTranslations,translationEnabled,submitting,busy,!!preview,forkingId,activeBlock,trackingEnabled,progressIds.join('\n'),projectFolders(project).join('\n'),fileReference?.path]);
+  // The translation pane follows the same rule: an item renders only for its own message or this context.
+  const renderTranslated=(message:Message,reply:number)=>message.role === 'user' ?
+            <article className="translated-message user-chinese-message" key={message.id} data-testid={'user-chinese-' + message.id}>
+              <header><span>你</span><small title="用户输入原稿，不是第三方服务的反向翻译">{localDraftLabel(message.original)}</small><button className="icon-button" aria-label="复制中文原稿" onClick={() => readingActions.current.copy(message.original)}><Icon name="copy" size={15} /></button></header>
+              <AnnotationCapsule items={message.annotations??[]} sessionId={(session?.id??'')+':message:'+message.id}/>{blocks(message).translated.map((part, index) => <div key={message.id + ':' + index} {...blockProps(message, index, 'translation')}><MessageText text={part} {...linkActions} /></div>)}
+            </article> :
+            <article className="translated-message" key={message.id}>
+              <header><span>回复 {reply}</span><button className="text-button" onClick={() => readingActions.current.locateOriginal(message.id)}>定位原文</button>{message.translation && <button className="icon-button" aria-label="复制中文译文" onClick={() => readingActions.current.copy(message.translation!)}><Icon name="copy" size={15} /></button>}</header>
+              {message.progress && (state?.translateProgress || !translationEnabled) && message.progressTranslation && <RememberedDetails className="translated-progress" memoryId="workspace.translation-progress" scope={message.id}><summary>公开进度旁注</summary><MessageText text={message.progressTranslation} {...linkActions} /></RememberedDetails>}
+              {translationEnabled && message.translation && message.translationStatus === 'pending' && <p className="translation-state">正在重译，暂时保留上一版本。</p>}
+              {message.translation && message.translationStatus === 'failed' && <p className="translation-state failed">重译失败，保留上一版本。{message.translationError}</p>}
+              <AnnotationCapsule items={message.annotations??[]} sessionId={(session?.id??'')+':message:'+message.id}/>{blocks(message).translated.map((part, index) => <div key={message.id + ':' + index} {...blockProps(message, index, 'translation')}>{part ? <MessageText text={part} {...linkActions} /> : <div className="pending-translation"><p>{!translationEnabled ? translationModuleOn ? '翻译已临时暂停' : '翻译模块已关闭' : message.translationStatus === 'pending' ? '翻译中…' : message.translationStatus === 'off' ? '此条译文已关闭' : '译文暂不可用'}</p>{message.translationError && <small>{message.translationError}</small>}</div>}</div>)}
+              <footer><div><span title={(message.translationSource ?? '来源未确认') + '\n' + (blocks(message).aligned ? '同段数按段落对应' : '按整条消息对应') + ' · ' + message.id}>{message.translationSource || (translationEnabled && message.translationStatus === 'pending' ? '翻译处理中' : '尚无已完成译文来源')}</span></div><button className="text-button" title={translationEnabled ? undefined : translationModuleOn ? '请先恢复临时翻译' : '请先在设置中开启翻译模块'} disabled={!translationEnabled || retrying.has(message.id) || message.translationStatus === 'pending'} onClick={() => readingActions.current.retry(message)}>{translationEnabled && retrying.has(message.id) ? '重译中…' : '仅重译'}</button></footer>
+            </article>;
+  const latestTranslated=useRef(renderTranslated);latestTranslated.current=renderTranslated;
+  const stableTranslated=useCallback((message:Message,reply:number)=>latestTranslated.current(message,reply),[]);
+  const translationContext=useMemo(()=>({}),[session?.id,state?.translateProgress,translationEnabled,translationModuleOn,trackingEnabled]);
+  const readingContext=useMemo(()=>({}),[session?.id,session?.status,session?.projectPath,session?.agentParent,session?.binding,session?.branch,session?.modelTargetId,session?.pluginRuntime,branchSource?.id,branchSource?.title,translatedOnly,inlineTranslations,translationEnabled,submitting,busy,!!preview,forkingId,trackingEnabled,progressIds.join('\n'),projectFolders(project).join('\n'),fileReference?.path]);
   const resizeFilePane = (width: number) => setFilePaneWidth(Math.max(260, Math.min(width,filePaneMax)));
   const identityControls = (<div className="identity-controls" data-workbench-runtime-controls aria-label="会话运行时与账号">
       {state&&<SelectMenu label="运行时" testId="composer-runtime" icon="sparkle" value={choosingRuntime??runtime} placeholder="选择运行时" disabled={bindingLocked} options={[...(state.runtimeExtensions??[]).filter(r=>r.ready).map(r=>({value:r.id,label:r.name})),...(['codex','claude'] as const).filter(value=>localClis?.some(cli=>cli.runtime===value&&cli.installed)).map(value=>({value,label:value==='codex'?'Codex':'Claude Code'}))].map(option=>option.value===choosingRuntime?{...option,label:option.label+' · 切换中…'}:option)} onChange={value=>void changeRuntime(value as NewSessionDraft['runtime'])} footer={<button className="text-button" onClick={()=>window.dispatchEvent(new CustomEvent('workbench-settings',{detail:'runtimes'}))}>管理运行时</button>}/>}
@@ -542,19 +568,7 @@ export default function Workspace({ repairDraft,onRepairDraftApplied,onRememberM
       {translationVisible && <section className="translation-pane" data-testid="translation-chinese" aria-label="中文译文面板">
         <header className="translation-pane-header"><div><Icon name="globe" size={16} /><strong>{translationEnabled ? '中文译文与原稿' : '历史译文与原稿'}</strong></div></header>
         <div className="translation-timeline" data-testid="translation-pane" ref={translationRef}>
-          {!messages.length && !preview ? <div className="translation-empty"><Icon name="globe" size={23} /><p>中文原稿与译文会显示在这里</p><small>你的原稿在本地保留，回复译文独立呈现。<br />悬停对应段落可查看两侧关联。</small></div> : messages.map((message, messageIndex) => message.role === 'user' ?
-            <article className="translated-message user-chinese-message" key={message.id} data-testid={'user-chinese-' + message.id}>
-              <header><span>你</span><small title="用户输入原稿，不是第三方服务的反向翻译">{localDraftLabel(message.original)}</small><button className="icon-button" aria-label="复制中文原稿" onClick={() => copy(message.original)}><Icon name="copy" size={15} /></button></header>
-              <AnnotationCapsule items={message.annotations??[]} sessionId={(session?.id??'')+':message:'+message.id}/>{blocks(message).translated.map((part, index) => <div key={message.id + ':' + index} {...blockProps(message, index, 'translation')}><MessageText text={part} {...linkActions} /></div>)}
-            </article> :
-            <article className="translated-message" key={message.id}>
-              <header><span>回复 {messages.slice(0, messageIndex + 1).filter(item => item.role === 'assistant').length}</span><button className="text-button" onClick={() => locateOriginal(message.id)}>定位原文</button>{message.translation && <button className="icon-button" aria-label="复制中文译文" onClick={() => copy(message.translation!)}><Icon name="copy" size={15} /></button>}</header>
-              {message.progress && (state?.translateProgress || !translationEnabled) && message.progressTranslation && <RememberedDetails className="translated-progress" memoryId="workspace.translation-progress" scope={message.id}><summary>公开进度旁注</summary><MessageText text={message.progressTranslation} {...linkActions} /></RememberedDetails>}
-              {translationEnabled && message.translation && message.translationStatus === 'pending' && <p className="translation-state">正在重译，暂时保留上一版本。</p>}
-              {message.translation && message.translationStatus === 'failed' && <p className="translation-state failed">重译失败，保留上一版本。{message.translationError}</p>}
-              <AnnotationCapsule items={message.annotations??[]} sessionId={(session?.id??'')+':message:'+message.id}/>{blocks(message).translated.map((part, index) => <div key={message.id + ':' + index} {...blockProps(message, index, 'translation')}>{part ? <MessageText text={part} {...linkActions} /> : <div className="pending-translation"><p>{!translationEnabled ? translationModuleOn ? '翻译已临时暂停' : '翻译模块已关闭' : message.translationStatus === 'pending' ? '翻译中…' : message.translationStatus === 'off' ? '此条译文已关闭' : '译文暂不可用'}</p>{message.translationError && <small>{message.translationError}</small>}</div>}</div>)}
-              <footer><div><span title={(message.translationSource ?? '来源未确认') + '\n' + (blocks(message).aligned ? '同段数按段落对应' : '按整条消息对应') + ' · ' + message.id}>{message.translationSource || (translationEnabled && message.translationStatus === 'pending' ? '翻译处理中' : '尚无已完成译文来源')}</span></div><button className="text-button" title={translationEnabled ? undefined : translationModuleOn ? '请先恢复临时翻译' : '请先在设置中开启翻译模块'} disabled={!translationEnabled || retrying.has(message.id) || message.translationStatus === 'pending'} onClick={() => retry(message)}>{translationEnabled && retrying.has(message.id) ? '重译中…' : '仅重译'}</button></footer>
-            </article>)}
+          {!messages.length && !preview ? <div className="translation-empty"><Icon name="globe" size={23} /><p>中文原稿与译文会显示在这里</p><small>你的原稿在本地保留，回复译文独立呈现。<br />悬停对应段落可查看两侧关联。</small></div> : <TranslatedMessages messages={messages} context={translationContext} retrying={retrying} render={stableTranslated}/>}
         </div>
       </section>}
     </div>
@@ -573,3 +587,7 @@ export default function Workspace({ repairDraft,onRepairDraftApplied,onRememberM
     </PreviewModal>}
   </div></UiMemoryScope.Provider>;
 }
+
+/** Translation pane items render only when their message, retry state or the pane context changes. */
+const TranslatedItem=memo(function TranslatedItem({message,reply,render}:{message:Message;reply:number;retrying:boolean;context:unknown;render:(message:Message,reply:number)=>ReactNode}){return <>{render(message,reply)}</>;},(a,b)=>a.message===b.message&&a.reply===b.reply&&a.retrying===b.retrying&&a.context===b.context&&a.render===b.render);
+function TranslatedMessages({messages,context,retrying,render}:{messages:Message[];context:unknown;retrying:ReadonlySet<string>;render:(message:Message,reply:number)=>ReactNode}){let reply=0;return <>{messages.map(message=>{if(message.role==='assistant')reply++;return <TranslatedItem key={message.id} message={message} reply={reply} retrying={retrying.has(message.id)} context={context} render={render}/>;})}</>;}
