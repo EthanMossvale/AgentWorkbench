@@ -725,6 +725,7 @@
     "desktop/data-directory/migrate",
     "desktop/info",
     "desktop/menu",
+    "desktop/notify",
     "desktop/titlebar",
     "draft/cancel",
     "draft/prepare",

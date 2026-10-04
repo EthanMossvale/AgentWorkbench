@@ -17,6 +17,8 @@ import type { Theme } from '../../../packages/contracts/index';
 import type { ShortcutSettings } from '../../../packages/shortcuts';
 import {decodeGeneratedImage,imagePng} from './image-decoder';
 import { installTray } from './tray';
+import { DesktopNotifier } from './notifications';
+import { threadDeepLink } from '../../../packages/navigation';
 import { installDesktopMenu, titlebarColors } from './desktop-menu';
 import { isRecoveryGuardian, runRecoveryGuardian, startRecoveryGuardian, type RecoveryGuardian } from './plugin-recovery-guardian';
 import { claudeReferenceFont, referenceFontResponse } from './claude-reference-font';
@@ -51,6 +53,8 @@ else try{const acquired=userDataOverride?app.requestSingleInstanceLock():!!(data
 const RECOVERY_METHODS=new Set(['initialize','beginBoot','safeMode','begin','finish','incident','clear','clearCompatibility','ready','closed']);
 async function boot(){
  await app.whenReady();
+ // Windows shows toasts under this identity; the installer's shortcut uses the same appId.
+ if(process.platform==='win32')app.setAppUserModelId(app.isPackaged?'com.ethanmossvale.agentworkbench':process.execPath);
  protocol.handle('awb-font',request=>referenceFontResponse(request.url));
  const directory=app.getPath('userData');
  const uiPreferences=new UiPreferenceStore(directory);await uiPreferences.load();
@@ -112,7 +116,7 @@ async function boot(){
   windowState.restore();
   if(!created.isDestroyed()&&!hiddenQa)created.show();
  },()=>{void recovery.incident({id:'workbench.renderer'},'WORKBENCH_PRESENTATION_FAILED','renderer','unknown');});
- let desktopMenu:ReturnType<typeof installDesktopMenu>|undefined;
+ let desktopMenu:ReturnType<typeof installDesktopMenu>|undefined,notifier:DesktopNotifier|undefined;
  core.on('appearance',value=>{const next=value as {theme:Theme;shortcuts?:ShortcutSettings};const changed=next.theme!==theme;theme=next.theme;const shortcutsChanged=JSON.stringify(next.shortcuts)!==JSON.stringify(shortcuts);shortcuts=next.shortcuts;if(changed&&nativeTheme.themeSource!==theme)nativeTheme.themeSource=theme;if(changed||shortcutsChanged)desktopMenu?.refresh();});
  const htmlPreviews=new HtmlPreviewService();protocol.handle('awb-preview',request=>htmlPreviews.response(request));
  core.handle('html.create',((cwd:string,file:string)=>htmlPreviews.create(cwd,file)) as never);
@@ -213,6 +217,7 @@ async function boot(){
   if(method==='desktop/data-directory/choose')return dataDirectoryService.choose((payload as {kind?:'codex'})?.kind);
   if(method==='desktop/data-directory/migrate'){const result=dataDirectoryService.migrate((payload as {target:string})?.target);lifecycleState();try{return await result;}finally{lifecycleState();}}
   if(method==='desktop/info')return {version:app.getVersion()};
+  if(method==='desktop/notify')return notifier!.show(payload);
   throw Error('RPC_METHOD_UNAVAILABLE: '+method);
  };
  core.handle('main.call',((method:string,payload:unknown)=>mainCall(method,payload)) as never);
@@ -220,6 +225,9 @@ async function boot(){
  const lifecycle=installTray(created,async()=>{quitting=true;lifecycleState();desktopUpdates.dispose();stopUpdateEvents();stopBootWatch();await flushRenderer();await windowState.flush();windowState.dispose();await core.call('shutdown').catch(()=>{});
   // The core holds plugin modules, data files and child processes; it is gone before this process exits.
   child.kill();await Promise.race([coreExited,new Promise(resolve=>setTimeout(resolve,3000))]);stopRecoveryMirror();if(coreCrashed)return;await recovery.closed();guardian?.close();},!!userDataOverride,branding);
+ notifier=new DesktopNotifier(created,uiPreferences,sessionId=>{if(lifecycle.isQuitting())return;if(!hiddenQa)lifecycle.show();try{void core.call('navigate.link',threadDeepLink(sessionId)).catch(()=>{});}catch{/* Not a local thread identifier. */}},!!userDataOverride);
+ core.handle('notifications.focused',((sessionId:string)=>notifier!.focused(sessionId)) as never);
+ core.handle('notifications.show',((notice:unknown)=>lifecycle.isQuitting()?{shown:false,sound:false}:notifier!.show(notice)) as never);
  // Host plugins in the core reach these services asynchronously by id.
  const uiServices:Record<string,object|undefined>={
   'desktop.updates':desktopUpdates,'desktop.data-directory':dataDirectoryService,

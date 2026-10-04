@@ -51,6 +51,7 @@ export const coreUiPreferences: readonly UiPreferenceDefinition[] = [
   list('models.expanded'),list('plugins.expanded'),boolean('disclosure.open',false),
   {id:'image.scale',type:'number',defaultValue:null,nullable:true,min:.01,max:8},
   number('editor.height',260,60,2000),
+  boolean('notifications.sound',true),
 ];
 export function preferenceKey(id: string, scope = '') {
   if(!/^(?:[a-z][a-z0-9.-]{0,99}|plugin:[a-z][a-z0-9.-]{1,79}\/[a-z][a-z0-9.-]{0,79})$/.test(id) || typeof scope!=='string')throw Error('UI_PREFERENCE_KEY_INVALID');

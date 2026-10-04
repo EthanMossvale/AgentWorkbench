@@ -114,6 +114,8 @@ export interface Session extends SessionTitleMetadata {
   nativeContextUsage?:NativeContextUsage;
   nativeActiveSettings?:{permissionMode:PermissionMode;modelSelection?:NativeModelSelection};
   unread?:boolean;
+  /** A background turn ended in an error; stays until the user clears it, not on viewing. */
+  errorMark?:{at:string;detail?:string};
   /** Legacy selection metadata; shared skill discovery no longer depends on this list. */
   skillIds?:string[];
   /** Requested native defaults frozen at session creation; not effective-limit evidence. */

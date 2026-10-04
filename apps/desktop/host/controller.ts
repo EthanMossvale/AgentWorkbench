@@ -994,6 +994,8 @@ export class WorkbenchController {
         const current=this.session(p.id);
         const changes:Partial<Session>={};if(p.title!==undefined){changes.title=required(p.title,'title',150);changes.titleSource='manual';}if(p.group!==undefined)changes.group=text(p.group,'group',150).trim();
         for(const key of ['pinned','archived','unread'] as const)if(p[key]!==undefined)changes[key]=flag(p[key],key);
+        if(p.errorMark===null)changes.errorMark=undefined;
+        else if(p.errorMark!==undefined){const raw=(p.errorMark as {detail?:unknown}|null)?.detail,detail=raw===undefined?undefined:text(raw,'errorMark.detail',300);changes.errorMark={at:new Date().toISOString(),...(detail?{detail}:{})};}
         if(changes.archived&&(current.status==='running'||this.forking.has(current.id)))throw new Error('运行中的任务不能归档。');
         return this.update(s=>{const target=s.sessions.find(x=>x.id===current.id);if(!target)throw new Error('会话不存在。');Object.assign(target,changes);});
       }

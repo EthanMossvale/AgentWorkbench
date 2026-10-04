@@ -26,7 +26,7 @@ export function moveSessionProject(state:AppState,id:string,projectId:string) {
   if(projectId===RECENT_PROJECT_ID&&state.recentProject)state.recentProject.hidden=false;
 }
 
-export const sessionNeedsAttention=(s:Session)=>s.status==='uncertain'||s.status==='blocked'||!!s.nativeApprovals?.length||!!s.nativeInteractions?.some(i=>i.status==='pending');
+export const sessionNeedsAttention=(s:Session)=>!!s.errorMark||s.status==='uncertain'||s.status==='blocked'||!!s.nativeApprovals?.length||!!s.nativeInteractions?.some(i=>i.status==='pending');
 export function compareSidebarSessions(a:Session,b:Session):number {
   const priority=(s:Session)=>sessionNeedsAttention(s)?0:s.status==='running'?1:s.unread?2:3;
   const activity=(s:Session)=>Math.max(Date.parse(s.messages.at(-1)?.timestamp??'')||0,Date.parse(s.createdAt)||0);
