@@ -2477,3 +2477,8 @@ Two root-level `:has()` rules made Chromium restyle the entire document (~92,000
 ## D043 Claude heartbeat cards (2026-10-04)
 
 Long-running Claude tool calls produced a row of empty "Subagent · 状态未确认" cards even though no subagent ran. Claude Code's 30-second tool heartbeats name the running tool in `parent_tool_use_id`, and the workbench read that field as a subagent marker. Heartbeats now update the running tool's elapsed time, and cards the bug already saved are removed on the next start. Real subagent cards are unaffected. Verified by unit tests and the installed 2.1.289 CLI; no live-model acceptance. Details are in document 36.
+
+
+## D044 peer messages as user turns (2026-10-04)
+
+Messages one session sends to another are now delivered immediately as normal user turns: inserted into the running turn, or started as a new turn when the target is idle. Previously they waited for the recipient's next user message, and Claude sessions on the SSH path never received them. They appear on the regular user card with the header "由 Claude Code/Codex 从另一会话发送", where "另一会话" opens the sender. With translation on, the card shows a Chinese translation while the model receives the original. Deliveries with an unknown receipt are not replayed. Verified by unit tests and a hidden-window UI check with synthetic history; no live-model or SSH acceptance. Details are in document 36.

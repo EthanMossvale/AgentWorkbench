@@ -59,6 +59,8 @@ export interface Message {
   memoryReferences?:{title:string;path:string;source:'native-citation'|'native-read'}[];
   attachments?:import('../attachments/types').Attachment[];
   modelSource?:{targetId:string;name:string;runtime:RuntimeKind;model?:string};
+  /** Host-stamped origin of a user turn delivered from another session's peer message. */
+  peer?:{messageId:string;fromSessionId:string;fromRuntime:Session['binding']['runtime']};
   id: string; role: 'user' | 'assistant'; original: string; submitted?: string;
   translation?: string; translationStatus?: 'pending' | 'complete' | 'failed' | 'off';
   translationError?: string; translationSource?: string; progress?: string; progressTranslation?: string;

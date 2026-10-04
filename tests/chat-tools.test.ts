@@ -74,7 +74,8 @@ test('host stamps immutable peer provenance and does not infer permission from p
 test('incoming peer context stays visible after a completed turn, including unavailable sources',async()=>{
   const f=fixture();try{
     f.target.messages=[{id:'u',role:'user',original:'Review',timestamp:at,demo:false},{id:'r',role:'assistant',original:'Done',phase:'final',timestamp:at,demo:false}];
-    const peer=await f.hub.send('a','b','Follow-up from another chat.','op');peer.createdAt='2026-09-27T12:00:01.000Z';
+    // Legacy envelope delivery: no user card was recorded, so the peer card remains.
+    const peer={...await f.hub.send('a','b','Follow-up from another chat.','op'),status:'delivered' as const,nativeReceipt:'legacy',deliveredAt:at};peer.createdAt='2026-09-27T12:00:01.000Z';
     const timeline=conversationTimeline(f.target,[peer],f.identities.map(i=>i.session)),entry=timeline.find(e=>e.type==='peer');assert.equal(entry?.type==='peer'&&entry.counterpart?.title,'聊天 a');
     const turns=readingTurns(timeline,f.target);assert.equal(turns.length,2);assert.equal(turns[0]!.answers[0]!.id,'r');assert.equal(turns[1]!.users[0]!.type,'peer');assert.equal(turns[1]!.process.length,0);
     const removed=conversationTimeline(f.target,[peer],[]).find(e=>e.type==='peer');assert.equal(removed?.type==='peer'&&removed.counterpart,undefined);assert.equal(removed?.type==='peer'&&removed.peer.fromTitle,'聊天 a');

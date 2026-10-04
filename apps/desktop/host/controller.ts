@@ -87,6 +87,7 @@ import type { NativeRuntimeControl } from '../../../packages/workspace-control/n
 import { PeerInbox } from '../../../packages/collaboration-core/inbox';
 import { initialCollaborationState } from '../../../packages/collaboration-core/types';
 import { NativePeerContextSession } from '../../../packages/collaboration-core/native-inbox';
+import { PeerDelivery, type PeerProvenance } from '../../../packages/collaboration-core/peer-delivery';
 import { createPeerTools } from '../../../packages/collaboration-core/tools';
 import { PeerMcpSession } from '../../../packages/collaboration-core/mcp';
 import { validateNativeAgentPolicy } from '../../../packages/collaboration-core/native-policy';
@@ -241,6 +242,20 @@ export class WorkbenchController {
     identity:id=>this.collaborationIdentities().find(item=>item.session.id===id),
     identities:()=>this.collaborationIdentities(),
   });
+  /** Queued peer messages become ordinary user turns: steered into a running turn or submitted when idle. */
+  private peerPreviews=new Map<string,PeerProvenance>();
+  readonly peerDelivery=new PeerDelivery(this.peerInbox,{
+    read:()=>this.store.read(),
+    pending:()=>[...new Set((this.store.read().collaboration?.messages??[]).filter(message=>message.status==='queued').map(message=>message.toSessionId))],
+    route:session=>this.disposing||session.binding.runtime==='demo'?undefined:session.status==='running'?(this.canSteer(session)&&session.nativeTurnId?'steer':undefined):session.status==='idle'&&!this.sessionOperations.has(session.id)&&!this.permissionChanges.has(session.id)&&!this.modelSwitching.has(session.id)&&!this.forking.has(session.id)?'submit':undefined,
+    dispatch:async(session,preview,route,peer)=>{this.peerPreviews.set(preview.id,peer);try{return route==='steer'?await this.dispatchDraft(this.session(session.id),preview,session.nativeTurnId):await this.withSessionOperation(session.id,()=>this.dispatchDraft(this.session(session.id),preview));}finally{this.peerPreviews.delete(preview.id);}},
+    delivered:(sessionId,messageId)=>{const message=this.store.read().sessions.find(item=>item.id===sessionId)?.messages.find(item=>item.id===messageId);if(message&&translationEnabled(this.store.read())&&this.translationModule.enabled())void this.translateMessage(sessionId,structuredClone(message)).catch(()=>{});},
+  });
+  /** Stamp peer provenance on the user message a runner records for a peer preview. */
+  private tagPeerMessages(session:Session){
+    if(!this.peerPreviews.size)return;
+    for(let index=session.messages.length-1;index>=Math.max(0,session.messages.length-8);index--){const message=session.messages[index]!,peer=this.peerPreviews.get(message.id);if(peer&&message.role==='user'&&!message.peer)message.peer=peer;}
+  }
   /** Trusted native bootstrap only. Never expose identity binding or receipts through IPC. */
   nativePeerContext(sessionId:string){this.session(sessionId);return new NativePeerContextSession(this.peerInbox,sessionId);}
   nativePeerTools(sessionId:string){this.session(sessionId);return createPeerTools(this.peerInbox,sessionId,{definitions:[...modelAgentTools,...chatSessionToolDefinitions],call:async(name,input,signal)=>{try{return await (chatSessionToolDefinitions.some(tool=>tool.name===name)?this.chatSessions.call(sessionId,name,object(input),signal):this.modelAgentCall(sessionId,name,object(input),signal));}catch(error){const message=(error as Error)?.message??'';if(/^[A-Z_]{3,}(: [\x20-\x7e]+)?$/.test(message))throw error;throw Error('MODEL_AGENT_REQUEST_REJECTED: Check the target, arguments, authorization and current session state.');}}});}
@@ -539,14 +554,14 @@ export class WorkbenchController {
   /** The window-facing state: the shared view plus projected environment profiles. */
   private published(){const s=this.present(this.store.read());s.profiles=s.profiles.map(profile=>projectEnvironment(profile,{hostId:profile.hostId,ownerId:profile.ownerId}));return s;}
   /** Publish the committed state to the window, plugins and observers without deep copies. */
-  private broadcast(){const s=this.published();this.changed(s);this.interactionFlow?.observe(s);this.planFlow?.observe(s);this.followUps.observe();return s;}
-  private async update(fn:(state:AppState)=>void){const s=this.publicState(await this.store.update(state=>{rememberMemoryDefault(state);rememberRuntimeModel(state);fn(state);rememberMemoryDefault(state);rememberRuntimeModel(state);}));this.broadcast();return s;}
+  private broadcast(){const s=this.published();this.changed(s);this.interactionFlow?.observe(s);this.planFlow?.observe(s);this.followUps.observe();this.peerDelivery.observe();return s;}
+  private async update(fn:(state:AppState)=>void){const s=this.publicState(await this.store.update(state=>{rememberMemoryDefault(state);rememberRuntimeModel(state);fn(state);rememberMemoryDefault(state);rememberRuntimeModel(state);for(const session of state.sessions)this.tagPeerMessages(session);}));this.broadcast();return s;}
   /**
    * Session-scoped update for runtime event paths: copies and re-serializes one
    * session instead of the whole application state. `change` may mutate only the
    * session; `state` is the next revision for reads.
    */
-  private async updateSession(id:string,change:(session:Session,state:Readonly<AppState>)=>void,options?:{persist?:'durable'|'deferred'}){const applied=await this.store.updateSession(id,change,options);if(applied)this.broadcast();return applied;}
+  private async updateSession(id:string,change:(session:Session,state:Readonly<AppState>)=>void,options?:{persist?:'durable'|'deferred'}){const applied=await this.store.updateSession(id,(session,state)=>{change(session,state);this.tagPeerMessages(session);},options);if(applied)this.broadcast();return applied;}
   private sendInteraction(session:Session,id:RequestId,reply:InteractionReply){this.assertDraftRuntime(session);if(isPluginRuntime(session.binding.runtime))return this.pluginRuntimes.interaction(session.id,id,reply);if(this.providerBinding(session.binding)){if(!this.nativeProvider||session.binding.runtime==='api')throw Error('此会话未连接原生交互。');return this.nativeProvider.interaction(session.id,id,reply);}return this.nativeCodex!.interaction(session.id,id,reply);}
   private assertDraftRuntime(session:Session){if(isPluginRuntime(session.binding.runtime)){this.pluginRuntimes.entry(session);return;}if(session.binding.hostId)this.assertRemoteMaintenance(this.host(session.binding.hostId),session.binding.runtime);if(this.modelSwitching.has(session.id))throw Error('模型正在切换。');if(session.binding.runtime==='demo')return;if(this.providerBinding(session.binding)){if(session.binding.runtime==='claude'&&!this.nativeProvider)throw Error('Claude SSH 工具连接尚未就绪。');if(this.nativeProvider&&session.binding.runtime==='api')throw Error('请选择 Codex 或 Claude Code，再选择此模型来源；旧会话历史保留。');this.providerRunner(session).assertAllowed(session);return;}if(!this.nativeCodex)throw new Error('H 原生桥尚未完成该连接的工具/文件视图验收，提交已阻止。');this.nativeCodex.assertAllowed(session);}
   private assertModelIdle(session:Session){if(this.pluginRuntimes.busy(session.id)||session.archived||!['idle','blocked'].includes(session.status)||this.gate.hasPending(session.id)||this.sessionOperations.has(session.id)||this.permissionChanges.has(session.id)||this.forking.has(session.id)||this.apiRunner.busy(session.id)||this.nativeProvider?.busy(session.id)||this.nativeCodex?.busy(session.id)||this.modelSwitching.has(session.id))throw Error('请等待当前任务完成并关闭发送预览，再切换模型。');}
@@ -1211,7 +1226,7 @@ export class WorkbenchController {
       }
       case 'message/retranslate':{
         this.translationModule.assertEnabled();
-        const session=this.session(p.sessionId);const id=required(p.messageId,'消息ID');const message=session.messages.find(m=>m.id===id&&(m.role==='assistant'||session.agentParent));if(!message)throw new Error('原文消息不存在。');await this.translateMessage(session.id,message,true);return null;
+        const session=this.session(p.sessionId);const id=required(p.messageId,'消息ID');const message=session.messages.find(m=>m.id===id&&(m.role==='assistant'||m.peer||session.agentParent));if(!message)throw new Error('原文消息不存在。');await this.translateMessage(session.id,message,true);return null;
       }
       case 'child-message/translate':{
         this.translationModule.assertEnabled();
@@ -1786,7 +1801,7 @@ export class WorkbenchController {
       try{
         let translated:string,source:string;const policy=this.translationModule.captureConfiguration();
         if(message.translationSource?.startsWith('离线固定')){translated=DEMO_FINAL_ZH;source=message.translationSource;}
-        else {const result=(await this.translationModule.translate(message.role==='user'?message.submitted??message.original:visibleReply(message.original),'output',`${sessionId}:${message.id}:final`,manual?'final':message.phase==='commentary'?'progress':'final',undefined,sessionId)).value;translated=result.text;source=(result.providerName??result.providerId)+' / '+result.model;}
+        else {const result=(await this.translationModule.translate(message.role==='user'?(message.peer?message.original:message.submitted??message.original):visibleReply(message.original),'output',`${sessionId}:${message.id}:final`,manual?'final':message.phase==='commentary'?'progress':'final',undefined,sessionId)).value;translated=result.text;source=(result.providerName??result.providerId)+' / '+result.model;}
         await this.update(s=>{this.translationModule.assertCurrent(policy);const m=s.sessions.find(x=>x.id===sessionId)?.messages.find(x=>x.id===message.id);if(!m)return;if(hashText(m.original)===hashText(message.original)){m.translation=translated;m.translationStatus='complete';m.translationSource=source;}else{m.translationStatus='off';delete m.translationError;}});
       }catch(error){await this.update(s=>{const m=s.sessions.find(x=>x.id===sessionId)?.messages.find(x=>x.id===message.id);if(m){m.translationStatus=translationEnabled(s)?'failed':'off';m.translationError=translationEnabled(s)?safeError(error):undefined;}});}
     })();this.activeTranslations.set(operationKey,promise);try{await promise;}finally{this.activeTranslations.delete(operationKey);}

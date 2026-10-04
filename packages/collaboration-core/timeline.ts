@@ -12,7 +12,10 @@ export type TimelineEntry = { type: 'message'; id: string; message: Message; at:
 export function sessionTimeline(session: Session, peers: PeerMessage[] = []): TimelineEntry[] {
   const entries: TimelineEntry[] = session.messages.map(message => ({ type: 'message', id: message.id, message, at: message.timestamp, order: message.nativeOrder }));
   entries.push(...(session.activities ?? []).filter(activity=>!activity.nativeChildId&&!( ['Agent','Task','spawnAgent'].includes(activity.toolName??'')&&session.nativeChildren?.some(child=>child.toolCallId&&activity.id.endsWith(':'+child.toolCallId)))).map(activity => ({ type: 'activity' as const, id: activity.id, activity, at: activity.startedAt, order: activity.nativeOrder })));
-  entries.push(...peers.filter(peer => peer.fromSessionId === session.id || peer.toSessionId === session.id).map(peer => ({ type: 'peer' as const, id: peer.id, peer, at: peer.createdAt })));
+  // Incoming messages arrive as user cards. Pending ones appear once delivered; only
+  // unconfirmed or legacy envelope deliveries without a user card keep the peer card.
+  const received = new Set(session.messages.flatMap(message => message.peer ? [message.peer.messageId] : []));
+  entries.push(...peers.filter(peer => peer.fromSessionId === session.id || peer.toSessionId === session.id && !['queued', 'claimed'].includes(peer.status) && !received.has(peer.id)).map(peer => ({ type: 'peer' as const, id: peer.id, peer, at: peer.createdAt })));
   for(const child of (session.nativeChildren??[]).filter(child=>!session.nativeChildren?.some(parent=>parent.nativeChildId===child.nativeParentId))){
     const terminal=['completed','failed','closed'].includes(child.operation),start=child.startedAt??child.updatedAt;
     entries.push({type:'child',id:child.nativeChildId+':start',child,at:start,...(terminal&&start!==child.updatedAt?{lifecycle:'started' as const}:{})});

@@ -93,5 +93,5 @@
 
 - UI 使用中文；工作台生成并发送给模型的工具说明/schema、系统提示、环境/协作包络、错误状态统一英文。用户输入、既有 AGENTS/记忆原文和原生返回保持原文；新增交接记忆遵循上述英文规则，不篡改路径、代码或证据。
 - All VPS-side source, comments, fixed messages, and logs must be English/ASCII. Localize desktop labels locally; preserve user-authored content and native data. Account quota allocation uses independent weekly and supported five-hour percentages, never monthly USD.
-- 保留原生子 Agent 数量、层级、模型及同 owner 跨会话协作。不得添加外层无限“继续”、限流后自动重启/换账号、peer 消息自主启动新回合、自动购买额度或消费重置卡。
+- 保留原生子 Agent 数量、层级、模型及同 owner 跨会话协作。不得添加外层无限“继续”、限流后自动重启/换账号、自动购买额度或消费重置卡。按用户 2026-10-04 的决定，其他会话发来的 peer 消息作为普通用户消息立即投递：目标运行中插入当前回合，空闲时发起新回合；回执未知的投递不重放。
 - 独立翻译不得接收已识别的 Claude 登录令牌/Cookie，也不得调用网页登录端点。Claude 最终失败的当前传输禁止自动续投；新连接仍须满足原生身份与 H 验收。详见 `docs/claude-usage-safety-20260926.md`，工程保护不是官方风控阈值或账号豁免。

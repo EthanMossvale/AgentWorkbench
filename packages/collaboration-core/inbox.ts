@@ -60,7 +60,8 @@ export class PeerInbox {
     return { revision: messages.reduce((latest, message) => Math.max(latest, message.revision ?? state.revision), 0), messages: messages.slice(-limit) };
   }
   /** Called only by a trusted native submission adapter, never a renderer/model tool. */
-  async claim(sessionId: string): Promise<InboxClaim> {
+  async claim(sessionId: string, limit = 20): Promise<InboxClaim> {
+    if (!Number.isSafeInteger(limit) || limit < 1 || limit > 20) throw new CollaborationError('INVALID_ARGUMENT', 'The claim limit must be between 1 and 20.');
     const identity = this.identity(sessionId), expectedBinding = binding(identity), id = randomUUID(); let selected: PeerMessage[] = []; let changed = false;
     await this.store.update(state => {
       const previousRevision = state.revision;
@@ -69,8 +70,8 @@ export class PeerInbox {
         const source = this.store.identity(message.fromSessionId);
         if (!source || source.session.archived || source.ownerId !== identity.ownerId || message.sourceIdentityHash !== binding(source) || message.targetIdentityHash !== expectedBinding) { message.status = 'uncertain'; message.revision = ++state.revision; }
       }
-      selected = state.messages.filter(message => message.toSessionId === sessionId && message.status === 'queued').slice(0, 20);
-      let characters = 0; selected = selected.filter(message => { characters += message.text.length; return characters <= 32000; });
+      selected = state.messages.filter(message => message.toSessionId === sessionId && message.status === 'queued').slice(0, limit);
+      let characters = 0; selected = selected.filter(message => { characters += message.text.length; return characters <= 32000 || limit === 1; });
       if (selected.length) state.revision++;
       for (const message of selected) { message.status = 'claimed'; message.claimId = id; message.revision = state.revision; }
       changed = state.revision !== previousRevision;

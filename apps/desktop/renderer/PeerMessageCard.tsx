@@ -5,6 +5,10 @@ import { Icon } from './ui';
 
 export interface PeerCounterpart { id:string; title:string; archived:boolean }
 const runtimeName = (value: string) => value === 'claude' ? 'Claude Code' : value === 'codex' ? 'Codex' : value === 'api' ? 'API 模型' : '离线示例';
+/** Kicker of a user card delivered from another session; the session name is intentionally not shown. */
+export function PeerSourceLabel({runtime,sourceId,onOpen}:{runtime:string;sourceId:string;onOpen?:(id:string)=>void}) {
+  return <>由 {runtimeName(runtime)} 从<button className="text-button peer-source-link" data-testid="peer-source-link" disabled={!onOpen} title="打开来源会话" onClick={()=>onOpen?.(sourceId)}>另一会话</button>发送</>;
+}
 /** Provenance is stamped by the host; message text is never interpreted as a user role. */
 export default function PeerMessageCard({peer,sessionId,counterpart,onOpen}:{peer:PeerMessage;sessionId:string;counterpart?:PeerCounterpart;onOpen?:(id:string)=>void}) {
   const [expanded,setExpanded]=useUiPreference<boolean>('disclosure.open',JSON.stringify(['peer',sessionId,peer.id])),outgoing=peer.fromSessionId===sessionId;
