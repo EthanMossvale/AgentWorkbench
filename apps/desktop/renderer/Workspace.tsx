@@ -53,6 +53,7 @@ import { markdownBlocks } from '../../../packages/message-markdown';
 import AccountSelector from './AccountSelector';
 import { selectedSharedAccountRef } from '../../../packages/account-selection';
 import { preparedDraftAction, translationFlowPolicy } from './translation-flow';
+import { draftHandoff, type ParkedDraft } from './draft-handoff';
 import { translationModuleEnabled, translationQuickToggleVisible } from '../../../packages/translation/settings';
 import { conversationTimeline } from '../../../packages/collaboration-core/timeline';
 import RuntimeTimelineEntry from './RuntimeTimeline';
@@ -152,6 +153,9 @@ export default function Workspace({ repairDraft,onRepairDraftApplied,onRememberM
   const generation = useRef(0); const pendingId = useRef<string | null>(null); const previewRef = useRef<DraftPreview | null>(null); const splitRef = useRef<HTMLDivElement>(null); const originalRef = useRef<HTMLDivElement>(null); const translationRef = useRef<HTMLDivElement>(null); const dragActive = useRef(false);
   const [activeProgressTarget, setActiveProgressTarget] = useState<HTMLDivElement | null>(null);
   const previewPolicyRef = useRef<string | null>(null);
+  // Set once navigation unmounts this view while a send is in flight; the send then finishes without it.
+  const detached = useRef(false);
+  const composerState = useRef<Omit<ParkedDraft,'preview'|'policy'|'error'>>({text:'',skills:[],attachments:[],isDemoSample:false});
   const projectId = session ? session.projectId : draft.projectId;
   const project = state?.projects.find(p=>p.id===projectId); const messages = session?.messages ?? [];
   const hasTranslationHistory = messages.some(message => !!message.translation || !!message.progressTranslation || (message.role === 'user' && !!message.submitted && message.submitted !== message.original));
@@ -231,7 +235,8 @@ export default function Workspace({ repairDraft,onRepairDraftApplied,onRememberM
     if (hadDraftWork) setDraftError(translationEnabled ? '翻译设置已更新，草稿已保留，请重新发送。' : translationModuleOn ? '翻译已临时暂停，草稿已保留，请重新发送。' : '翻译模块已关闭，草稿已保留，请重新发送。');
   }, [translationPolicy.key]);
   useLayoutEffect(() => {
-    if (active || submittingRef.current) return;
+    // Work already in flight keeps going while another page is shown.
+    if (active || submittingRef.current || preparingRef.current) return;
     cancel(); setReviewOpen(false); setReviewSnapshot(null);
   }, [active]);
   const appliedRepair=useRef('');
@@ -240,7 +245,13 @@ export default function Workspace({ repairDraft,onRepairDraftApplied,onRememberM
   },[repairDraft?.id,session?.id,text]);
   // App keys genuine navigation separately from lazy creation, so creation never clears a live draft.
   useEffect(() => { if (state && active) composerRef.current?.focus(); }, [!!state, active]);
-  useEffect(() => () => { generation.current++; if (pendingId.current) api('draft/cancel', { requestId: pendingId.current }).catch(report); if (previewRef.current) api('draft/cancel', { id: previewRef.current.id }).catch(report); pendingId.current = null; }, []);
+  useEffect(() => () => {
+    // Leaving a session must not drop its send: in-flight work continues, a waiting preview moves to the next view.
+    if (preparingRef.current || submittingRef.current) { detached.current = true; return; }
+    const target = activeSession.current, preview = previewRef.current;
+    if (target && preview) { detached.current = true; handOff(target.id, { ...composerState.current, preview, policy: previewPolicyRef.current ?? undefined }); return; }
+    generation.current++; if (pendingId.current) api('draft/cancel', { requestId: pendingId.current }).catch(report); pendingId.current = null;
+  }, []);
   const pinOutput = (element: HTMLElement) => {
     if (!followOutput.current) return;
     // Avoid a layout write when the pane is already at the bottom. This runs
@@ -302,6 +313,7 @@ export default function Workspace({ repairDraft,onRepairDraftApplied,onRememberM
   };
   useEffect(() => { if (translationRef.current) translationRef.current.scrollTop = translationRef.current.scrollHeight; }, [session?.messages.length]);
   const attachments=useAttachments(session?.forkAttachments??[],submitting||!active||!state,()=>{cancel();setReviewOpen(false);setReviewSnapshot(null);setDraftError('');},error=>setDraftError(errorText(error)));
+  composerState.current={text,skills,attachments:attachments.items,isDemoSample};
   const annotations=useContextAnnotations(session,active,submitting||!state,()=>{cancel();setReviewOpen(false);setReviewSnapshot(null);},report,translationEnabled?translationPolicy.key:undefined);
   const recoverySeen=useRef(new Set<string>()),restoredRecovery=useRef<string|undefined>(undefined);
   const recoverDraft=(entry:DraftRecovery)=>{
@@ -324,10 +336,33 @@ export default function Workspace({ repairDraft,onRepairDraftApplied,onRememberM
     }
   },[active,submitting,busy,session?.draftRecoveries,annotations.busy,attachments.busy]);
   useComposerSize(composerRef,text,[active,attachments.items.length,skills.length,!!preview].join(':'));
+  /** Parks composer work for the session's next view and releases any preview it displaces. */
+  const handOff = (sessionId: string, parked: ParkedDraft) => { const displaced = draftHandoff.park(sessionId, parked); if (displaced?.preview && displaced.preview.id !== parked.preview?.id) api('draft/cancel', { id: displaced.preview.id }).catch(report); };
+  useEffect(() => {
+    const sessionId = session?.id; if (!sessionId) return;
+    const adopt = (id: string) => {
+      if (id !== sessionId || detached.current || preparingRef.current || submittingRef.current || previewRef.current) return;
+      const parked = draftHandoff.take(sessionId); if (!parked) return;
+      const own = composerState.current;
+      const policy = translationPolicyRef.current;
+      const reviewable = !!parked.preview && !own.text.trim() && policy.enabled && parked.policy === policy.key;
+      setText(own.text && own.text !== parked.text ? own.text + '\n\n' + parked.text : parked.text);
+      setSkills(current => [...current, ...parked.skills.filter(item => !current.some(existing => existing.id === item.id))]);
+      attachments.replace([...own.attachments, ...parked.attachments.filter(item => !own.attachments.some(existing => existing.id === item.id))]);
+      setIsDemoSample(parked.isDemoSample && !own.text);
+      if (reviewable) { previewRef.current = parked.preview!; previewPolicyRef.current = parked.policy!; setPreview(parked.preview!); setReviewSnapshot(parked.preview!); setRevisionRequired(false); setDraftError(''); setReviewOpen(true); return; }
+      if (parked.preview) api('draft/cancel', { id: parked.preview.id }).catch(report);
+      const error = parked.error ?? (parked.preview ? '发送设置已变化，草稿已保留，请重新发送。' : '');
+      if (error) { setRevisionRequired(true); setDraftError(error); }
+    };
+    adopt(sessionId);
+    return draftHandoff.subscribe(adopt);
+  }, [session?.id]);
   const prepare = async (bypass = false, invertFollowUp = false) => {
     if (runtimeChoosing.current || (!session && runtime==='demo') || activeQuestionRef.current || !active || !state || (!text.trim()&&!attachments.items.length&&!skills.length&&!annotations.items.length) || annotations.busy || attachments.pending.current || previewRef.current || preparingRef.current || submittingRef.current || permissionSavingRef.current || accountPendingRef.current || modelSavingRef.current || busy || submitting || stopping || (activeSession.current?.status === 'running' && !activeSession.current.nativeTurnId)) return;
     if (!activeSession.current && !isPluginRuntime(draft.runtime) && draft.runtime !== 'demo' && draft.runtime !== 'api' && !/^(api|account)\//.test(draft.modelTargetId??'') && !draft.hostId && !state?.activeWorkspaceId) { setDraftError('请先到 SSH 页面选择本机使用的成员工作空间。'); return; }
     const requestedPolicy = translationPolicyRef.current;
+    const sent = { text, skills, attachments: attachments.items, isDemoSample };
     preparingRef.current = true; const sequence = ++generation.current; const requestId = crypto.randomUUID(); pendingId.current = requestId; setBusy(true); setDraftError(''); setPreview(null);
     try {
       let target = activeSession.current;
@@ -335,12 +370,12 @@ export default function Workspace({ repairDraft,onRepairDraftApplied,onRememberM
       if (sequence !== generation.current || requestedPolicy.key !== translationPolicyRef.current.key) return;
       const result = await api<DraftPreview>('draft/prepare', { sessionId: target.id, recover:target.status==='uncertain', text, annotationRevision:session?annotations.revision:undefined, attachmentIds:attachments.items.map(a=>a.id), skills:skills.map(({id,hash})=>({id,hash})), followUpMode, invertFollowUp, demo: isDemoSample && !annotations.items.length && !bypass && requestedPolicy.enabled, bypass: bypass || !requestedPolicy.enabled, requestId });
       const action = preparedDraftAction({ requested: requestedPolicy, current: translationPolicyRef.current, preview: result, source: text, bypass, autoSubmit: autoSubmitRef.current });
-      if (sequence !== generation.current || action === 'discard') { await api('draft/cancel', { id: result.id }); if (sequence === generation.current) setDraftError('发送设置已变化，草稿已保留，请重新发送。'); return; }
+      if (sequence !== generation.current || action === 'discard') { await api('draft/cancel', { id: result.id }); if (sequence === generation.current) { if (detached.current) handOff(target.id, { ...sent, error: '发送设置已变化，草稿已保留，请重新发送。' }); else setDraftError('发送设置已变化，草稿已保留，请重新发送。'); } return; }
       previewRef.current = result; previewPolicyRef.current = requestedPolicy.key; setPreview(result); setRevisionRequired(false);
       if (action === 'submit-original') await submitDraft(result);
-      else { setReviewSnapshot(result); if (action === 'submit-translated') await submitDraft(result, true); else setReviewOpen(true); }
+      else { setReviewSnapshot(result); if (action === 'submit-translated') await submitDraft(result, true); else if (detached.current) handOff(target.id, { ...sent, preview: result, policy: requestedPolicy.key }); else setReviewOpen(true); }
     }
-    catch (e) { if (sequence === generation.current) setDraftError(errorText(e)); }
+    catch (e) { if (sequence === generation.current) { const target = activeSession.current; if (!detached.current) setDraftError(errorText(e)); else if (target) handOff(target.id, { ...sent, error: errorText(e) }); else report(e); } }
     finally { if (sequence === generation.current) { preparingRef.current = false; setBusy(false); pendingId.current = null; } }
   };
   const submitDraft = async (item: DraftPreview, automatic = false) => {
@@ -355,7 +390,7 @@ export default function Workspace({ repairDraft,onRepairDraftApplied,onRememberM
     setText(''); setSkills([]); attachments.replace([]); setIsDemoSample(false); setRevisionRequired(false); setReviewSnapshot(null); setEditingMessageId(null); beforeEdit.current=null;
     let accepted=false;
     try { await api('draft/submit', { sessionId: target.id, id: item.id, sourceHash: item.sourceHash, automatic }); accepted=true; if(item.annotations?.length)await annotations.clearSubmitted(item.annotationRevision); if(recoveredId){await api('draft/recovery-dismiss',{sessionId:target.id,id:recoveredId}).catch(report);if(restoredRecovery.current===recoveredId)restoredRecovery.current=undefined;} await refresh(); }
-    catch (e) { if (sequence === generation.current) { if(!accepted){setText(sent.text);setSkills(sent.skills);attachments.replace(sent.attachments);setIsDemoSample(sent.isDemoSample);setEditingMessageId(sent.editingMessageId);beforeEdit.current=sent.beforeEdit;} setDraftError(errorText(e)); setRevisionRequired(true); } } finally { submittingRef.current = false; setSubmitting(false); }
+    catch (e) { if (detached.current) { if (!accepted) handOff(target.id, { text: sent.text, skills: sent.skills, attachments: sent.attachments, isDemoSample: sent.isDemoSample, error: errorText(e) }); } else if (sequence === generation.current) { if(!accepted){setText(sent.text);setSkills(sent.skills);attachments.replace(sent.attachments);setIsDemoSample(sent.isDemoSample);setEditingMessageId(sent.editingMessageId);beforeEdit.current=sent.beforeEdit;} setDraftError(errorText(e)); setRevisionRequired(true); } } finally { submittingRef.current = false; setSubmitting(false); }
   };
   const submit = async () => { if (preview && !revisionRequired) await submitDraft(preview); };
   const editDraft = () => { if (submitting) return; const original = previewRef.current?.original ?? text; cancel(); setText(original); setReviewOpen(false); setReviewSnapshot(null); setIsDemoSample(false); setRevisionRequired(true); setDraftError(''); if (compact) setShowTranslation(false); requestAnimationFrame(() => { composerRef.current?.focus(); composerRef.current?.setSelectionRange(original.length, original.length); }); };
@@ -578,7 +613,7 @@ export default function Workspace({ repairDraft,onRepairDraftApplied,onRememberM
     </div>
 
     {statusOpen&&<Modal title="会话状态" onClose={()=>setStatusOpen(false)} className="preview-modal preview-short"><dl className="composer-status"><dt>运行时</dt><dd>{runtimePlugin?.name??session?.pluginRuntime?.name??(runtime==='claude'?'Claude Code':runtime==='codex'?'Codex':runtime==='api'?'API 直连':isPluginRuntime(runtime)?runtime:'离线示例')}</dd><dt>状态</dt><dd>{session?statuses[session.status]:'尚未发送'}</dd><dt>模型</dt><dd>{session?.modelSelection?.model??draft.modelSelection?.model??'由当前模型配置决定'}</dd><dt>上下文</dt><dd>{session?.nativeContextUsage?.used??'未知'} / {session?.nativeContextUsage?.capacity??'未知'}</dd><dt>会话 ID</dt><dd>{session?.id??'发送后创建'}</dd></dl></Modal>}
-    {translationEnabled && reviewOpen && reviewSnapshot && <PreviewModal id={reviewSnapshot.id} kind="draft" onConfirm={submit} confirmDisabled={!preview || revisionRequired || submitting} busy={submitting} className="draft-review-modal" title="发送前预览" subtitle={reviewSnapshot.followUp?.action==='queue'?'确认后加入队列；等待当前回合完成后发送。':reviewSnapshot.followUp?.action==='steer'?'确认后引导当前任务；由原生运行时决定接收节点。':'确认后发送；需要调整请返回修改。'} content={[reviewSnapshot.original,reviewSnapshot.translated]} onClose={editDraft} actions={<><button className="button secondary" data-testid="draft-edit" disabled={submitting} onClick={editDraft}>返回修改</button><button className="button primary" data-testid="submit-draft" data-autofocus disabled={!preview || revisionRequired || submitting} onClick={submit}>{submitting ? '发送中…' : reviewSnapshot.followUp?.action==='queue'?'确认排队':'确认发送'}</button></>}>
+    {active && translationEnabled && reviewOpen && reviewSnapshot && <PreviewModal id={reviewSnapshot.id} kind="draft" onConfirm={submit} confirmDisabled={!preview || revisionRequired || submitting} busy={submitting} className="draft-review-modal" title="发送前预览" subtitle={reviewSnapshot.followUp?.action==='queue'?'确认后加入队列；等待当前回合完成后发送。':reviewSnapshot.followUp?.action==='steer'?'确认后引导当前任务；由原生运行时决定接收节点。':'确认后发送；需要调整请返回修改。'} content={[reviewSnapshot.original,reviewSnapshot.translated]} onClose={editDraft} actions={<><button className="button secondary" data-testid="draft-edit" disabled={submitting} onClick={editDraft}>返回修改</button><button className="button primary" data-testid="submit-draft" data-autofocus disabled={!preview || revisionRequired || submitting} onClick={submit}>{submitting ? '发送中…' : reviewSnapshot.followUp?.action==='queue'?'确认排队':'确认发送'}</button></>}>
       <div data-testid="draft-preview" className="review-content">{annotationsNeedInputTranslation(reviewSnapshot.annotations)&&!reviewSnapshot.bypass&&<p className="review-status">中文注释已翻译。请核对下方实际发送内容，确认后发送；所选中文会保留在消息注释中。</p>}<AnnotationCapsule items={reviewSnapshot.annotations??[]} sessionId={session?.id+':preview'}/><AttachmentList items={reviewSnapshot.attachments??[]}/><SkillTokens skills={reviewSnapshot.skills??[]}/>
         <section><small>{/\p{Script=Han}/u.test(reviewSnapshot.original)?'中文原稿':'用户原稿'}</small><pre data-testid="draft-chinese-preview">{reviewSnapshot.original}</pre></section>
         {reviewSnapshot.incomplete&&<p className="callout warning compact" data-workbench-partial-translation role="status">翻译尚未完整完成，已保留可读内容。请对照原稿检查后确认发送，或返回修改。</p>}

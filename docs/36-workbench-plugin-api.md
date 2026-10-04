@@ -5541,3 +5541,23 @@ Native subagents are separate. Claude Code's `Agent` tool and Codex's own agent 
 Example: `workbench_wait_messages({afterRevision: 0, sessionIds: ['<chat-a>', '<chat-b>'], waitFor: 'all', timeoutMs: 1800000})`, then `workbench_read_session` for each result.
 
 Tests: `tests/peer-wait-safety.test.ts` covers any/all settling without polling, message priority, already-settled sessions, plain-wait shape, argument validation, the owner boundary and cancellation. `tests/model-api.test.ts` still covers `workbench_read_agent`. Not verified: live Claude and Codex sessions using `sessionIds`, or a Codex wait longer than 60 s.
+
+## D049: a send keeps going after leaving its chat (2026-10-04)
+
+Sending the first message of a new task first creates the session, then prepares the draft, then submits it. All of that ran inside the mounted `Workspace`. Switching to another chat before it finished unmounted the view, and its cleanup cancelled the pending `draft/prepare` and dropped the composer text. The result was an empty "新的 … 任务" session and lost input. The same happened for an existing chat whose send was still preparing.
+
+Now the cleanup hands the work off instead of cancelling it:
+
+- While preparing or submitting, the pipeline keeps running without the view. Direct sends (translation off, or translated auto-submit) finish with the same `draft/submit` call, and the host's existing checks still apply.
+- A preview that needs confirmation is never submitted automatically. It is parked under its session ID together with the original text, skills and attachments. The next `Workspace` that shows that session adopts it and reopens the preview. If the translation policy changed in the meantime, the preview is cancelled and the text is restored with the existing "send settings changed" notice.
+- If preparation or submission fails after leaving, the unsent text and the error are parked the same way. Previews that were open when leaving are also parked instead of cancelled.
+- When the window shows settings instead of the workspace, preparation is no longer cancelled. The preview modal (a portal) now only renders while its workspace is active.
+
+| Capability | Call / result | Register / replace |
+| --- | --- | --- |
+| Draft preparation and submission | `draft/prepare`, `draft/submit` and `draft/cancel` are unchanged; only when the renderer calls `draft/cancel` changed | Unchanged: translation backends, runtimes and follow-up modes are still registered through their existing contracts and see the same calls |
+| Renderer handoff | `draftHandoff` in `apps/desktop/renderer/draft-handoff.ts` (`park`, `take`, `subscribe`) is a renderer-internal store, not an API-v1 surface | Not applicable: it holds transient renderer state between two mounts of the core `Workspace`. A plugin that replaces the workspace UI owns its own composer lifecycle and reaches the host through the same `draft/*` calls |
+
+No API-v1 declaration, named surface, preference key or persisted format changed, so the contract snapshot is unchanged. UI preferences: no user-adjustable node was added. The parked draft lives only in renderer memory, because it is transient send state and not a preference. A full restart while a preview waits drops that preview, as before; the host's `draftRecoveries` still cover submitted-but-unconfirmed input. The behavior is shared by Claude Code and Codex because it sits above the runtime adapters.
+
+Tests: `scripts/test-draft-handoff-ui.mjs` mounts the real `Workspace` in hidden Electron with App-style keyed navigation and a scripted host. It covers leaving during session creation (the background submit reaches the new session and nothing is cancelled), a translated preview that arrives after leaving (not sent, not shown over the other chat, restored with its text and submitted on confirmation) and a failure after leaving (text and error restored). With the previous `Workspace` the first scenario fails. Not verified: the running desktop app, live Claude and Codex sessions, and SSH paths.
