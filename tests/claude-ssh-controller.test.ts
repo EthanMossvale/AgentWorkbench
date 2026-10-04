@@ -23,7 +23,7 @@ import type {ModelTarget} from '../packages/model-api/types';
 
 const until=async(check:()=>boolean)=>{for(let i=0;i<500;i++){if(check())return;await delay(10);}assert.ok(check(),'Synthetic controller did not settle');};
 class SshFixture extends ProcessSupervisor{
- writes:any[]=[];thread=randomUUID();autoResult=false;cleanup=true;
+ writes:any[]=[];thread:string=randomUUID();autoResult=false;cleanup=true;
  frame(value:any){this.emit('frame',decodeNativeFrame(Buffer.from(JSON.stringify(value)+'\n')));}
  async start(){this.state='running';}
  async write(value:any){this.writes.push(value);
@@ -42,7 +42,8 @@ async function fixture(accounting=false){
  await store.update(s=>{s.hosts=[host];s.accountCatalogs={[host.id]:catalog};s.activeWorkspaceId=host.id;s.plugins={translation:{enabled:false}};});
  const native=new NativeResources(directory,{openZip:async()=>null,saveZip:async()=>null},()=>[],()=>{},directory,{cliOptions:{executables:{claude:process.execPath},isolated:true}});
  let ssh!:SshFixture,closed=0,opened=0;
- const bridge=new ClaudeBridgeService(directory,(spec:ProcessSpec)=>(ssh=new SshFixture(spec)));
+ const nativeThreads=new Map<string,string>();
+ const bridge=new ClaudeBridgeService(directory,(spec:ProcessSpec)=>{ssh=new SshFixture(spec);const write=ssh.write.bind(ssh);ssh.write=async value=>{if(value.provider==='claude'){ssh.thread=nativeThreads.get(value.sessionId)??ssh.thread;nativeThreads.set(value.sessionId,ssh.thread);}await write(value);};return ssh;});
  bridge.openTools=async options=>{opened++;return withClaudeLocalContext({definitions:[{name:'Read',inputSchema:{type:'object'}}],call:async()=>({content:[{type:'text',text:'Fixture local tool'}]}),close:async()=>{closed++;}},await bridge.openContext({...options,env:{HOME:directory,USERPROFILE:directory}}));};
  const forbidden=async()=>{throw Error('No model calls, account commands or actual SSH in this fixture');};
  let execution='local-mcp-required',imports=0;
@@ -235,9 +236,9 @@ test('approved context plugin reaches production MCP discovery and restores on d
   const boot=f.ssh.writes[0],forward=f.ssh.spec.args.find(a=>/\.sock:127\.0\.0\.1:\d+$/.test(a))!,port=forward.split(':').at(-1),endpoint='http://127.0.0.1:'+port+boot.toolPath;let sid:string|undefined;
   const rpc=async(body:unknown)=>{const result=await fetch(endpoint,{method:'POST',headers:{Authorization:'Bearer '+boot.secret,'Content-Type':'application/json',...(sid?{'Mcp-Session-Id':sid}:{})},body:JSON.stringify(body)});sid??=result.headers.get('Mcp-Session-Id')??undefined;return result.status===202?undefined:result.json();};
   const initialized=await rpc({jsonrpc:'2.0',id:1,method:'initialize'});assert.ok(initialized.result.capabilities.prompts);await rpc({jsonrpc:'2.0',method:'notifications/initialized'});
-  const response=await rpc({jsonrpc:'2.0',id:2,method:'tools/call',params:{name:'LocalContext',arguments:{}}});assert.deepEqual(JSON.parse(response.result.content[0].text).warnings,['Registered fixture context']);assert.deepEqual(response.result.structuredContent,JSON.parse(response.result.content[0].text));
+  const response=await rpc({jsonrpc:'2.0',id:2,method:'tools/call',params:{name:'LocalContext',arguments:{}}});const shown=response.result.content[0].text,catalog=JSON.parse(shown.slice(shown.indexOf('Catalog:\n')+9));assert.deepEqual(catalog.warnings,['Registered fixture context']);assert.equal(response.result.structuredContent,undefined);
   assert.ok(!JSON.stringify(response).includes('CONTROL_PRIVATE'));
-  const skill=await rpc({jsonrpc:'2.0',id:3,method:'tools/call',params:{name:'LoadLocalSkill',arguments:{id:'fixture',hash:'hash'}}});assert.ok(!JSON.stringify(skill).includes('CONTROL_PRIVATE'));assert.equal(skill.result.structuredContent.instructions,'hostname: user-authored text');
+  const skill=await rpc({jsonrpc:'2.0',id:3,method:'tools/call',params:{name:'LoadLocalSkill',arguments:{id:'fixture',hash:'hash'}}});assert.ok(!JSON.stringify(skill).includes('CONTROL_PRIVATE'));assert.ok(skill.result.content[0].text.startsWith('hostname: user-authored text\n'));
   const prompt=await rpc({jsonrpc:'2.0',id:4,method:'prompts/get',params:{name:'skill_fixture',arguments:{}}});assert.ok(!JSON.stringify(prompt).includes('CONTROL_PRIVATE'));assert.match(prompt.result.messages[0].content.text,/user-authored text/);
   assert.deepEqual(f.bridge.normalizeToolResult('Fixture',{}),{fixture:true});
   await f.plugins.setEnabled(plugin.manifest.id,plugin.hash,false);assert.deepEqual(f.bridge.normalizeToolResult('Fixture',{}),{});await f.controller.call('session/stop',{sessionId:s.id});assert.throws(()=>f.plugins.services.get('test.context-backend'),/unavailable/);
@@ -366,3 +367,34 @@ test('Claude native submission checks and reports quota using only native numeri
  f.ssh.frame({type:'result',session_id:f.ssh.thread,subtype:'success',is_error:false,usage:{input_tokens:20,output_tokens:5,cache_read_input_tokens:10}});await until(()=>!f.controller.hasActiveSessionWork());
  assert.equal(events.find(e=>e[0]==='observe')[2].total.totalTokens,35);assert.equal(events.at(-1)[0],'finish');assert.equal(events.at(-1)[2],events[0][2]);
  }finally{await f.close();}});
+
+test('automatic local context survives replay, reconnect, compaction and approved presenter lifecycle',async()=>{
+ const f=await fixture();try{
+  await writeFile(path.join(f.directory,'CLAUDE.md'),'LOCAL_CONTEXT_FIXTURE');
+  const plugin=await f.install('test.local-presentation',`export function activate(api){
+    const service=api.services.get('actions.native-claude');
+    const off=service.toolPresenters.register({id:'plugin:test.local-presentation/text',present:(name,args,result)=>name==='Read'?{content:[{type:'text',text:'PLUGIN_PRESENTATION'}]}:undefined});
+    api.onDispose(off);
+  }`);
+  await f.plugins.setEnabled(plugin.manifest.id,plugin.hash,true,true);
+  const s=await f.create();await f.submit(s);
+  const next=async()=>{const id=randomUUID();await (f.controller.developmentServices()['runtime.native-provider'] as any).submit(s.id,{id,original:'Next',translated:'Next',revision:1,sourceHash:'synthetic',bypass:true,demo:false});await until(()=>f.ssh.writes.some(v=>v.type==='user'&&v.uuid===id));await delay(15);};
+  const first=f.ssh.writes.find(v=>v.type==='user');assert.match(JSON.stringify(first.message.content),/LOCAL_CONTEXT_FIXTURE/);
+  await until(()=>f.store.snapshot().sessions.find(v=>v.id===s.id)!.messages.some(m=>m.role==='user'));
+  assert.doesNotMatch(JSON.stringify(f.store.snapshot().sessions.find(v=>v.id===s.id)!.messages.filter(m=>m.role==='user')),/LOCAL_CONTEXT_FIXTURE/,'hidden context is not substituted into the visible user message');
+  const boot=f.ssh.writes[0],forward=f.ssh.spec.args.find(a=>/\.sock:127\.0\.0\.1:\d+$/.test(a))!,endpoint='http://127.0.0.1:'+forward.split(':').at(-1)+boot.toolPath;let sid:string|undefined,id=0;
+  const rpc=async(method:string,params?:unknown)=>{const r=await fetch(endpoint,{method:'POST',headers:{Authorization:'Bearer '+boot.secret,...(sid?{'Mcp-Session-Id':sid}:{})},body:JSON.stringify({jsonrpc:'2.0',...(method.startsWith('notifications/')?{}:{id:++id}),method,params})});sid??=r.headers.get('Mcp-Session-Id')??undefined;return r.status===202?undefined:(await r.json()).result;};
+  const init=await rpc('initialize');await rpc('notifications/initialized');assert.match(init.instructions,/Subagents: call LocalContext with includeContents true/);
+  assert.ok((await rpc('tools/list')).tools.find((v:any)=>v.name==='Read')._meta['anthropic/alwaysLoad']);
+  assert.match(JSON.stringify(await rpc('tools/call',{name:'Read',arguments:{}})),/PLUGIN_PRESENTATION/);
+  f.ssh.frame({type:'system',subtype:'compact_boundary',session_id:f.ssh.thread});
+  assert.match(JSON.stringify(await rpc('tools/call',{name:'Read',arguments:{}})),/LOCAL_CONTEXT_FIXTURE/,'tool continuation restores compacted context without an extra model turn');
+  await f.plugins.setEnabled(plugin.manifest.id,plugin.hash,false);assert.doesNotMatch(JSON.stringify(await rpc('tools/call',{name:'Read',arguments:{}})),/PLUGIN_PRESENTATION/);
+  await f.plugins.setEnabled(plugin.manifest.id,plugin.hash,true);assert.match(JSON.stringify(await rpc('tools/call',{name:'Read',arguments:{}})),/PLUGIN_PRESENTATION/);
+  f.ssh.result();await until(()=>f.store.snapshot().sessions.find(v=>v.id===s.id)!.status==='idle'&&!(f.controller.developmentServices()['runtime.native-provider'] as any).hasTransport(s.id));
+  await next();
+  const second=f.ssh.writes.filter(v=>v.type==='user').at(-1)!;assert.doesNotMatch(JSON.stringify(second.message.content),/LOCAL_CONTEXT_FIXTURE/);
+  f.ssh.frame({type:'system',subtype:'compact_boundary',session_id:f.ssh.thread});f.ssh.result();await until(()=>f.store.snapshot().sessions.find(v=>v.id===s.id)!.status==='idle'&&!(f.controller.developmentServices()['runtime.native-provider'] as any).hasTransport(s.id));
+  await next();assert.match(JSON.stringify(f.ssh.writes.filter(v=>v.type==='user').at(-1)!.message.content),/LOCAL_CONTEXT_FIXTURE/);
+ }finally{await f.close();}
+});

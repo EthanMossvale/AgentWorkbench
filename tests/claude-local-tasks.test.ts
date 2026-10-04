@@ -1,11 +1,15 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {setTimeout as delay} from 'node:timers/promises';
-import {LocalClaudeTasks,withClaudeLocalTasks} from '../services/claude-bridge/local-tasks';
+import {mkdtempSync,readFileSync} from 'node:fs';
+import os from 'node:os';
+import path from 'node:path';
+import {LocalClaudeTasks,localTaskCommand,withClaudeLocalTasks} from '../services/claude-bridge/local-tasks';
 import {ClaudeToolMcpSession} from '../services/claude-bridge/tools';
 import type {ClaudeToolServer,ClaudeToolServerOptions} from '../services/claude-bridge/tools';
 
-const options=(signal=new AbortController().signal):ClaudeToolServerOptions=>({executable:'fixture',directory:'C:\\fixture',cwd:'C:\\fixture',env:{},signal});
+const scratch=mkdtempSync(path.join(os.tmpdir(),'awb-local-tasks-'));
+const options=(signal=new AbortController().signal):ClaudeToolServerOptions=>({executable:'fixture',directory:scratch,cwd:scratch,env:{},signal});
 const fakeOpen=async(_options:ClaudeToolServerOptions):Promise<ClaudeToolServer>=>({
  definitions:[{name:'Bash',inputSchema:{type:'object'}},{name:'PowerShell',inputSchema:{type:'object'}}],
  call:async(name,args,signal)=>{await delay(name==='PowerShell'?15:25,undefined,{signal});return {content:[{type:'text',text:JSON.stringify({stdout:String((args as any).command),exitCode:0})}]};},
@@ -16,7 +20,9 @@ test('local asynchronous command receipts use official foreground tools and neve
  const controller=new AbortController(),tasks=new LocalClaudeTasks(options(controller.signal),fakeOpen);
  const first=await tasks.start({requestId:'one',command:'Write-Output one',shell:'PowerShell'});assert.equal(first.state,'running');
  const duplicate=await tasks.start({requestId:'one',command:'Write-Output one',shell:'PowerShell'});assert.equal(duplicate.id,first.id);
- const output=await tasks.output(first.id,1000);assert.equal(output.state,'completed');assert.equal(JSON.parse((output.result as any).content[0].text).stdout,'Write-Output one');assert.equal(output.collected,true);
+ const output=await tasks.output(first.id,1000);assert.equal(output.state,'completed');assert.equal(output.collected,true);
+ // The official tool receives the unchanged command through a log-mirroring wrapper.
+ const script=output.logPath!.replace(/\.log$/,'.ps1');assert.equal(JSON.parse((output.result as any).content[0].text).stdout,localTaskCommand('PowerShell','Write-Output one',output.logPath!,script));assert.equal(readFileSync(script,'utf8'),String.fromCharCode(0xfeff)+'Write-Output one');
  await assert.rejects(tasks.start({requestId:'one',command:'different',shell:'PowerShell'}),/LOCAL_TASK_REQUEST_CHANGED/);
  await tasks.close();
 });

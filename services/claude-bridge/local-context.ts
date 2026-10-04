@@ -7,6 +7,7 @@ import {claudePluginRoots} from '../../packages/native-skills/claude-plugins';
 import {skillMetadata} from '../../packages/native-skills';
 import type {ClaudeToolServer,ClaudeToolServerOptions} from './tools';
 import {sanitizeWorkbenchMcpPayload} from './model-safety';
+import {buildClaudeSessionContext,type ClaudeSessionContext} from './session-context';
 
 export interface LocalClaudeSkill {
   id:string;name:string;description:string;path:string;directory:string;hash:string;
@@ -17,6 +18,7 @@ export interface LocalClaudeCatalog {
   memory:{enabled:boolean;directory?:string;source:string;files:string[]};
   skills:LocalClaudeSkill[];warnings:string[];
 }
+export interface ClaudeSettingsLayer {file:string;value:any;source:'user'|'project'|'managed'}
 export interface LocalClaudeSkillRequest {id:string;hash:string;arguments?:string;directory?:string}
 export interface LocalClaudeSkillPlan {
   skill:LocalClaudeSkill;instructions:string;source?:string;
@@ -28,6 +30,8 @@ export interface ClaudeLocalContext {
   discover(directory?:string):Promise<LocalClaudeCatalog>;
   loadSkill(request:LocalClaudeSkillRequest,userInvoked?:boolean):Promise<LocalClaudeSkillPlan>;
   runSkillCommand(request:LocalClaudeSkillRequest&{index:number;command:string},tools:ClaudeToolServer,signal?:AbortSignal):Promise<unknown>;
+  /** Instruction, import, rule and memory-index contents, assembled as native Claude Code loads them. */
+  sessionContext?(directory?:string):Promise<ClaudeSessionContext>;
   close():Promise<void>;
 }
 const scalar=(front:string,key:string)=>{
@@ -57,16 +61,22 @@ export class LocalClaudeContext implements ClaudeLocalContext {
   private alive(){if(this.closed)throw Error('LOCAL_CONTEXT_CLOSED');this.options.signal.throwIfAborted();}
   private get home(){return this.options.env.USERPROFILE||this.options.env.HOME||os.homedir();}
   private get claudeHome(){return this.options.env.CLAUDE_CONFIG_DIR||path.join(this.home,'.claude');}
+  private get managedDirectory(){return process.platform==='win32'?path.join(this.options.env.ProgramFiles||'C:\\Program Files','ClaudeCode'):process.platform==='darwin'?'/Library/Application Support/ClaudeCode':'/etc/claude-code';}
+  /** Native settings layers in precedence order: user, project ancestors, then managed policy. */
+  async settingsLayers(directory=this.options.cwd):Promise<ClaudeSettingsLayer[]>{
+    this.alive();if(!path.isAbsolute(directory))throw Error('LOCAL_CONTEXT_ABSOLUTE_PATH_REQUIRED');
+    const settings:ClaudeSettingsLayer[]=[];
+    const addSettings=async(file:string,source:ClaudeSettingsLayer['source'])=>{const value=await readJson<any>(file,{});if(!value||typeof value!=='object'||Array.isArray(value))throw Error('LOCAL_CONTEXT_SETTINGS_INVALID');settings.push({file,value,source});};
+    await addSettings(path.join(this.claudeHome,'settings.json'),'user');
+    for(const dir of await directories(directory,this.home))for(const name of ['settings.json','settings.local.json'])await addSettings(path.join(dir,'.claude',name),'project');
+    // Fixture homes remain isolated from real machine policy.
+    if(samePath(this.home,os.homedir()))await addSettings(path.join(this.managedDirectory,'managed-settings.json'),'managed');
+    return settings;
+  }
   async discover(directory=this.options.cwd):Promise<LocalClaudeCatalog>{
     this.alive();if(!path.isAbsolute(directory))throw Error('LOCAL_CONTEXT_ABSOLUTE_PATH_REQUIRED');
     const dirs=await directories(directory,this.home),warnings:string[]=[],instructions:LocalClaudeCatalog['instructions']=[];
-    const settings:{file:string;value:any;source:string}[]=[];
-    const addSettings=async(file:string,source:string)=>{const value=await readJson<any>(file,{});if(!value||typeof value!=='object'||Array.isArray(value))throw Error('LOCAL_CONTEXT_SETTINGS_INVALID');settings.push({file,value,source});};
-    await addSettings(path.join(this.claudeHome,'settings.json'),'user');
-    for(const dir of dirs)for(const name of ['settings.json','settings.local.json'])await addSettings(path.join(dir,'.claude',name),'project');
-    const managed=process.platform==='win32'?path.join(this.options.env.ProgramFiles||'C:\\Program Files','ClaudeCode'):process.platform==='darwin'?'/Library/Application Support/ClaudeCode':'/etc/claude-code';
-    // Fixture homes remain isolated from real machine policy.
-    if(samePath(this.home,os.homedir()))await addSettings(path.join(managed,'managed-settings.json'),'managed');
+    const settings=await this.settingsLayers(directory),managed=this.managedDirectory;
     const addInstruction=async(file:string,kind:string)=>{try{if((await lstat(file)).isFile()&&!instructions.some(i=>samePath(i.path,file)))instructions.push({path:file,kind});}catch(e){if(!missing(e))throw e;}};
     await addInstruction(path.join(this.claudeHome,'CLAUDE.md'),'user-instructions');
     if(samePath(this.home,os.homedir()))await addInstruction(path.join(managed,'CLAUDE.md'),'managed-instructions');
@@ -119,6 +129,9 @@ export class LocalClaudeContext implements ClaudeLocalContext {
       skills.push({id:digest(file).slice(0,24),name,description:visibility==='name-only'?'':metadata?.description||scalar(front,'description')||body.slice(0,400),path:file,directory:path.dirname(file),hash:digest(markdown),kind,modelInvocable,userInvocable,shellExecution,...(pluginRoot?{pluginRoot}:{})});
     }
     this.alive();return {cwd:directory,instructions,memory,skills,warnings};
+  }
+  async sessionContext(directory=this.options.cwd):Promise<ClaudeSessionContext>{
+    const context=await buildClaudeSessionContext(await this.discover(directory),this.home);this.alive();return context;
   }
   private key(request:LocalClaudeSkillRequest,index:number){return digest(JSON.stringify([request.id,request.hash,request.arguments??'',request.directory??this.options.cwd,index]));}
   async loadSkill(request:LocalClaudeSkillRequest,userInvoked=false):Promise<LocalClaudeSkillPlan>{
@@ -189,7 +202,7 @@ export class LocalClaudeContext implements ClaudeLocalContext {
 export function withClaudeLocalContext(tools:ClaudeToolServer,context:ClaudeLocalContext):ClaudeToolServer {
   const skillProperties={id:{type:'string'},hash:{type:'string'},arguments:{type:'string'},directory:{type:'string',description:'The LocalContext discovery directory, when discovering nested project skills.'}};
   const definitions=[...tools.definitions,
-    {name:'LocalContext',description:'Discover actual Claude instruction files, scoped native memory paths, installed skills and legacy commands. Read relevant files with Read. Respect disabled memory, rule paths and project scope. Discovery runs no scripts and no models. Refresh after file/config changes.',inputSchema:{type:'object',properties:{directory:{type:'string'}},additionalProperties:false},annotations:{readOnlyHint:true}},
+    {name:'LocalContext',description:'Discover actual Claude instruction files, scoped native memory paths, installed skills and legacy commands on the bound local device. The main conversation receives instruction and memory-index contents automatically. Subagents and any agent without that context: call LocalContext with includeContents true first, then follow the returned contents. Respect disabled memory, rule paths and project scope. Discovery runs no scripts and no models. Refresh after file/config changes.',inputSchema:{type:'object',properties:{directory:{type:'string'},includeContents:{type:'boolean',description:'Also return the full instruction, import, rule and MEMORY.md index contents as native Claude Code loads them.'}},additionalProperties:false},annotations:{readOnlyHint:true}},
     {name:'LoadLocalSkill',description:'Load full project skill instructions by catalog id and hash. Supporting files remain at their actual project paths. Inline commands require separate RunLocalSkillCommand approval; reload after completion. Fork/model metadata runs only through the native VPS Agent. This is a workbench resource loader, not native Skill.',inputSchema:{type:'object',properties:skillProperties,required:['id','hash'],additionalProperties:false},annotations:{readOnlyHint:true}},
     {name:'RunLocalSkillCommand',description:'Execute the exact dynamic command shown by LoadLocalSkill using the official Bash or PowerShell tool selected by the skill. This may modify files. No automatic retries; failures or unknown results remain unconfirmed. No model sampling is performed by this adapter.',inputSchema:{type:'object',properties:{...skillProperties,index:{type:'integer',minimum:0},command:{type:'string'}},required:['id','hash','index','command'],additionalProperties:false},annotations:{readOnlyHint:false}}
   ];
@@ -197,7 +210,7 @@ export function withClaudeLocalContext(tools:ClaudeToolServer,context:ClaudeLoca
   const loadPrompt=async(name:string,args:Record<string,string>={})=>{const catalog=await context.discover(),skill=catalog.skills.find(s=>'skill_'+s.id===name);if(!skill)throw Error('LOCAL_SKILL_UNAVAILABLE');const plan=sanitizeWorkbenchMcpPayload(await context.loadSkill({id:skill.id,hash:skill.hash,arguments:args.arguments},true));return {description:skill.description,messages:[{role:'user',content:{type:'text',text:JSON.stringify(plan)}}]};};
   let closing:Promise<void>|undefined;
   return {get definitions(){return [...tools.definitions,...extraDefinitions];},listTools:async()=>[...await tools.listTools?.()??tools.definitions,...extraDefinitions],
-    call:async(name,args:any,signal)=>{signal?.throwIfAborted();if(name==='LocalContext'){const catalog=await context.discover(args?.directory);return toolText({...catalog,skills:catalog.skills.filter(s=>s.modelInvocable)});}if(name==='LoadLocalSkill')return toolText(await context.loadSkill(args));if(name==='RunLocalSkillCommand')return context.runSkillCommand(args,tools,signal);return tools.call(name,args,signal);},
+    call:async(name,args:any,signal)=>{signal?.throwIfAborted();if(name==='LocalContext'){const catalog=await context.discover(args?.directory),value:Record<string,unknown>={...catalog,skills:catalog.skills.filter(s=>s.modelInvocable)};if(args?.includeContents===true){if(!context.sessionContext)throw Error('LOCAL_CONTEXT_CONTENTS_UNAVAILABLE');const loaded=await context.sessionContext(args?.directory);value.contents=loaded.text;value.contentWarnings=loaded.warnings;}return toolText(value);}if(name==='LoadLocalSkill')return toolText(await context.loadSkill(args));if(name==='RunLocalSkillCommand')return context.runSkillCommand(args,tools,signal);return tools.call(name,args,signal);},
     listPrompts:async()=>({prompts:(await context.discover()).skills.filter(s=>s.userInvocable).map(s=>({name:'skill_'+s.id,title:s.name,description:s.description,arguments:[{name:'arguments',description:'Arguments passed to the local skill',required:false}]}))}),
     getPrompt:loadPrompt,
     close:()=>closing??=(async()=>{const results=await Promise.allSettled([context.close(),tools.close()]);if(results.some(r=>r.status==='rejected'))throw Error('CLAUDE_LOCAL_CONTEXT_CLEANUP_UNCONFIRMED');})()

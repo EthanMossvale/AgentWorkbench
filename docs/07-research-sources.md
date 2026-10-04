@@ -1,5 +1,10 @@
 # 07 · 研究、来源与证据边界
 
+## Claude bridge source review (2026-10-04)
+
+The installed official Claude MCP tool process was exercised with a disposable home and model traffic directed to an unreachable loopback endpoint. This verifies actual Read/Edit envelopes, native foreground PowerShell and background-command output; it does not establish live remote model or Agent behavior. The bridge implements explicit support for local synchronous command hooks and reports other configured hook types/events as unavailable, rather than claiming complete native hook equivalence. Core load hints are delivered as `anthropic/alwaysLoad` metadata; model obedience is a separate layer.
+
+
 ## ZIP compatibility dependency (2026-10-03)
 
 The published @zip.js/zip.js 2.23.0 package metadata, README, index.d.ts and full LICENSE were reviewed. Primary sources: https://registry.npmjs.org/@zip.js/zip.js/2.23.0 and https://github.com/gildas-lormeau/zip.js. The package uses BSD-3-Clause; the pinned dependency is installed normally, and scripts/build-host.mjs includes its unmodified license in renderer/licenses/zip-js.txt. No project license is inferred. Package declarations document ZIP64, AES/ZipCrypto, split readers and integrity options. Production uses no-worker native compression streams and explicit CRC/local-filename verification. Independent fixtures verify the implemented formats, internal-link materialization and native import consumers; this does not establish every proprietary ZIP extension or arbitrary physical capacity. The web reader returned no usable body, so the published package was inspected locally. No third-party source was copied into application files.

@@ -75,7 +75,7 @@ test('approved policy schedules production commands, cancels queued work and res
    const receipt=async(value:any)=>value.output?JSON.parse((await asyncTools.call('ReadLocalToolResult',{id:value.output.id}) as any).structuredContent.text).structuredContent:value;
    const a=await receipt(first),b=await receipt(queued);assert.equal(a.state,'running');assert.equal(b.state,'queued');
    await asyncTools.call('StopLocalTask',{taskId:b.id});ends.shift()!();await asyncTools.call('LocalTaskOutput',{taskId:a.id,waitMs:40000});
-   assert.deepEqual(starts,['first','third','async first']);
+   assert.deepEqual(starts.slice(0,2),['first','third']);assert.ok(starts[2]!.startsWith('(\nasync first\n) >'));
   }finally{await asyncTools.close();}
 
  }finally{for(const end of ends)end();await tools?.close();await plugins.dispose();await rm(dir,{recursive:true,force:true});}

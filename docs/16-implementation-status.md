@@ -1,5 +1,14 @@
 # 16 · 实现与验收记录
 
+## Claude local tool experience completion (2026-10-04)
+
+The SSH Claude bridge now attaches local instruction imports and the first 200 memory-index lines to the initial user turn, preserves the original visible user message, and refreshes context on the next user input or tool result after compaction. Reconnects in the same service avoid resending an unchanged context. Path-scoped rules accompany matching file-tool results; topic memory files remain demand-loaded. The native MCP initialization supplies the local workflow to child agents, including an explicit LocalContext(includeContents:true) entry; it does not pretend to inject private native Agent prompts.
+
+The model-facing surface renders known native file/shell results as readable text, preserves errors/images/unknown shapes, marks core tools alwaysLoad, exposes native foreground PowerShell on Windows, normalizes file paths, and warns about files changed after Read without adding an edit blocker. Background Bash/PowerShell commands expose output tails while running, preserving long UTF-8 lines, request deduplication and owned process cleanup. Supported synchronous command hooks run at PreToolUse/PostToolUse/PostToolUseFailure; unsupported types/events are reported. Hook policy still belongs to the user's native settings.
+
+Validation uses an isolated checkout: focused context/model-surface/controller/task tests, actual installed official CLI tools with disposable homes and no model requests, and approved ZIP presenter activation/disable/reenable through the production HTTP tool endpoint. Actual local Bash/PowerShell foreground and incremental background output passed. Live remote inference, native subagent compliance and the running desktop are not certified by these tests. Type checking, plugin contracts, public documentation checks, UI preference inventory and the production build passed. No remote deployment or account recovery was attempted.
+
+
 ## Image directory restriction removal (2026-10-03)
 
 The user clarified removal of extra interception while retaining permissions, data integrity and duplicate-send protection. Attachment imports, source resolution and native activity previews no longer classify local files by workspace membership, credential-like directory names or workbench data roots. The earlier managed-workspace exception is superseded. Pasted images in the installed layout's clipboard temporary directory use the same snapshot path as other readable local images. No additional metadata whitelist is introduced. Existing local/remote ownership checks, I/O integrity, snapshot hashes, storage ownership, byte limits and send guards remain.

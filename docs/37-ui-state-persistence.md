@@ -1,5 +1,10 @@
 # 37 · UI preference persistence inventory
 
+## Claude local tool surface (2026-10-04)
+
+This change adds no user-adjustable UI node. Tool text and attached instruction envelopes are derived per-connection data; the original visible user message remains unchanged. The context deduplication ledger and file-read stamps are transient and reset on full service restart; a restarted service intentionally refreshes context. Native memory/settings remain their existing on-disk owners. Background output logs belong to the active tool connection and are removed at cleanup. Window geometry, layout, tabs, ordering, editors, model selection and plugin configuration retain their existing preference owners; no migration or new shipped preference is introduced.
+
+
 ## Remaining defensive UX controls (2026-10-04)
 
 `workspace-export-duration` is now a positive-integer seconds input with the existing presets. Its stable surface is unchanged; select-based extensions migrate to input/change. The value still belongs to one authorization, defaults to one hour for each new export, and is discarded on close/restart. Remembering a previous authorization duration would change the next grant, so it is deliberately not a durable preference. The CLI retention hours input keeps the existing per-host/per-runtime server policy and revision owner; accepted custom values restore after refresh/restart, with no new local mirror or default migration.

@@ -30,6 +30,7 @@ files.push('services/owner-file-service/index.ts','apps/desktop/host/api-local-t
 files.push('packages/generated-images/types.ts','packages/attachments/paste.ts','packages/attachments/types.ts','packages/attachments/payload.ts');
 files.push('packages/context-annotations/index.ts','apps/desktop/renderer/annotation-controller.ts');
 files.push('apps/desktop/host/memory-background.ts');
+files.push('services/claude-bridge/presentation.ts','services/claude-bridge/model-surface.ts','services/claude-bridge/session-context.ts','services/claude-bridge/local-hooks.ts');
 files.push('packages/desktop-updates/index.ts','packages/app-data/service.ts','packages/native-runtime/cli.ts');
 const sdk={};
 for(const file of files){const source=ts.createSourceFile(file,await readFile(path.join(root,file),'utf8'),ts.ScriptTarget.Latest,true);sdk[file]=source.statements.filter(node=>(ts.isInterfaceDeclaration(node)||ts.isTypeAliasDeclaration(node))&&node.modifiers?.some(modifier=>modifier.kind===ts.SyntaxKind.ExportKeyword)).map(node=>printer.printNode(ts.EmitHint.Unspecified,node,source)).sort();}

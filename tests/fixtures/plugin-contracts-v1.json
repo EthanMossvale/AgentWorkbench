@@ -494,7 +494,7 @@
     ],
     "services/claude-bridge/index.ts": [
       "export interface NativeClaudeOptions extends ClaudeToolServerOptions {\n    host: SshHost;\n    session: Session;\n    authorize(): void;\n    workbenchTools?: () => ReturnType<typeof createPeerTools>;\n}",
-      "export interface NativeClaudeService {\n    supports(host: SshHost, session: Session): boolean;\n    defaultDirectory(sessionId: string): string;\n    openTools(options: ClaudeToolServerOptions): Promise<ClaudeToolServer>;\n    openContext?(options: ClaudeToolServerOptions): Promise<ClaudeLocalContext>;\n    normalizeToolResult?(name: string, result: unknown): unknown;\n    toolPolicy?(options: ClaudeToolServerOptions): ClaudeMcpPolicy;\n    openToolProcess?(options: ClaudeToolServerOptions): Promise<ClaudeToolServer>;\n    openResultStore?(options: ClaudeToolServerOptions): Promise<ClaudeResultStore>;\n    createTransport(options: NativeClaudeOptions): NativeProcessTransport;\n}"
+      "export interface NativeClaudeService {\n    supports(host: SshHost, session: Session): boolean;\n    defaultDirectory(sessionId: string): string;\n    openTools(options: ClaudeToolServerOptions): Promise<ClaudeToolServer>;\n    openContext?(options: ClaudeToolServerOptions): Promise<ClaudeLocalContext>;\n    normalizeToolResult?(name: string, result: unknown): unknown;\n    toolPolicy?(options: ClaudeToolServerOptions): ClaudeMcpPolicy;\n    openToolProcess?(options: ClaudeToolServerOptions): Promise<ClaudeToolServer>;\n    openResultStore?(options: ClaudeToolServerOptions): Promise<ClaudeResultStore>;\n    readonly toolPresenters?: ClaudeToolPresenters;\n    openModelTools?(tools: ClaudeToolServer, options: ClaudeModelSurfaceOptions): Promise<ClaudeToolServer>;\n    createTransport(options: NativeClaudeOptions): NativeProcessTransport;\n}"
     ],
     "services/claude-bridge/tools.ts": [
       "export interface ClaudeToolCatalogSource {\n    id: `plugin:${string}`;\n    select(tools: readonly Record<string, unknown>[]): readonly Record<string, unknown>[] | undefined;\n}",
@@ -510,7 +510,8 @@
       "export type ProcessState = 'new' | 'starting' | 'running' | 'stopping' | 'closed' | 'failed';"
     ],
     "services/claude-bridge/local-context.ts": [
-      "export interface ClaudeLocalContext {\n    discover(directory?: string): Promise<LocalClaudeCatalog>;\n    loadSkill(request: LocalClaudeSkillRequest, userInvoked?: boolean): Promise<LocalClaudeSkillPlan>;\n    runSkillCommand(request: LocalClaudeSkillRequest & {\n        index: number;\n        command: string;\n    }, tools: ClaudeToolServer, signal?: AbortSignal): Promise<unknown>;\n    close(): Promise<void>;\n}",
+      "export interface ClaudeLocalContext {\n    discover(directory?: string): Promise<LocalClaudeCatalog>;\n    loadSkill(request: LocalClaudeSkillRequest, userInvoked?: boolean): Promise<LocalClaudeSkillPlan>;\n    runSkillCommand(request: LocalClaudeSkillRequest & {\n        index: number;\n        command: string;\n    }, tools: ClaudeToolServer, signal?: AbortSignal): Promise<unknown>;\n    sessionContext?(directory?: string): Promise<ClaudeSessionContext>;\n    close(): Promise<void>;\n}",
+      "export interface ClaudeSettingsLayer {\n    file: string;\n    value: any;\n    source: 'user' | 'project' | 'managed';\n}",
       "export interface LocalClaudeCatalog {\n    cwd: string;\n    instructions: {\n        path: string;\n        kind: string;\n    }[];\n    memory: {\n        enabled: boolean;\n        directory?: string;\n        source: string;\n        files: string[];\n    };\n    skills: LocalClaudeSkill[];\n    warnings: string[];\n}",
       "export interface LocalClaudeSkill {\n    id: string;\n    name: string;\n    description: string;\n    path: string;\n    directory: string;\n    hash: string;\n    kind: 'skill' | 'command';\n    modelInvocable: boolean;\n    userInvocable: boolean;\n    shellExecution: boolean;\n    pluginRoot?: string;\n}",
       "export interface LocalClaudeSkillPlan {\n    skill: LocalClaudeSkill;\n    instructions: string;\n    source?: string;\n    execution: {\n        location: 'vps';\n        context: string;\n        agent?: string;\n        model?: string;\n        allowedTools?: string;\n        nativeRequirements?: string[];\n    };\n    commands: {\n        index: number;\n        command: string;\n        shell: 'bash' | 'powershell';\n        completed: boolean;\n    }[];\n    warnings: string[];\n}",
@@ -553,9 +554,10 @@
       "export interface ClaudeResultStore {\n    readonly inlineBytes: number;\n    readonly maxResultBytes: number;\n    put(value: unknown): Promise<ClaudeResultReference>;\n    read(id: string, offset?: number, maxBytes?: number): Promise<ClaudeResultPage>;\n    close(): Promise<void>;\n}"
     ],
     "services/claude-bridge/local-tasks.ts": [
-      "export interface ClaudeLocalTasks {\n    start(input: LocalClaudeCommand, signal?: AbortSignal): Promise<LocalClaudeTask>;\n    output(id: string, waitMs?: number, signal?: AbortSignal): Promise<LocalClaudeTask>;\n    stop(id: string): Promise<LocalClaudeTask>;\n    list(): LocalClaudeTask[];\n    pending(): boolean;\n    subscribe(listener: (task: LocalClaudeTask) => void): () => void;\n    close(): Promise<void>;\n}",
+      "export interface ClaudeLocalTasks {\n    start(input: LocalClaudeCommand, signal?: AbortSignal): Promise<LocalClaudeTask>;\n    output(id: string, waitMs?: number, signal?: AbortSignal, tailLines?: number): Promise<LocalClaudeTask>;\n    stop(id: string): Promise<LocalClaudeTask>;\n    list(): LocalClaudeTask[];\n    pending(): boolean;\n    subscribe(listener: (task: LocalClaudeTask) => void): () => void;\n    close(): Promise<void>;\n}",
       "export interface LocalClaudeCommand {\n    requestId: string;\n    command: string;\n    shell?: LocalClaudeShell;\n    timeout?: number;\n    description?: string;\n}",
-      "export interface LocalClaudeTask {\n    id: string;\n    requestId: string;\n    shell: LocalClaudeShell;\n    command: string;\n    description?: string;\n    state: 'queued' | 'starting' | 'running' | 'completed' | 'failed' | 'cancelled' | 'uncertain';\n    startedAt: string;\n    finishedAt?: string;\n    collected: boolean;\n    result?: unknown;\n    error?: string;\n    output?: ClaudeResultReference;\n    outputError?: string;\n}",
+      "export interface LocalClaudeTask {\n    id: string;\n    requestId: string;\n    shell: LocalClaudeShell;\n    command: string;\n    description?: string;\n    state: 'queued' | 'starting' | 'running' | 'completed' | 'failed' | 'cancelled' | 'uncertain';\n    startedAt: string;\n    finishedAt?: string;\n    collected: boolean;\n    result?: unknown;\n    error?: string;\n    output?: ClaudeResultReference;\n    outputError?: string;\n    logPath?: string;\n    progress?: LocalClaudeTaskProgress;\n}",
+      "export interface LocalClaudeTaskProgress {\n    bytes: number;\n    lines: number;\n    tail: string;\n    truncated: boolean;\n}",
       "export type LocalClaudeShell = 'Bash' | 'PowerShell';"
     ],
     "apps/desktop/host/api-command.ts": [
@@ -640,6 +642,24 @@
     "apps/desktop/host/memory-background.ts": [
       "export interface MemoryRemoteExecution {\n    host(id: string): SshHost;\n    codex?: NativeCodexService;\n    claude?: NativeClaudeService;\n    assert(session: Session): void;\n    claudeModel(session: Session): ApiModel;\n    before(session: Session, signal: AbortSignal): Promise<void>;\n    quota?: ConstructorParameters<typeof NativeCodexRunner>[1]['quota'];\n}",
       "export interface NativeMemoryExecutorOptions {\n    usage?: (entries: ModelUsageEntry[]) => Promise<void>;\n    processFactory?: (spec: ProcessSpec) => ProcessSupervisor;\n    remote?: MemoryRemoteExecution;\n}"
+    ],
+    "services/claude-bridge/presentation.ts": [
+      "export interface ClaudeToolPresenter {\n    id: `plugin:${string}`;\n    present(name: string, args: any, result: unknown): unknown | undefined;\n}"
+    ],
+    "services/claude-bridge/model-surface.ts": [
+      "export interface ClaudeModelSurfaceOptions extends ClaudeToolServerOptions {\n    sessionId: string;\n    permission(): string;\n}"
+    ],
+    "services/claude-bridge/session-context.ts": [
+      "export interface ClaudeSessionContext {\n    text: string;\n    hash: string;\n    files: ClaudeSessionContextFile[];\n    pathRules: {\n        path: string;\n        paths: string[];\n    }[];\n    warnings: string[];\n}",
+      "export interface ClaudeSessionContextFile {\n    path: string;\n    kind: string;\n    importedBy?: string;\n    lines?: number;\n    truncated?: boolean;\n}"
+    ],
+    "services/claude-bridge/local-hooks.ts": [
+      "export interface LocalHookCommand {\n    event: LocalHookEvent;\n    matcher: string;\n    command: string;\n    timeoutMs: number;\n    source: string;\n}",
+      "export interface LocalHookDecision {\n    block?: string;\n    updatedInput?: Record<string, unknown>;\n    context: string[];\n}",
+      "export interface LocalHookInput {\n    sessionId: string;\n    cwd: string;\n    permissionMode: string;\n    toolName: string;\n    toolInput: unknown;\n    toolUseId?: string;\n    toolResponse?: unknown;\n    error?: string;\n}",
+      "export interface LocalHookPlan {\n    hooks: LocalHookCommand[];\n    unsupported: string[];\n    disabled: boolean;\n}",
+      "export interface LocalHookRun {\n    command: string;\n    code: number | null;\n    stdout: string;\n    stderr: string;\n    timedOut: boolean;\n}",
+      "export type LocalHookEvent = typeof LOCAL_HOOK_EVENTS[number];"
     ],
     "packages/desktop-updates/index.ts": [
       "export interface DesktopUpdateBackend {\n    check(): Promise<void>;\n    install(): Promise<void>;\n    subscribe(listener: (state: DesktopUpdateState) => void): () => void;\n    dispose(): void;\n}",
