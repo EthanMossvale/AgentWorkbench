@@ -133,3 +133,19 @@ test('HTTP MCP sessions cap, expire idle entries, retain active calls and dispos
     fail=true;await (await post('initialize')).text();assert.equal(disposed,2);fail=false;assert.equal((await post('initialize')).status,200);assert.equal(created,3);
   }finally{await gateway.close();}assert.equal(disposed,3);
 });
+
+test('HTTP MCP tool calls send event-stream headers before a slow result so client header timeouts cannot cut them',async()=>{
+  let finish:(()=>void)|undefined,calls=0;
+  const gateway=await openNativeGateway({runtime:'claude',model:{id:'fixture',name:'Fixture',model:'fixture',enabled:true},mcpOnly:true,credentials:async()=>{throw Error('No model');},mcp:()=>({handle:async(q:any)=>{if(q.method==='tools/call'){calls++;if(q.params?.name==='slow')await new Promise<void>(r=>finish=r);if(q.params?.name==='broken')throw Error('fixture');}return {jsonrpc:'2.0',id:q.id,result:{ok:q.params?.name??q.method}};},dispose:()=>{}})});
+  const post=(body:object,id?:string,accept='application/json, text/event-stream')=>fetch(gateway.baseUrl+'/mcp',{method:'POST',headers:{authorization:'Bearer '+gateway.token,accept,...(id?{'mcp-session-id':id}:{})},body:JSON.stringify({jsonrpc:'2.0',...body})});
+  try{
+    const init=await post({id:1,method:'initialize'}),id=init.headers.get('mcp-session-id')!;assert.equal(init.headers.get('content-type'),'application/json');await init.text();
+    const slow=await post({id:2,method:'tools/call',params:{name:'slow'}},id);
+    assert.equal(slow.headers.get('content-type'),'text/event-stream');assert.ok(finish,'headers arrived while the tool is still running');
+    finish!();assert.deepEqual(JSON.parse((await slow.text()).match(/^data: (.*)$/m)![1]),{jsonrpc:'2.0',id:2,result:{ok:'slow'}});
+    const broken=JSON.parse((await (await post({id:3,method:'tools/call',params:{name:'broken'}},id)).text()).match(/^data: (.*)$/m)![1]);
+    assert.equal(broken.id,3);assert.equal(broken.error.code,-32603);assert.doesNotMatch(broken.error.message,/fixture/);
+    const json=await post({id:4,method:'tools/call',params:{name:'plain'}},id,'application/json');assert.equal(json.headers.get('content-type'),'application/json');assert.deepEqual(await json.json(),{jsonrpc:'2.0',id:4,result:{ok:'plain'}});
+    assert.equal(calls,3);
+  }finally{await gateway.close();}
+});

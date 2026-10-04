@@ -45,6 +45,7 @@ export default function App() {
   const commandRef=useRef<(command:string)=>void|Promise<void>>(()=>{});
   const [selectedId, setSelectedId] = useUiPreference<string>('navigation.session');
   const selectedIdRef = useRef(selectedId);selectedIdRef.current=selectedId;
+  const stateRef = useRef(state);stateRef.current=state;
   const [sidebarConfirmation,setSidebarConfirmation]=useState<SidebarConfirmation|null>(null);
   const [confirmingSidebar,setConfirmingSidebar]=useState(false);
   const [sidebarUndo,setSidebarUndo]=useState<{id:string;label:string}>();
@@ -163,7 +164,11 @@ export default function App() {
     let live = true; let navigationEpoch = 0;
     const navigate = async (id: string) => {
       const epoch = ++navigationEpoch;
-      try { const next = await api<AppState>('state/get'); if (!live || epoch !== navigationEpoch) return; receiveState(next); const destination = next.sessions.find(item => item.id === id); if (!destination) throw new Error('深度链接指向的会话不在此工作台中。'); setWorkspaceKey(++workspaceEpoch.current); pendingCreation.current = null; setSelectedId(destination.id); setShowArchive(destination.archived); setView('workspace');if(destination.unread)void api('session/update',{id:destination.id,unread:false}).then(refresh).catch(report); }
+      const show = (destination: Session) => { setWorkspaceKey(++workspaceEpoch.current); pendingCreation.current = null; setSelectedId(destination.id); setShowArchive(destination.archived); setView('workspace');if(destination.unread)void api('session/update',{id:destination.id,unread:false}).then(refresh).catch(report); };
+      // A session already streamed into renderer state opens immediately; a full state read is only needed for unknown targets.
+      const known = stateRef.current?.sessions.find(item => item.id === id);
+      if (known) { show(known); return; }
+      try { const next = await api<AppState>('state/get'); if (!live || epoch !== navigationEpoch) return; receiveState(next); const destination = next.sessions.find(item => item.id === id); if (!destination) throw new Error('深度链接指向的会话不在此工作台中。'); show(destination); }
       catch (e) { if (live && epoch === navigationEpoch) report(e); }
     };
     const stopState = stateStream.onState(next => { if (live) receiveState(next, true); });

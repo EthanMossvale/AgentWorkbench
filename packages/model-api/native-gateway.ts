@@ -92,6 +92,18 @@ export async function openNativeGateway(options: NativeGatewayOptions) {
         }
         if (!entry||!id) { response.writeHead(404).end(); return; }
         entry.active++;let result:unknown;
+        // Claude Code aborts an MCP POST that has not produced response headers within 60 s.
+        // Long tool calls therefore answer as a Streamable HTTP event stream: headers go out
+        // now, comments keep the stream alive, and the JSON-RPC result is one final event.
+        if(!created&&body.method==='tools/call'&&body.id!==undefined&&String(request.headers.accept??'').includes('text/event-stream')){
+          response.writeHead(200,{'Content-Type':'text/event-stream','Cache-Control':'no-store'});response.flushHeaders();
+          const keepAlive=setInterval(()=>response.write(': keep-alive\n\n'),15000);keepAlive.unref();
+          try{result=await entry.session.handle(body);}
+          catch(error){reportFailure(error);result={jsonrpc:'2.0',id:body.id,error:{code:-32603,message:'The local tool call failed before returning a result. It was not replayed.'}};}
+          finally{clearInterval(keepAlive);entry.active--;entry.lastUsed=Date.now();}
+          response.end(`event: message\ndata: ${JSON.stringify(result)}\n\n`);
+          return;
+        }
         // A dropped HTTP response is not proof of cancellation. Never replay the invocation.
         try{result=await entry.session.handle(body);if(created){if((result as any)?.error)disposeMcp(id);else response.setHeader('Mcp-Session-Id',id);}}
         catch(error){if(created)disposeMcp(id);throw error;}
