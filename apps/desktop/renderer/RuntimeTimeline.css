@@ -83,6 +83,9 @@
 .runtime-image-log[hidden]{display:none}
 .runtime-image-thumbnails{margin:3px 0 10px;min-width:0}
 .runtime-image-thumbnails>p{font-size:.846154rem;margin:5px 0;color:var(--muted)}
+.runtime-image-placeholders{display:flex;flex-wrap:wrap;gap:8px;padding:3px 1px 5px}
+.runtime-image-placeholders>span{width:78px;height:78px;border-radius:8px;border:1px solid var(--line);background:var(--surface);animation:activity-breathe 1.7s ease-in-out infinite}
+@media(prefers-reduced-motion:reduce){.runtime-image-placeholders>span{animation:none}}
 
 .runtime-usage-values { margin: 0; display: grid; gap: 8px; }
 .runtime-usage-values > div { display: flex; flex-wrap: wrap; justify-content: space-between; gap: 4px 24px; }
