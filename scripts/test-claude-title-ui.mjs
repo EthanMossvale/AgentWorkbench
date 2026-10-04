@@ -7,6 +7,8 @@ import path from 'node:path';
 import assert from 'node:assert/strict';
 import { fileURLToPath } from 'node:url';
 import { encodeZip } from '../packages/native-resources/archive.ts';
+// Host plugins run in the workbench core process; read their test globals there.
+const coreEvaluate=(fn,arg)=>app.evaluate((_electron,{source,arg})=>globalThis.__workbenchCoreEvaluate(source,arg),{source:fn.toString(),arg});
 
 // Synthetic isolated production application; no native client, model or user data.
 const root=path.resolve(fileURLToPath(new URL('..',import.meta.url)));
@@ -57,15 +59,15 @@ try{
     api.services.override('sessions.native-titles',{read:async request=>{const q=globalThis.__nativeTitleQA;q.requests.push({id:request.nativeSessionId,cwd:request.cwd,configDir:request.configDir});if(q.mode==='delay')return new Promise(resolve=>{q.resolve=resolve;});return {nativeSessionId:request.nativeSessionId,title:'Plugin native title',source:'generated'};}});
   }`);
   await toggle(plugin,true);await show('two');await wait(async()=>(await select('two').innerText())==='Plugin native title');
-  const request=await app.evaluate(()=>globalThis.__nativeTitleQA.requests.at(-1));assert.deepEqual(request,{id:ids.two,cwd,configDir:config});
+  const request=await coreEvaluate(()=>globalThis.__nativeTitleQA.requests.at(-1));assert.deepEqual(request,{id:ids.two,cwd,configDir:config});
   record('approved host override reaches production preview consumption with exact native UUID and isolated runtime directory');
   await call('qa/title-fallback',{id:'two'});await call('qa/title-mode',{mode:'delay'});await page.evaluate(()=>{window.__pendingNativeTitle=window.workbench.call('session/native-title/refresh',{sessionId:'two'});});
-  await wait(async()=>await app.evaluate(()=>typeof globalThis.__nativeTitleQA.resolve==='function'));await toggle(plugin,false);await app.evaluate(({},{id})=>globalThis.__nativeTitleQA.resolve({nativeSessionId:id,title:'Stale disabled title',source:'generated'}),{id:ids.two});assert.deepEqual(await page.evaluate(()=>window.__pendingNativeTitle),{status:'unavailable'});assert.equal(await select('two').innerText(),'Fallback two');
+  await wait(async()=>await coreEvaluate(()=>typeof globalThis.__nativeTitleQA.resolve==='function'));await toggle(plugin,false);await coreEvaluate(({},{id})=>globalThis.__nativeTitleQA.resolve({nativeSessionId:id,title:'Stale disabled title',source:'generated'}),{id:ids.two});assert.deepEqual(await page.evaluate(()=>window.__pendingNativeTitle),{status:'unavailable'});assert.equal(await select('two').innerText(),'Fallback two');
   await appendFile(path.join(folder,ids.two+'.jsonl'),JSON.stringify({sessionId:ids.two,customTitle:'Native restored title'})+'\n');assert.ok(['updated','unchanged'].includes((await call('session/native-title/refresh',{sessionId:'two'})).status));await wait(async()=>(await select('two').innerText())==='Native restored title');
   record('disable discards an outstanding override result and restores real native metadata reading');
   await toggle(plugin,true);const overlay=await importPlugin('qa.claude-title-overlay',null,`export function activate(api){api.services.override('sessions.native-titles',{read:async request=>({nativeSessionId:request.nativeSessionId,title:'Second reader',source:'custom'})});}`);await toggle(overlay,true);
-  await call('session/native-title/refresh',{sessionId:'two'});assert.equal(await select('two').innerText(),'Second reader');await toggle(overlay,false);await call('session/native-title/refresh',{sessionId:'two'});assert.equal(await select('two').innerText(),'Plugin native title');
-  const broken=await importPlugin('qa.claude-title-broken',null,`export function activate(api){api.services.override('sessions.native-titles',{read:async()=>{throw Error('Should be released');}});throw Error('Synthetic activation failure');}`);await toggle(broken,true);await wait(async()=>!(await call('extensions/list')).find(item=>item.manifest.id===broken.manifest.id).enabled);await call('session/native-title/refresh',{sessionId:'two'});assert.equal(await select('two').innerText(),'Plugin native title');
+  await call('session/native-title/refresh',{sessionId:'two'});await wait(async()=>(await select('two').innerText())==='Second reader');await toggle(overlay,false);await call('session/native-title/refresh',{sessionId:'two'});await wait(async()=>(await select('two').innerText())==='Plugin native title');
+  const broken=await importPlugin('qa.claude-title-broken',null,`export function activate(api){api.services.override('sessions.native-titles',{read:async()=>{throw Error('Should be released');}});throw Error('Synthetic activation failure');}`);await toggle(broken,true);await wait(async()=>!(await call('extensions/list')).find(item=>item.manifest.id===broken.manifest.id).enabled);await call('session/native-title/refresh',{sessionId:'two'});await wait(async()=>(await select('two').innerText())==='Plugin native title');
   record('re-enable and multiple reader layers compose; failed activation restores the surviving implementation');
   await toggle(plugin,false);const relative=path.relative(dataDir,plugin.directory);assert.ok(relative&&!relative.startsWith('..')&&!path.isAbsolute(relative));await rename(plugin.directory,path.join(output,'removed-reader'));await page.reload();await page.waitForFunction(()=>!!window.workbench);await show('two');await wait(async()=>(await select('two').innerText())==='Native restored title');assert.equal(await select('one').innerText(),'用户自己的标题');
   record('package removal and reload retain saved manual titles and restore the native reader for later hover instances');

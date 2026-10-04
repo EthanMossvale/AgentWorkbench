@@ -3,7 +3,7 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import ts from 'typescript';
 
-export const hostSources=['apps/desktop/host/controller.ts','apps/desktop/host/native-resources.ts','apps/desktop/host/model-connections.ts','apps/desktop/host/main.ts'];
+export const hostSources=['apps/desktop/host/controller.ts','apps/desktop/host/native-resources.ts','apps/desktop/host/model-connections.ts','apps/desktop/host/main.ts','apps/desktop/host/core-process.ts'];
 export function extractMethods(source) {
   const tree=ts.createSourceFile('source.ts',source,ts.ScriptTarget.Latest,true),methods=new Set();
   const named=node=>ts.isIdentifier(node)&&node.text==='method'||ts.isPropertyAccessExpression(node)&&node.name.text==='method';

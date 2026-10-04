@@ -86,7 +86,7 @@ export class NativeProviderRunner {
   forkSource(id:string,messageId?:string) { return recordedNativeFork(this.session(id),messageId); }
   private active = new Map<string, Active>();
   private attempt = new AsyncLocalStorage<Active>();
-  private titleReads = new Map<string, Promise<NativeTitleRefreshResult>>();
+  private titleReads = new Map<string, { reader: unknown; work: Promise<NativeTitleRefreshResult> }>();
   private titleControllers = new Set<AbortController>();
   private titlesClosed = false;
   constructor(private connections: ModelConnections, private cli: LocalCliService, private hooks: Hooks, private fetcher?: typeof fetch, private accounts?: LocalModelAccounts, private processFactory: (spec: ProcessSpec) => ProcessSupervisor = spec => createNativeProcess(spec)) {}
@@ -95,9 +95,10 @@ export class NativeProviderRunner {
   private update(id: string, change: (session: Session) => void, persist?: 'deferred') { const attempt=this.attempt.getStore();if(this.hooks.updateSession)return this.hooks.updateSession(id, session => { if (!attempt?.detached) change(session); }, { persist });return this.hooks.update(state => { const session = state.sessions.find(session => session.id === id); if (session&&!attempt?.detached) change(session); }); }
   /** Read only the title metadata belonging to this session's native runtime environment. */
   refreshTitle(id:string):Promise<NativeTitleRefreshResult>{
-    const previous=this.titleReads.get(id);if(previous)return previous;
-    const work=this.readTitle(id).finally(()=>{if(this.titleReads.get(id)===work)this.titleReads.delete(id);});
-    this.titleReads.set(id,work);return work;
+    // A read started before the reader was overridden or restored discards its result; do not join it.
+    const reader=nativeSessionTitles.read,previous=this.titleReads.get(id);if(previous?.reader===reader)return previous.work;
+    const work=this.readTitle(id).finally(()=>{if(this.titleReads.get(id)?.work===work)this.titleReads.delete(id);});
+    this.titleReads.set(id,{reader,work});return work;
   }
   private async readTitle(id:string):Promise<NativeTitleRefreshResult>{
     if(this.titlesClosed)return {status:'unavailable'};

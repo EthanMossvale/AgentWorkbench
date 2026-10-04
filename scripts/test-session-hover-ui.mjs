@@ -7,6 +7,8 @@ import path from 'node:path';
 import assert from 'node:assert/strict';
 import { fileURLToPath } from 'node:url';
 import { encodeZip } from '../packages/native-resources/archive.ts';
+// Host plugins run in the workbench core process; read their test globals there.
+const coreEvaluate=(fn,arg)=>app.evaluate((_electron,{source,arg})=>globalThis.__workbenchCoreEvaluate(source,arg),{source:fn.toString(),arg});
 
 // Isolated hidden production application. Never contacts models or reads user history.
 const root=path.resolve(fileURLToPath(new URL('..',import.meta.url)));
@@ -86,7 +88,7 @@ try{
     });
     await check('failed and late title saves stay scoped to the initiating card',async()=>{
       const interceptor=await importPlugin('qa.hover-save',null,`export function activate(api){let mode='fail';api.registerMethod('qa/save-mode',p=>{mode=p.mode;});api.useHost(async(request,next)=>{if(request.method==='session/update'&&request.payload.title){if(mode==='fail')throw Error('Synthetic save failure');if(mode==='delay')await new Promise(resolve=>{globalThis.__finishHoverSave=resolve;});}return next();});}`);
-      await toggle(interceptor,true);await title().click();await input().fill('Delayed title');await page.keyboard.press('Enter');await preview.getByRole('alert').waitFor();assert.match(await preview.getByRole('alert').innerText(),/保存失败/);assert.equal(await input().inputValue(),'Delayed title');await call('qa/save-mode',{mode:'delay'});await page.keyboard.press('Enter');await wait(()=>input().getAttribute('readonly').then(v=>v!==null));await reset();await show('two');await app.evaluate(()=>globalThis.__finishHoverSave());await wait(async()=>(await select('one').innerText())==='Delayed title');assert.equal(await current(),'two');assert.equal(await preview.locator('input').count(),0);await toggle(interceptor,false);
+      await toggle(interceptor,true);await title().click();await input().fill('Delayed title');await page.keyboard.press('Enter');await preview.getByRole('alert').waitFor();assert.match(await preview.getByRole('alert').innerText(),/保存失败/);assert.equal(await input().inputValue(),'Delayed title');await call('qa/save-mode',{mode:'delay'});await page.keyboard.press('Enter');await wait(()=>input().getAttribute('readonly').then(v=>v!==null));await reset();await show('two');await coreEvaluate(()=>globalThis.__finishHoverSave());await wait(async()=>(await select('one').innerText())==='Delayed title');assert.equal(await current(),'two');assert.equal(await preview.locator('input').count(),0);await toggle(interceptor,false);
     });
     const renderer=`export function activate(api){const q=window.__hoverPlugin={mounted:0,cleaned:0,pending:[],lateCleaned:0};
       api.observeSurfaces('session-preview-title','after',async({root})=>{root.textContent='附加标题';await new Promise(r=>q.pending.push(r));return()=>q.lateCleaned++;});

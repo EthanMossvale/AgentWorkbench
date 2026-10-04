@@ -7,6 +7,8 @@ import path from 'node:path';
 import assert from 'node:assert/strict';
 import { fileURLToPath } from 'node:url';
 import { encodeZip } from '../packages/native-resources/archive.ts';
+// Host plugins run in the workbench core process; read their test globals there.
+const coreEvaluate=(fn,arg)=>app.evaluate((_electron,{source,arg})=>globalThis.__workbenchCoreEvaluate(source,arg),{source:fn.toString(),arg});
 
 // Synthetic isolated production application; no native client, model or user data.
 const root=path.resolve(fileURLToPath(new URL('..',import.meta.url)));
@@ -76,8 +78,8 @@ try{
   await submit('no title');assert.equal((await call('state/get')).sessions.find(s=>s.id===runtime.id).title,'no title');
   await submit('title supplied');assert.equal((await call('state/get')).sessions.find(s=>s.id===runtime.id).title,'Runtime supplied title');
   await call('session/update',{id:runtime.id,title:'用户手动标题'});await submit('another supplied title');assert.equal((await call('state/get')).sessions.find(s=>s.id===runtime.id).title,'用户手动标题');
-  assert.equal(await app.evaluate(()=>globalThis.__sessionQA.runs),3);
-  const late=await app.evaluate(async()=>{try{await globalThis.__sessionQA.ctx.emit({type:'title',title:'Late after completion'});return '';}catch(e){return e.message;}});assert.match(late,/EXPIRED/);
+  assert.equal(await coreEvaluate(()=>globalThis.__sessionQA.runs),3);
+  const late=await coreEvaluate(async()=>{try{await globalThis.__sessionQA.ctx.emit({type:'title',title:'Late after completion'});return '';}catch(e){return e.message;}});assert.match(late,/EXPIRED/);
   record('approved registered runtime emits native title metadata through actual sessions; missing metadata keeps fallback, manual rename and expired events are protected');
 
   const renderer=`export function activate(api){const q=window.__sessionPreviewQA={mounts:0,cleaned:0,aborted:0,late:[],lateCleaned:0};
@@ -102,7 +104,7 @@ try{
   const broken=await importPlugin('qa.session-broken',`export function activate(api){api.observeSurfaces('session-preview-body','replace',()=>{throw Error('Synthetic mount failure');});}`);
   await toggle(broken,true);await wait(async()=>!(await call('extensions/list')).find(p=>p.manifest.id===broken.manifest.id).enabled);await preview.locator('[data-qa-body]').waitFor({state:'visible'});
   await toggle(plugin,false);await page.evaluate(()=>window.__sessionPreviewQA.late.splice(0).forEach(r=>r()));await wait(async()=>await page.locator('[data-qa-body]').count()===0);
-  await toggle(fixture,false);const closed=await app.evaluate(async()=>{try{await globalThis.__sessionQA.ctx.emit({type:'title',title:'After disable'});return '';}catch(e){return e.message;}});assert.match(closed,/EXPIRED/);
+  await toggle(fixture,false);const closed=await coreEvaluate(async()=>{try{await globalThis.__sessionQA.ctx.emit({type:'title',title:'After disable'});return '';}catch(e){return e.message;}});assert.match(closed,/EXPIRED/);
   record('re-enable, layered replacements, failed mount rollback and runtime disable preserve surviving implementations and reject late title events');
   assert.deepEqual(errors,[]);
   await writeFile(path.join(output,'result.json'),JSON.stringify({passed:true,checks,rendererErrors:errors,scope:'Isolated hidden Electron, approved synthetic runtime and renderer plugins, no model calls, no real user data or remote operations.'},null,2));console.log(JSON.stringify({passed:true,checks:checks.length,output}));

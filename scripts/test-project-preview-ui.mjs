@@ -7,6 +7,8 @@ import path from 'node:path';
 import assert from 'node:assert/strict';
 import { fileURLToPath } from 'node:url';
 import { encodeZip } from '../packages/native-resources/archive.ts';
+// Host plugins run in the workbench core process; read their test globals there.
+const coreEvaluate=(fn,arg)=>app.evaluate((_electron,{source,arg})=>globalThis.__workbenchCoreEvaluate(source,arg),{source:fn.toString(),arg});
 
 // Isolated production host/renderer. Only the OS shell boundary is stubbed;
 // project validation, IPC and approved plugin activation remain real.
@@ -39,6 +41,8 @@ try{
     globalThis.__folderQA={opened:[],delay:0,failure:'',intercepted:[]};
     shell.openPath=async folder=>{const q=globalThis.__folderQA;q.opened.push(folder);if(q.delay)await new Promise(r=>setTimeout(r,q.delay));return q.failure;};
   });
+  // Host plugin hooks run in the core process and record their interceptions there.
+  await coreEvaluate(()=>{globalThis.__folderQA={intercepted:[]};});
   const opened=()=>app.evaluate(()=>globalThis.__folderQA.opened);
   const project=await call('project/create',{name:'项目悬停验收',paths:folders});
   const other=await call('project/create',{name:'另一个项目',paths:[folders[0]]});
@@ -99,7 +103,7 @@ try{
   await wait(async()=>await preview.locator('[data-qa-preview="folder"]').count()===3);
   assert.equal(await preview.locator('.project-preview-folder').evaluateAll(nodes=>nodes.every(n=>n.hidden&&getComputedStyle(n).display==='none')),true);
   const prior=(await opened()).length;await preview.getByRole('button',{name:'扩展打开 '+folders[1],exact:true}).click();await wait(async()=>(await opened()).length===prior+1);
-  assert.deepEqual(await app.evaluate(()=>globalThis.__folderQA.intercepted),[folders[1]]);
+  assert.deepEqual(await coreEvaluate(()=>globalThis.__folderQA.intercepted),[folders[1]]);
   record('approved ZIP registers named row replacements for every folder and calls the real host path through a service interceptor');
   await close();await show(other.id);await wait(async()=>await preview.locator('[data-qa-preview="folder"]').count()===1);
   await call('project/update',{id:other.id,paths:[folders[0],folders[1]]});await wait(async()=>await preview.locator('[data-qa-preview="folder"]').count()===2);
@@ -108,7 +112,7 @@ try{
   const disposed=await page.evaluate(()=>{const q=window.__previewPluginQA;q.late.splice(0).forEach(resolve=>resolve());return{mounts:q.mounts,cleaned:q.cleaned,aborted:q.aborted};});
   assert.equal(disposed.mounts,5);assert.equal(disposed.cleaned,5);assert.equal(disposed.aborted,5);await wait(async()=>await page.evaluate(()=>window.__previewPluginQA.lateCleaned===2));
   assert.equal(await preview.locator('.project-preview-folder').isVisible(),true);
-  const interceptCount=await app.evaluate(()=>globalThis.__folderQA.intercepted.length);await folder(0).click();await wait(()=>folder(0).isEnabled());assert.equal(await app.evaluate(()=>globalThis.__folderQA.intercepted.length),interceptCount);
+  const interceptCount=await coreEvaluate(()=>globalThis.__folderQA.intercepted.length);await folder(0).click();await wait(()=>folder(0).isEnabled());assert.equal(await coreEvaluate(()=>globalThis.__folderQA.intercepted.length),interceptCount);
   record('later project cards and live folder additions/removals mount and clean independently; disable restores core and cleans late results');
   await keep();await toggle(plugin,true);await wait(async()=>await preview.locator('[data-qa-preview="folder"]').count()===1);
   await page.waitForTimeout(350);assert.equal(await preview.isVisible(),true,'replacing the focused row must keep a hovered card open');

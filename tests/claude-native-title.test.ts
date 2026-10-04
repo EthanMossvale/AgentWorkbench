@@ -94,6 +94,18 @@ test('late reads cannot replace manual titles, changed bindings or unloaded plug
     }
   }finally{await runner.dispose();await f.close();}
 });
+test('a refresh after the reader is overridden starts a new read instead of joining the stale one',async()=>{
+  const f=await fixture(),{runner,session}=runnerFixture(f),services=new HostServiceRegistry();services.register('sessions.native-titles',nativeSessionTitles);
+  let resolve!:(value:any)=>void;
+  const first=services.override('sessions.native-titles',{read:()=>new Promise(r=>resolve=r)});
+  try{
+    session.title='Original';session.titleSource='fallback';session.binding.nativeSessionId=nativeId;
+    const stale=runner.refreshTitle(session.id);
+    const second=services.override('sessions.native-titles',{read:async()=>({nativeSessionId:nativeId,title:'Second reader',source:'custom'})});
+    assert.deepEqual(await runner.refreshTitle(session.id),{status:'updated'});assert.equal(session.title,'Second reader');
+    resolve({nativeSessionId:nativeId,title:'Late',source:'generated'});assert.deepEqual(await stale,{status:'unavailable'});assert.equal(session.title,'Second reader');second();
+  }finally{first();await runner.dispose();await f.close();}
+});
 test('slow or failed title readers never strand a task; shutdown aborts and rejects late results',async()=>{
   const f=await fixture(),{runner,session}=runnerFixture(f),services=new HostServiceRegistry();services.register('sessions.native-titles',nativeSessionTitles);
   let release=services.override('sessions.native-titles',{read:()=>new Promise(()=>{})});

@@ -16,7 +16,8 @@ const mime=(data:Buffer,_name:string)=>attachmentMime(data);
 export class AttachmentStore {
   readonly payloadPolicies=new AttachmentPayloadPolicies();
   private retained=new Set<string>();
-  constructor(readonly directory: string, private thumbnail?: (data: Buffer) => string | undefined, private controlPaths:string[] = [], private pickSave?:(name:string)=>Promise<string|null>,private options:{nativePaths?:boolean;temporaryDirectory?:string;copyImage?:(data:Uint8Array)=>void|Promise<void>}={}) {}
+  /** `thumbnail` may answer asynchronously (the core process asks the UI process to resize). */
+  constructor(readonly directory: string, private thumbnail?: (data: Buffer) => string | undefined | Promise<string | undefined>, private controlPaths:string[] = [], private pickSave?:(name:string)=>Promise<string|null>,private options:{nativePaths?:boolean;temporaryDirectory?:string;copyImage?:(data:Uint8Array)=>void|Promise<void>}={}) {}
   /** Copy verified original pixels through the host, never a preview URL. */
   async copyImage(id:string):Promise<{copied:true}>{
     const item=(await this.payloads([id]))[0]!;
@@ -114,7 +115,7 @@ export class AttachmentStore {
         }
         await writeFile(path.join(this.directory,item.id,'metadata.json'),JSON.stringify(item),{flag:'wx',mode:0o600});this.retained.add(item.id);
       }
-      return staged.map(({item,data})=>({...item,...(item.mime.startsWith('image/')&&data?{preview:this.thumbnail?.(data)??`data:${item.mime};base64,${data.toString('base64')}`}:{})}));
+      return Promise.all(staged.map(async({item,data})=>({...item,...(item.mime.startsWith('image/')&&data?{preview:(await this.thumbnail?.(data))??`data:${item.mime};base64,${data.toString('base64')}`}:{})})));
     }catch(error){await Promise.all(staged.map(async({item})=>{await rm(path.join(this.directory,item.id),{recursive:true,force:true});if(item.storage==='clipboard')await rm(path.join(this.temporaryDirectory,item.id),{recursive:true,force:true});}));throw error;}
   }
   async resolve(ids: unknown): Promise<Attachment[]> {
@@ -139,5 +140,5 @@ export class AttachmentStore {
     }
     return payloads;
   }
-  async views(ids:unknown):Promise<AttachmentView[]> { return (await this.payloads(ids,{channel:'preview'})).map(({attachment,data})=>({...attachment,...(attachment.mime.startsWith('image/')?{preview:this.thumbnail?.(Buffer.from(data))??`data:${attachment.mime};base64,${Buffer.from(data).toString('base64')}`}:{})})); }
+  async views(ids:unknown):Promise<AttachmentView[]> { return Promise.all((await this.payloads(ids,{channel:'preview'})).map(async({attachment,data})=>({...attachment,...(attachment.mime.startsWith('image/')?{preview:(await this.thumbnail?.(Buffer.from(data)))??`data:${attachment.mime};base64,${Buffer.from(data).toString('base64')}`}:{})}))); }
 }

@@ -572,3 +572,7 @@ Presentation of thinking records only; no adjustable node, key, default or stora
 ## D041: hover pairing and layout state classes (2026-10-04)
 
 No adjustable node, key or default changes. The paired hover highlight remains transient interaction state; it is now applied as a DOM class instead of React state. Sidebar dragging and plugin backgrounds are reflected as document classes only while active; the sidebar width preference and plugin appearance ownership are unchanged.
+
+## D042: process split (2026-10-04)
+
+No adjustable node, key, default or storage location changes. UI preferences, window geometry and their stores stay in the UI process; session data and its store move with the core process and keep the same files and formats. Flush on exit, relocation and update installation now also waits for the core's state to be written.

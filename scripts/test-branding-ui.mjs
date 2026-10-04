@@ -7,6 +7,8 @@ import {fileURLToPath} from 'node:url';
 import {build} from 'esbuild';
 import {encodeZip} from '../packages/native-resources/archive.ts';
 import {defaultBranding} from '../packages/branding/default.ts';
+// Host plugins run in the workbench core process; read their test globals there.
+const coreEvaluate=(fn,arg)=>app.evaluate((_electron,{source,arg})=>globalThis.__workbenchCoreEvaluate(source,arg),{source:fn.toString(),arg});
 
 const root=path.resolve(path.dirname(fileURLToPath(import.meta.url)),'..');
 const output=path.join(root,'build/qa/branding-ui-'+Date.now()),profile=path.join(output,'profile');await mkdir(profile,{recursive:true});
@@ -44,7 +46,7 @@ try{
   await page.evaluate(()=>window.__mountBrand());await page.locator('#later-brand [data-workbench-brand-mark]').waitFor();await current('plugin:qa.brand-first/identity');await page.waitForFunction(()=>window.__brandSurfaces.mounts>=2);record('a later mounted production Mark and named surface observe the same active branding');
   const second=await fixture('qa.brand-second',`export function activate(api){api.branding.register({id:'identity',label:'Synthetic second identity',app:${JSON.stringify(images[1])}});}`);
   await toggle(second,true);await current('plugin:qa.brand-second/identity');await toggle(first,false);await current('plugin:qa.brand-second/identity');
-  assert.equal(await app.evaluate(()=>{try{globalThis.__staleBranding.register({id:'late',label:'Late',app:''});return false;}catch{return true;}}),true);
+  assert.equal(await coreEvaluate(()=>{try{globalThis.__staleBranding.register({id:'late',label:'Late',app:''});return false;}catch{return true;}}),true);
   await toggle(second,false);await current(defaultBranding.id);record('multiple plugins unwind in non-LIFO order, release observers, reject stale APIs and restore the approved default');
   const failed=await fixture('qa.brand-failed',`export function activate(api){api.branding.register({...api.branding.get(),id:'failed'});throw Error('Synthetic branding failure');}`);await toggle(failed,true);await current(defaultBranding.id);assert.equal((await call('extensions/list')).find(p=>p.manifest.id===failed.manifest.id).enabled,false);record('activation failure removes an already registered identity without leaving native or UI residue');
   const delayed=await fixture('qa.brand-delayed',`export function activate(api){const original=api.branding.get();let release;api.registerMethod('branding/get',()=>new Promise(resolve=>release=()=>resolve(original)));api.registerCommand('release',()=>{release();});api.registerCommand('switch',()=>{api.branding.register({id:'newer',label:'Newer identity',app:${JSON.stringify(images[1])}});});}`);

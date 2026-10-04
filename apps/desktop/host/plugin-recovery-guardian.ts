@@ -13,18 +13,22 @@ const marker='--awb-plugin-recovery-guardian';
 export const isRecoveryGuardian=process.argv.includes(marker);
 type Wire = {type:string; snapshot?:RecoverySnapshot; rendererAge?:number; rendererMonitoring?:boolean; request?:number; action?:string; result?:unknown; ok?:boolean};
 const timeoutMs=()=>process.env.AGENT_WORKBENCH_TEST_DATA?Math.max(1500,Number(process.env.AGENT_WORKBENCH_TEST_GUARD_TIMEOUT)||15000):15000;
+/** The core reports liveness every 500 ms; a longer gap withholds the heartbeat. */
+const HOST_STALL_MS=1500;
 export interface RecoveryGuardian {
   monitorRenderer():void; rendererPulse():void; show():void; close():void;
+  /** Host plugins run in the core process; heartbeats stop while it is stalled. */
+  monitorHost(age:()=>number):void;
 }
 /** An OS process is necessary: timers in Electron's main thread cannot detect its own infinite loop. */
 export async function startRecoveryGuardian(store:PluginRecoveryStore, action:(action:string)=>Promise<unknown>):Promise<RecoveryGuardian>{
   const args=app.isPackaged?[marker]:[app.getAppPath(),marker];
   const child:ChildProcess=spawn(process.execPath,args,{env:{...process.env,AGENT_WORKBENCH_RECOVERY_DIRECTORY:store.directory},stdio:['ignore','ignore','ignore','ipc'],detached:true,windowsHide:true});
-  let closed=false,monitoring=false,rendererAt=Date.now();
+  let closed=false,monitoring=false,rendererAt=Date.now(),hostAge=()=>0;
   const send=(message:Wire)=>{if(child.connected)child.send(message,()=>{});};
   const ready=new Promise<void>((resolve,reject)=>{const timer=setTimeout(()=>reject(Error('PLUGIN_GUARDIAN_UNAVAILABLE')),45000);child.once('error',()=>{clearTimeout(timer);reject(Error('PLUGIN_GUARDIAN_UNAVAILABLE'));});child.on('message',(value:Wire)=>{if(value?.type==='ready'){clearTimeout(timer);resolve();}});child.once('exit',()=>{clearTimeout(timer);reject(Error('PLUGIN_GUARDIAN_UNAVAILABLE'));});});
   const unsubscribe=store.subscribe(snapshot=>send({type:'snapshot',snapshot}));
-  const beat=()=>send({type:'heartbeat',rendererMonitoring:monitoring,rendererAge:Date.now()-rendererAt});
+  const beat=()=>{if(hostAge()<=HOST_STALL_MS)send({type:'heartbeat',rendererMonitoring:monitoring,rendererAge:Date.now()-rendererAt});};
   const timer=setInterval(beat,500);timer.unref();
   const close=()=>{if(closed)return;closed=true;clearInterval(timer);unsubscribe();send({type:'stop'});};
   child.on('message',(value:Wire)=>{
@@ -34,7 +38,7 @@ export async function startRecoveryGuardian(store:PluginRecoveryStore, action:(a
   try{await ready;}catch(error){close();child.kill();throw error;}
   child.on('exit',()=>{if(!closed){close();void store.safeMode(true);}});
   send({type:'snapshot',snapshot:store.snapshot()});beat();
-  return {monitorRenderer(){monitoring=true;rendererAt=Date.now();},rendererPulse(){rendererAt=Date.now();},show(){send({type:'show'});},close};
+  return {monitorRenderer(){monitoring=true;rendererAt=Date.now();},rendererPulse(){rendererAt=Date.now();},monitorHost(age){hostAge=age;},show(){send({type:'show'});},close};
 }
 
 /** This branch never constructs NativeResources, the controller or the plugin registry. */

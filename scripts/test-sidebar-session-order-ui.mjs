@@ -7,6 +7,8 @@ import path from 'node:path';
 import assert from 'node:assert/strict';
 import { setTimeout as pause } from 'node:timers/promises';
 import { initialState } from '../apps/desktop/host/store.ts';
+// The controller runs in the workbench core process; evaluate fixture updates there.
+const coreEvaluate=(fn,arg)=>app.evaluate((_electron,{source,arg})=>globalThis.__workbenchCoreEvaluate(source,arg),{source:fn.toString(),arg});
 
 // Production renderer/preload/controller/store in a separate hidden application and synthetic home.
 const root = process.cwd(), output = path.join(root, 'build/qa/session-order-20260930/ui');
@@ -27,8 +29,8 @@ state.sidebarSessionOrder = state.sessions.map(s => s.id);
 await put(path.join(data, 'state.json'), JSON.stringify(state));
 await buildRenderer({ configFile: path.join(root, 'vite.config.ts'), build: { outDir: path.join(appRoot, 'renderer'), emptyOutDir: true }, logLevel: 'warn' });
 await buildHost({ entryPoints: ['apps/desktop/host/main.ts'], outfile: path.join(appRoot, 'host/main.cjs'), bundle: true, platform: 'node', format: 'cjs', target: 'node22', external: ['electron'],
-  plugins: [{ name: 'synthetic-activity-entry', setup(build) { build.onLoad({ filter: /apps[\\/]desktop[\\/]host[\\/]main\.ts$/ }, async args => {
-    const source = await readFile(args.path, 'utf8'), marker = 'shared.native.plugins.connectHost(core);';
+  plugins: [{ name: 'synthetic-activity-entry', setup(build) { build.onLoad({ filter: /apps[\\/]desktop[\\/]host[\\/]core-process\.ts$/ }, async args => {
+    const source = await readFile(args.path, 'utf8'), marker = 'registry.connectHost(core);';
     assert.equal(source.split(marker).length, 2);
     return { contents: source.replace(marker, marker + '\n(globalThis as any).__sessionOrderQa=controller.developmentServices()["workbench.state"];'), loader: 'ts' };
   }); } }] });
@@ -49,11 +51,11 @@ const launch = async () => { app = await electron.launch({ executablePath: elect
 const shot = name => page.screenshot({ path: path.join(output, name + '.png') });
 try {
   await launch(); await order(['a', 'b', 'c', 'd', 'e', 'f']);
-  await app.evaluate(async () => { await globalThis.__sessionOrderQa.update(s => { s.sessions.find(s => s.id === 'b').status = 'running'; }); });
+  await coreEvaluate(async () => { await globalThis.__sessionOrderQa.update(s => { s.sessions.find(s => s.id === 'b').status = 'running'; }); });
   await row('b').getByLabel('运行中', { exact: true }).waitFor(); await order(['a', 'b', 'c', 'd', 'e', 'f']);
-  await app.evaluate(async () => { await globalThis.__sessionOrderQa.update(s => { s.sessions.find(s => s.id === 'c').status = 'running'; }); });
+  await coreEvaluate(async () => { await globalThis.__sessionOrderQa.update(s => { s.sessions.find(s => s.id === 'c').status = 'running'; }); });
   await order(['c', 'a', 'b', 'd', 'e', 'f']);
-  await app.evaluate(async () => { await globalThis.__sessionOrderQa.update(s => { const session = s.sessions.find(s => s.id === 'b'); session.status = 'blocked'; session.nativeApprovals = [{ id: 'synthetic', kind: 'command', turnId: 'turn', details: 'Fixture', decisions: ['accept'] }]; }); });
+  await coreEvaluate(async () => { await globalThis.__sessionOrderQa.update(s => { const session = s.sessions.find(s => s.id === 'b'); session.status = 'blocked'; session.nativeApprovals = [{ id: 'synthetic', kind: 'command', turnId: 'turn', details: 'Fixture', decisions: ['accept'] }]; }); });
   await order(['c', 'a', 'b', 'd', 'e', 'f']);
   record('one-hour active rows remain fixed while only a dormant reactivated row moves');
 
@@ -109,7 +111,7 @@ try {
   ]);
   const concurrent = (await call('state/get')).sidebarSessionOrder;
   assert.ok(concurrent.indexOf('b') < concurrent.indexOf('a') && concurrent.indexOf('f') < concurrent.indexOf('c'));
-  await app.evaluate(async () => { await globalThis.__sessionOrderQa.update(s => { for (const session of s.sessions.filter(s => ['a', 'b', 'c', 'd', 'f'].includes(s.id))) { session.status = 'idle'; session.nativeApprovals = []; session.unread = true; session.messages.push({ id: 'message-' + session.id, role: 'assistant', original: 'Synthetic update', demo: true, timestamp: new Date().toISOString() }); } }); });
+  await coreEvaluate(async () => { await globalThis.__sessionOrderQa.update(s => { for (const session of s.sessions.filter(s => ['a', 'b', 'c', 'd', 'f'].includes(s.id))) { session.status = 'idle'; session.nativeApprovals = []; session.unread = true; session.messages.push({ id: 'message-' + session.id, role: 'assistant', original: 'Synthetic update', demo: true, timestamp: new Date().toISOString() }); } }); });
   assert.deepEqual((await call('state/get')).sidebarSessionOrder, concurrent);
   record('concurrent IPC anchor moves survive subsequent parallel native state updates');
 
