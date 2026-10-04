@@ -85,7 +85,7 @@ import { RemoteAccountCatalogService } from '../../../packages/remote-account-ca
 import type {AccountServiceSetup} from '../../../packages/remote-account-catalog/setup';
 import { selectedSharedAccount, selectedSharedAccountRef, sharedAccountRef, usableSharedAccount } from '../../../packages/account-selection/index';
 import type { NativeRuntimeControl } from '../../../packages/workspace-control/native-runtime';
-import { PeerInbox } from '../../../packages/collaboration-core/inbox';
+import { MAX_WAIT_MS, PeerInbox } from '../../../packages/collaboration-core/inbox';
 import { initialCollaborationState } from '../../../packages/collaboration-core/types';
 import { NativePeerContextSession } from '../../../packages/collaboration-core/native-inbox';
 import { PeerDelivery, type PeerProvenance } from '../../../packages/collaboration-core/peer-delivery';
@@ -238,7 +238,7 @@ export class WorkbenchController {
   private nativeCodex?:NativeCodexRunner;
   private forking=new Set<string>();
   private peerInbox=new PeerInbox({
-    snapshot:()=>this.store.snapshot().collaboration??initialCollaborationState(),
+    snapshot:()=>structuredClone(this.store.read().collaboration??initialCollaborationState()),
     update:async change=>{await this.update(state=>{state.collaboration??=initialCollaborationState();change(state.collaboration);});},
     identity:id=>this.collaborationIdentities().find(item=>item.session.id===id),
     identities:()=>this.collaborationIdentities(),
@@ -275,7 +275,8 @@ export class WorkbenchController {
     },
     create:input=>this.createModelSession(input),submit:(session,preview)=>this.withSessionOperation<unknown>(session.id,()=>isPluginRuntime(session.binding.runtime)?this.pluginRuntimes.submit(session.id,preview):this.providerBinding(session.binding)?this.providerRunner(session).submit(session.id,preview):this.nativeCodex!.submit(session.id,preview)),
   });
-  private collaborationIdentities(){const state=this.store.snapshot();return state.sessions.flatMap(session=>{const host=state.hosts.find(item=>item.id===session.binding.hostId);if(session.binding.runtime!=='demo'&&!localModelBinding(session.binding)&&!host)return [];return [{session,ownerId:host?.ownerId??'local-owner',authorityKey:host?hostIdentity(host):'local'}];});}
+  /** Read-only view: identity lookups run on every session broadcast while a wait is active. */
+  private collaborationIdentities(){const state=this.store.read();return state.sessions.flatMap(session=>{const host=state.hosts.find(item=>item.id===session.binding.hostId);if(session.binding.runtime!=='demo'&&!localModelBinding(session.binding)&&!host)return [];return [{session,ownerId:host?.ownerId??'local-owner',authorityKey:host?hostIdentity(host):'local'}];});}
   nativeAgentPolicy(sessionId:string){return validateNativeAgentPolicy(this.session(sessionId).nativeAgentPolicy);}
   async observeNativeSession(sessionId:string,source:Pick<EventEmitter,'on'|'off'>){
     if(this.disposing)throw new Error('The workbench is closing.');
@@ -555,7 +556,7 @@ export class WorkbenchController {
   /** The window-facing state: the shared view plus projected environment profiles. */
   private published(){const s=this.present(this.store.read());s.profiles=s.profiles.map(profile=>projectEnvironment(profile,{hostId:profile.hostId,ownerId:profile.ownerId}));return s;}
   /** Publish the committed state to the window, plugins and observers without deep copies. */
-  private broadcast(){const s=this.published();this.changed(s);this.interactionFlow?.observe(s);this.planFlow?.observe(s);this.followUps.observe();this.peerDelivery.observe();return s;}
+  private broadcast(){const s=this.published();this.changed(s);this.interactionFlow?.observe(s);this.planFlow?.observe(s);this.followUps.observe();this.peerDelivery.observe();this.peerInbox.observeSessions();return s;}
   private async update(fn:(state:AppState)=>void){const s=this.publicState(await this.store.update(state=>{rememberMemoryDefault(state);rememberRuntimeModel(state);fn(state);rememberMemoryDefault(state);rememberRuntimeModel(state);for(const session of state.sessions)this.tagPeerMessages(session);}));this.broadcast();return s;}
   /**
    * Session-scoped update for runtime event paths: copies and re-serializes one
@@ -693,8 +694,9 @@ export class WorkbenchController {
     if(name==='workbench_list_model_targets')return {targets:(await this.targetCatalog.list(true)).map(({id,name,description,ready})=>({id,name,description,ready}))};
     if(name==='workbench_read_agent'){
       const child=this.session(p.sessionId);if(child.agentParent?.sessionId!==sourceId)throw Error('CHILD_SESSION_MISMATCH');
-      const wait=p.waitMs===undefined?0:integer(p.waitMs,0,60000,'Wait milliseconds'),until=Date.now()+wait;
-      while(this.session(child.id).status==='running'&&Date.now()<until){signal?.throwIfAborted();await delay(Math.min(250,until-Date.now()),undefined,{signal});}
+      const wait=p.waitMs===undefined?0:integer(p.waitMs,0,MAX_WAIT_MS,'Wait milliseconds');
+      // Shared session-settle wait; an unreachable revision means only the child's turn or the timeout ends it.
+      if(wait)await this.peerInbox.wait(sourceId,Number.MAX_SAFE_INTEGER,wait,signal,{sessionIds:[child.id]});
       const current=this.session(child.id);return {sessionId:child.id,status:current.status,model:current.modelTargetId,result:current.messages.filter(item=>item.role==='assistant').map(item=>item.original).join('\n').slice(-64000)};
     }
     const source=this.session(sourceId);if(source.status!=='running')throw Error('CHILD_REQUIRES_ACTIVE_USER_TASK');

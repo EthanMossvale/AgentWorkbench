@@ -58,3 +58,36 @@ test('waiting rechecks identity after timeout instead of returning data for a sw
   const waiting = assert.rejects(f.hub.wait('b', 0, 1), /identity changed/);
   f.identities[1]!.session.binding.accountRef = 'different-profile'; await waiting;
 });
+
+test('session watches end the shared wait when watched turns settle, any or all, without polling', async t => {
+  const f = fixture(); t.after(() => f.hub.dispose());
+  const [, b, c, d] = f.identities.map(identity => identity.session);
+  b!.status = 'running'; c!.status = 'running';
+  let woke = false;
+  const any = f.hub.wait('a', 0, 60_000, undefined, { sessionIds: ['b', 'c'] }).then(result => { woke = true; return result; });
+  const all = f.hub.wait('a', 0, 60_000, undefined, { sessionIds: ['b', 'c'], waitFor: 'all' });
+  f.hub.observeSessions(); await setImmediate(); assert.equal(woke, false);
+  b!.status = 'idle'; f.hub.observeSessions();
+  const first = await any; assert.equal(first.reason, 'sessions');
+  assert.deepEqual(first.sessions!.map(item => [item.sessionId, item.status, item.settled]), [['b', 'idle', true], ['c', 'running', false]]);
+  c!.status = 'blocked'; f.hub.observeSessions();
+  const both = await all; assert.equal(both.reason, 'sessions'); assert.ok(both.sessions!.every(item => item.settled));
+  // A message still wins, already-settled sessions return at once, and plain waits keep their old shape.
+  c!.status = 'running'; const message = f.hub.wait('a', 0, 60_000, undefined, { sessionIds: ['c'] });
+  await f.hub.send('b', 'a', 'Done early.', 'early'); assert.equal((await message).reason, 'message');
+  assert.equal((await f.hub.wait('a', 99, 60_000, undefined, { sessionIds: ['d'] })).reason, 'sessions'); assert.equal(d!.status, 'idle');
+  const timeout = await f.hub.wait('a', 99, 1); assert.equal(timeout.reason, 'timeout'); assert.equal('sessions' in timeout, false);
+});
+
+test('session watches validate their arguments and stay inside the owner boundary', async t => {
+  const f = fixture(); t.after(() => f.hub.dispose());
+  f.identities.push({ ownerId: 'other-owner', session: { ...structuredClone(f.identities[3]!.session), id: 'foreign' } });
+  await assert.rejects(f.hub.wait('a', 0, 10, undefined, { sessionIds: ['foreign'] }), /not available/);
+  await assert.rejects(f.hub.wait('a', 0, 10, undefined, { sessionIds: ['missing'] }), /not available/);
+  await assert.rejects(f.hub.wait('a', 0, 10, undefined, { sessionIds: [] }), /1 to 20/);
+  await assert.rejects(f.hub.wait('a', 0, 10, undefined, { sessionIds: 'b' as never }), /1 to 20/);
+  await assert.rejects(f.hub.wait('a', 0, 10, undefined, { sessionIds: ['b'], waitFor: 'some' as never }), /any or all/);
+  await assert.rejects(f.hub.wait('a', 0, 30 * 60 * 1000 + 1), /no greater than/);
+  const abort = new AbortController(); f.identities[1]!.session.status = 'running';
+  const cancelled = assert.rejects(f.hub.wait('a', 0, 60_000, abort.signal, { sessionIds: ['b'] })); abort.abort(); await cancelled;
+});

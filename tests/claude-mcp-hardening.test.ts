@@ -142,8 +142,8 @@ test('HTTP MCP tool calls send event-stream headers before a slow result so clie
     const init=await post({id:1,method:'initialize'}),id=init.headers.get('mcp-session-id')!;assert.equal(init.headers.get('content-type'),'application/json');await init.text();
     const slow=await post({id:2,method:'tools/call',params:{name:'slow'}},id);
     assert.equal(slow.headers.get('content-type'),'text/event-stream');assert.ok(finish,'headers arrived while the tool is still running');
-    finish!();assert.deepEqual(JSON.parse((await slow.text()).match(/^data: (.*)$/m)![1]),{jsonrpc:'2.0',id:2,result:{ok:'slow'}});
-    const broken=JSON.parse((await (await post({id:3,method:'tools/call',params:{name:'broken'}},id)).text()).match(/^data: (.*)$/m)![1]);
+    finish!();assert.deepEqual(JSON.parse((await slow.text()).match(/^data: (.*)$/m)![1]!),{jsonrpc:'2.0',id:2,result:{ok:'slow'}});
+    const broken=JSON.parse((await (await post({id:3,method:'tools/call',params:{name:'broken'}},id)).text()).match(/^data: (.*)$/m)![1]!);
     assert.equal(broken.id,3);assert.equal(broken.error.code,-32603);assert.doesNotMatch(broken.error.message,/fixture/);
     const json=await post({id:4,method:'tools/call',params:{name:'plain'}},id,'application/json');assert.equal(json.headers.get('content-type'),'application/json');assert.deepEqual(await json.json(),{jsonrpc:'2.0',id:4,result:{ok:'plain'}});
     assert.equal(calls,3);
