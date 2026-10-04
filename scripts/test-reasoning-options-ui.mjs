@@ -46,7 +46,7 @@ try{
  const renderer=`export function activate(api){api.observeSurfaces('reasoning-options','after',({root})=>{root.dataset.qaReasoning='true';});window.qaReasoningReplace=()=>api.observeSurfaces('reasoning-options','replace',({root})=>{root.textContent='Synthetic reasoning replacement';});}`;
  const zip=path.join(output,'fixture.zip');await writeFile(zip,encodeZip([{name:'workbench.plugin.json',data:Buffer.from(JSON.stringify(manifest))},{name:'main.mjs',data:Buffer.from(main)},{name:'renderer.mjs',data:Buffer.from(renderer)}]));await call('extensions/import',{filePath:zip});const plugin=(await call('extensions/list')).find(p=>p.manifest.id===pluginId);const toggle=enabled=>call('extensions/toggle',{id:pluginId,hash:plugin.hash,enabled,...(enabled?{approveHost:true}:{})});await toggle(true);await openSettings();
  assert.deepEqual(await call('model-api/list'),[]);
- await page.getByTestId('model-api-add').click();
+ await page.getByTestId('model-api-add').click();await page.getByRole('tab',{name:'自定义 API'}).click();
  await page.getByLabel('连接名称',{exact:true}).fill('合成连接');
  await page.getByLabel('API 地址',{exact:true}).fill(base);
  await page.getByLabel('API 密钥',{exact:true}).fill('synthetic-ui-only-key');

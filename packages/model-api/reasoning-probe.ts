@@ -2,6 +2,7 @@ import {apiEndpoints} from './endpoints';
 import { createHash } from 'node:crypto';
 import type { ApiModel, ModelConnection } from './types';
 import { apiHeaders } from './provider';
+import { modelProviders } from './providers';
 import { applyReasoning, reasoningCandidates, type ReasoningProbe } from './reasoning-info';
 import { reasoningRejection } from './reasoning-errors';
 
@@ -36,10 +37,11 @@ async function readJson(response: Response) {
 async function check(connection: ModelConnection, model: ApiModel, key: string, effort: string | undefined, budget: Budget, fetcher: typeof fetch): Promise<Result> {
   if(budget.unavailable)return budget.unavailable;
   if(budget.remaining<=0||budget.signal.aborted)return {state:'unknown',reason:'budget'};budget.remaining--;
+  connection=modelProviders.resolve(connection,model.model);
   const {route,body}=reasoningProbeRequest(connection,model,effort);
   const signal=AbortSignal.any([budget.signal,AbortSignal.timeout(30000)]);
   try{
-    const response=await fetcher(apiEndpoints.resolve({baseUrl:connection.baseUrl,resource:route,defaultVersion:false}),{method:'POST',headers:apiHeaders(connection,key),body:JSON.stringify(body),redirect:'manual',signal});
+    const response=await fetcher(apiEndpoints.resolve({baseUrl:connection.baseUrl,resource:route,defaultVersion:false}),{method:'POST',headers:apiHeaders(connection,key,{model:model.model}),body:JSON.stringify(body),redirect:'manual',signal});
     const httpStatus=response.status;
     if([401,403,429].includes(httpStatus)||httpStatus>=500){const result:Result={state:'unknown',reason:httpStatus===429?'rate-limit':httpStatus>=500?'server':'auth',httpStatus};if(httpStatus<500)budget.unavailable=result;await response.body?.cancel().catch(()=>{});return result;}
     let data:any;try{data=await readJson(response);}catch(error){if(signal.aborted)throw error;return {state:'unknown',reason:'format',httpStatus};}

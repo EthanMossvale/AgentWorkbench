@@ -359,7 +359,7 @@
       "export type SurfaceRenderer = (context: SurfaceContext) => PluginContentResult | Promise<PluginContentResult>;"
     ],
     "packages/translation/types.ts": [
-      "export interface TranslationBackend {\n    profile: TranslationProfile;\n    key?: string;\n    auth?: 'key' | 'none';\n    runtime: RuntimeKind;\n    sourceId: string;\n    execute?(request: TranslationExecutionRequest): Promise<TranslationCompletion>;\n}",
+      "export interface TranslationBackend {\n    profile: TranslationProfile;\n    key?: string;\n    auth?: 'key' | 'none';\n    runtime: RuntimeKind;\n    sourceId: string;\n    execute?(request: TranslationExecutionRequest): Promise<TranslationCompletion>;\n    requestHeaders?(sessionId: string): Record<string, string>;\n}",
       "export interface TranslationCompletion {\n    incomplete?: boolean;\n    text: string;\n    counts: TokenCounts;\n    model?: string;\n    reasoningTokens?: number | null;\n}",
       "export interface TranslationExecutionRequest {\n    instructions: string;\n    input: string;\n    profile: TranslationProfile;\n    signal: AbortSignal;\n}",
       "export interface TranslationTarget {\n    id: string;\n    name: string;\n    description: string;\n    model: string;\n    runtime: RuntimeKind;\n    ready: boolean;\n    reason?: string;\n    efforts: string[];\n    defaultEffort?: string;\n}",
@@ -441,7 +441,7 @@
       "export interface NativeProviderDiagnostic {\n    status: number;\n    category: 'tool-sequence' | 'context-limit' | 'parameter' | 'authentication' | 'rate-limit' | 'upstream' | 'timeout' | 'transport' | 'protocol';\n    code?: string;\n    param?: string;\n    summary: string;\n}"
     ],
     "packages/model-api/native-gateway.ts": [
-      "export interface NativeGatewayOptions {\n    mcpOnly?: boolean;\n    authorizeMcp?(): void;\n    runtime: 'codex' | 'claude';\n    model: ApiModel;\n    effort?: string;\n    credentials(): Promise<{\n        connection: ModelConnection;\n        key: string;\n    }>;\n    fetcher?: typeof fetch;\n    mcp?: () => {\n        handle(request: unknown): Promise<unknown>;\n        dispose(): void;\n    };\n    mcpSessionPolicy?: NativeMcpSessionPolicy;\n    failure?(error: unknown): void;\n    diagnostic?(value: NativeProviderDiagnostic): void;\n    completion?: NativeCompletionCodec;\n    request?: NativeRequestCodec;\n    completionReceipt?(value: NativeCompletionReceipt): void;\n    usage?(value: {\n        counts: TokenCounts;\n        model: string;\n        elapsedMs: number;\n    }): void | Promise<void>;\n}",
+      "export interface NativeGatewayOptions {\n    mcpOnly?: boolean;\n    authorizeMcp?(): void;\n    runtime: 'codex' | 'claude';\n    model: ApiModel;\n    effort?: string;\n    sessionId?: string;\n    credentials(): Promise<{\n        connection: ModelConnection;\n        key: string;\n    }>;\n    fetcher?: typeof fetch;\n    mcp?: () => {\n        handle(request: unknown): Promise<unknown>;\n        dispose(): void;\n    };\n    mcpSessionPolicy?: NativeMcpSessionPolicy;\n    failure?(error: unknown): void;\n    diagnostic?(value: NativeProviderDiagnostic): void;\n    completion?: NativeCompletionCodec;\n    request?: NativeRequestCodec;\n    completionReceipt?(value: NativeCompletionReceipt): void;\n    usage?(value: {\n        counts: TokenCounts;\n        model: string;\n        elapsedMs: number;\n    }): void | Promise<void>;\n}",
       "export interface NativeMcpSessionLimits {\n    maxSessions: number;\n    idleMs: number;\n}",
       "export interface NativeMcpSessionPolicy {\n    limits(): NativeMcpSessionLimits;\n}"
     ],
@@ -479,7 +479,7 @@
       "export interface ApiToolDefinition {\n    name: string;\n    description: string;\n    inputSchema: Record<string, unknown>;\n}",
       "export interface ApiTurn {\n    text: string;\n    calls: ApiToolCall[];\n    usage: ApiUsage;\n    raw: unknown;\n    requestId?: string;\n    completionOutcome?: import('./native-completion').NativeCompletionOutcome;\n}",
       "export interface ApiUsage {\n    inputTokens: number | null;\n    outputTokens: number | null;\n}",
-      "export interface ModelConnection {\n    id: string;\n    revision: string;\n    name: string;\n    baseUrl: string;\n    protocol: Protocol;\n    modelsUrl?: string;\n    enabled: boolean;\n    auth: 'key' | 'none';\n    hasKey: boolean;\n    credentialRef?: string;\n    models: ApiModel[];\n    discoveredModels: ApiModel[];\n    discoveredAt?: string;\n    discoveryError?: string;\n    tools: boolean;\n    timeoutMs: number;\n    maxOutputTokens: number;\n}",
+      "export interface ModelConnection {\n    id: string;\n    revision: string;\n    name: string;\n    baseUrl: string;\n    protocol: Protocol;\n    modelsUrl?: string;\n    providerId?: string;\n    enabled: boolean;\n    auth: 'key' | 'none';\n    hasKey: boolean;\n    credentialRef?: string;\n    models: ApiModel[];\n    discoveredModels: ApiModel[];\n    discoveredAt?: string;\n    discoveryError?: string;\n    tools: boolean;\n    timeoutMs: number;\n    maxOutputTokens: number;\n}",
       "export interface ModelLane {\n    permissionMode?: import('../contracts').PermissionMode;\n    collaborationMode?: import('../session-core/planning').CollaborationMode;\n    pluginRuntime?: import('../runtime-extensions/types').RuntimeSessionData;\n    targetId: string;\n    binding: SessionBinding;\n    modelSelection?: NativeModelSelection;\n    nativeEnvironmentReceipt?: {\n        threadId: string;\n        environmentId: string;\n        cwd: string;\n        runtimeVersion: string;\n        accountRef: string;\n    };\n    nativeFork?: import('../contracts').NativeForkSource;\n    nativeContextUsage?: import('../contracts').NativeContextUsage;\n    messageCursor: number;\n}",
       "export interface ModelTarget {\n    id: string;\n    name: string;\n    description: string;\n    runtime: RuntimeKind;\n    ready: boolean;\n    binding: SessionBinding;\n    selection?: NativeModelSelection;\n    contextWindow?: number;\n    unavailableReason?: string;\n}",
       "export interface ModelTargetCatalog {\n    list(refresh: boolean): Promise<ModelTarget[]>;\n}"
@@ -779,6 +779,7 @@
     "model-api/delete",
     "model-api/discover",
     "model-api/list",
+    "model-api/providers",
     "model-api/reasoning/cancel",
     "model-api/reasoning/options",
     "model-api/reasoning/start",

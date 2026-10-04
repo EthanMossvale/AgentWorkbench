@@ -54,7 +54,10 @@ export function validateConnection(value: unknown, previous?: ModelConnection): 
   if (new Set(models.map((m: ApiModel) => m.id)).size !== models.length) throw Error('映射标识不能重复。');
   if (v.modelsUrl !== undefined && v.modelsUrl !== null && typeof v.modelsUrl !== 'string') throw Error('模型列表地址无效。');
   const modelsUrl = typeof v.modelsUrl === 'string' && v.modelsUrl.trim() ? normalizeModelApiUrl(v.modelsUrl) : undefined;
-  return { id: previous?.id ?? randomUUID(), revision: randomUUID(), name: clean(v.name, 100), baseUrl: normalizeModelApiUrl(v.baseUrl), ...(modelsUrl ? { modelsUrl } : {}), protocol: v.protocol, enabled: v.enabled ?? previous?.enabled ?? true, auth: v.auth === 'key' ? 'key' : previous?.auth ?? 'none', hasKey: false, models, discoveredModels: previous?.discoveredModels ?? [], discoveredAt: previous?.discoveredAt, ...API_DEFAULTS };
+  // A provider that is currently missing stays selected; requests then use the saved address and protocol.
+  if (v.providerId !== undefined && v.providerId !== null && (typeof v.providerId !== 'string' || !/^(core\.[a-z0-9][a-z0-9-]{0,62}|plugin:[^\s/]{1,120}\/[^\s]{1,120})$/.test(v.providerId))) throw Error('模型提供商无效。');
+  const providerId = typeof v.providerId === 'string' ? v.providerId : undefined;
+  return { id: previous?.id ?? randomUUID(), revision: randomUUID(), name: clean(v.name, 100), baseUrl: normalizeModelApiUrl(v.baseUrl), ...(modelsUrl ? { modelsUrl } : {}), ...(providerId ? { providerId } : {}), protocol: v.protocol, enabled: v.enabled ?? previous?.enabled ?? true, auth: v.auth === 'key' ? 'key' : previous?.auth ?? 'none', hasKey: false, models, discoveredModels: previous?.discoveredModels ?? [], discoveredAt: previous?.discoveredAt, ...API_DEFAULTS };
 }
 export function mergeDirectory(connection: ModelConnection, directory: ApiModel[]): ModelConnection {
   const metadata = new Map(directory.map(model => [model.model, model]));

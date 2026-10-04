@@ -580,3 +580,7 @@ No adjustable node, key, default or storage location changes. UI preferences, wi
 ## Separate model list address (2026-10-04)
 
 The connection editor adds an optional model list address input. Its value is connection data, not a display preference. It is stored as `ModelConnection.modelsUrl` in AppState.modelConnections, in the versioned user state, and saved only by an explicit connection save. The shipped default is empty, meaning the API address is used. Clearing the input removes the field. Unsaved editor text is transient and is discarded on cancel, like the other connection fields. Old state files load unchanged.
+
+## Model provider catalog (2026-10-04)
+
+The connection editor adds a provider/custom tab switch and a provider select. The tab is not a preference. It is derived from the edited connection: connections with `providerId` open on the provider tab, connections without it on the custom tab, and new connections start on the provider tab. The selected provider is connection data saved as `ModelConnection.providerId` in AppState.modelConnections, only on explicit save. Unsaved selections are transient and discarded on cancel, like the other connection fields. When a provider becomes unavailable, its saved ID is preserved and shown as unavailable rather than cleared. Old state files load unchanged.

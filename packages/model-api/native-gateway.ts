@@ -4,6 +4,7 @@ import { randomBytes } from 'node:crypto';
 import { once } from 'node:events';
 import type { ApiModel, ModelConnection } from './types';
 import { apiHeaders, collectStream, parseTurn } from './provider';
+import { modelProviders } from './providers';
 import { nativeWireStream, nativeWireResponse } from './native-wire';
 import { nativeRequestCodec, type NativeRequestCodec } from './native-request';
 import { nativeCompletionCodec, nativeCompletionReceipt, type NativeCompletionCodec, type NativeCompletionBoundary, type NativeCompletionReceipt } from './native-completion';
@@ -20,6 +21,8 @@ export interface NativeGatewayOptions {
   /** Official accounts may expose peer tools without proxying model traffic. */
   mcpOnly?: boolean; authorizeMcp?(): void;
   runtime: 'codex' | 'claude'; model: ApiModel; effort?: string;
+  /** Workbench session; providers receive only a derived routing ID. */
+  sessionId?: string;
   credentials(): Promise<{ connection: ModelConnection; key: string }>;
   fetcher?: typeof fetch; mcp?: () => { handle(request: unknown): Promise<unknown>; dispose(): void };
   mcpSessionPolicy?:NativeMcpSessionPolicy;
@@ -97,7 +100,8 @@ export async function openNativeGateway(options: NativeGatewayOptions) {
         return;
       }
       if (options.mcpOnly) { response.writeHead(404).end(); return; }
-      const { connection, key } = await options.credentials();
+      const credentials = await options.credentials(), key = credentials.key;
+      const connection = modelProviders.resolve(credentials.connection, options.model.model);
       const native = options.runtime === 'codex' ? 'responses' : 'anthropic-messages';
       const endpoint = native === 'responses' ? '/v1/responses' : '/v1/messages';
       const auxiliary = native === 'responses' && route === '/v1/responses/compact' || native === 'anthropic-messages' && route === '/v1/messages/count_tokens';
@@ -110,7 +114,7 @@ export async function openNativeGateway(options: NativeGatewayOptions) {
         if (boundary) mapped = boundary.request;
       }
       const upstreamRoute = auxiliary ? route.slice('/v1/'.length) : connection.protocol === 'responses' ? 'responses' : connection.protocol === 'anthropic-messages' ? 'messages' : 'chat/completions';
-      const headers = apiHeaders(connection, key);
+      const headers = apiHeaders(connection, key, { model: options.model.model, sessionId: options.sessionId });
       const usageStarted = performance.now();
       if (native === connection.protocol && typeof request.headers['anthropic-beta'] === 'string') headers['anthropic-beta'] = request.headers['anthropic-beta'];
       const signal = upstreamSignal = AbortSignal.any([abort.signal, AbortSignal.timeout(connection.timeoutMs)]);

@@ -2490,3 +2490,7 @@ Messages one session sends to another are now delivered immediately as normal us
 ## Separate model list address (2026-10-04)
 
 Model connections now accept an optional model list address, for providers that serve their model directory under a different prefix than their chat endpoint. When it is empty, models are read from the API address as before. Directory reads (discover, refresh, save) use it; model requests and native gateways still use the API address. Verified by unit tests and a hidden-window UI test against a synthetic server, including restart and clearing. No live provider was called with a key. Details are in document 36.
+
+## Model provider catalog (2026-10-04)
+
+Model connections can now be created from a built-in provider catalog: pick a provider and paste a key. The provider supplies the address, chooses the protocol per model, and adds required request headers. For example, OpenCode Go needs a stable `x-opencode-session` per conversation and serves different model families over Chat Completions, Anthropic Messages and Responses. The custom API form is unchanged and remains a second tab. Plugins can register or replace providers through `models.providers`. Verified by unit and synthetic-plugin tests. OpenCode Go addresses and headers were checked with a live key using curl, and the other presets with unauthenticated address probes only. No end-to-end desktop session against a live provider has been run. Details are in document 36.

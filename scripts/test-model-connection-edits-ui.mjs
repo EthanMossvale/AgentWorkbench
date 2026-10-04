@@ -13,7 +13,7 @@ const appRoot=path.join(output,'app'), data=path.join(output,'data-'+Date.now())
 await mkdir(output,{recursive:true});
 const checks=[], errors=[], requests=[];let app,page;
 const server=createServer((req,res)=>{
- requests.push({url:req.url,method:req.method,key:req.headers.authorization??req.headers['x-api-key']});
+ requests.push({url:req.url,method:req.method,key:req.headers.authorization??req.headers['x-api-key'],session:req.headers['x-opencode-session'],agent:req.headers['user-agent']});
  res.setHeader('content-type','application/json');
  if(req.method!=='GET'||!req.url.split('?')[0].endsWith('/models')){res.writeHead(422).end('{}');return;}
  res.end(JSON.stringify({data:[{id:'fixture-model'}]}));
@@ -41,7 +41,7 @@ const launch=async()=>{
 try{
  await launch();await openSettings();
  assert.deepEqual(await call('model-api/list'),[]);
- await page.getByTestId('model-api-add').click();
+ await page.getByTestId('model-api-add').click();await page.getByRole('tab',{name:'自定义 API'}).click();
  await page.getByLabel('连接名称',{exact:true}).fill('合成连接');
  await page.getByLabel('API 地址',{exact:true}).fill(base);
  await page.getByLabel('API 密钥',{exact:true}).fill('synthetic-ui-only-key');
@@ -104,6 +104,42 @@ try{
  saved=(await call('model-api/list'))[0];assert.equal(Object.hasOwn(saved,'modelsUrl'),false);assert.equal(requests.at(-1).url.split('?')[0],'/custom/models');
  assert.deepEqual(errors,[]);
  record('separate model list address reads its own catalog, survives restart, and clearing it falls back to the API address');
+ // Provider tab: new connections open on it; choosing a preset fills name, address and verification note without any request.
+ const before=requests.length;
+ await page.getByTestId('model-api-add').click();
+ assert.equal(await page.getByRole('tab',{name:'第三方提供商'}).getAttribute('aria-selected'),'true');
+ const options=await page.getByLabel('提供商',{exact:true}).locator('option').allTextContents();
+ for(const label of ['OpenCode Go','OpenCode Zen','DeepSeek','OpenAI','Anthropic','OpenRouter'])assert.ok(options.includes(label),label);
+ await page.getByLabel('提供商',{exact:true}).selectOption('core.opencode-go');
+ assert.equal(await page.getByLabel('连接名称',{exact:true}).inputValue(),'OpenCode Go');
+ assert.match(await page.getByTestId('model-api-provider-note').textContent(),/opencode\.ai · 已用真实密钥验证/);
+ await page.getByRole('tab',{name:'自定义 API'}).click();
+ assert.equal(await page.getByLabel('API 地址',{exact:true}).inputValue(),'https://opencode.ai/zen/go/v1');
+ await page.getByRole('button',{name:'取消',exact:true}).click();await page.getByRole('dialog').waitFor({state:'detached'});
+ assert.equal(requests.length,before);
+ // A provider connection pointed at the synthetic server proves the real host attaches provider headers.
+ const goSaved=await call('model-api/save',{connection:{name:'Go 合成',providerId:'core.opencode-go',baseUrl:base+'/go',protocol:'chat-completions',models:[]},key:'synthetic-go-key'});
+ assert.equal(goSaved.providerId,'core.opencode-go');assert.equal(requests.at(-1).url,'/go/models');
+ assert.match(requests.at(-1).session,/^[0-9a-f]{32}$/);assert.match(requests.at(-1).agent,/^AgentWorkbench\//);
+ const orphan=await call('model-api/save',{connection:{name:'缺失提供商',providerId:'plugin:qa.missing/gateway',baseUrl:base+'/orphan',protocol:'chat-completions',models:[]}});
+ assert.equal(requests.at(-1).url,'/orphan/models');assert.equal(requests.at(-1).session,undefined);
+ await app.close();app=undefined;await launch();await openSettings();
+ await page.getByTestId('model-api-'+goSaved.id).getByText('OpenCode Go · 0 个模型').waitFor();
+ await page.getByTestId('model-api-'+orphan.id).getByText('提供商不可用').waitFor();
+ await page.getByTestId('model-api-'+goSaved.id).getByRole('button',{name:'编辑',exact:true}).click();
+ assert.equal(await page.getByRole('tab',{name:'第三方提供商'}).getAttribute('aria-selected'),'true');
+ assert.equal(await page.getByLabel('提供商',{exact:true}).inputValue(),'core.opencode-go');
+ await page.getByTestId('model-api-discover').click();await page.getByTestId('model-api-discover').filter({hasText:'刷新模型'}).waitFor();
+ assert.equal(requests.at(-1).url,'/go/models');assert.match(requests.at(-1).session,/^[0-9a-f]{32}$/);assert.equal(requests.at(-1).key,'Bearer synthetic-go-key');
+ for(const theme of ['light','dark']){await call('theme/set',{theme});await page.screenshot({path:path.join(output,'provider-'+theme+'.png')});}
+ await page.getByRole('button',{name:'取消',exact:true}).click();await page.getByRole('dialog').waitFor({state:'detached'});
+ await page.getByTestId('model-api-'+orphan.id).getByRole('button',{name:'编辑',exact:true}).click();
+ assert.equal(await page.getByLabel('提供商',{exact:true}).inputValue(),'plugin:qa.missing/gateway');
+ assert.match(await page.getByTestId('model-api-provider-note').textContent(),/当前不可用/);
+ await page.getByRole('button',{name:'取消',exact:true}).click();await page.getByRole('dialog').waitFor({state:'detached'});
+ assert.equal((await call('model-api/list')).find(c=>c.id===orphan.id).providerId,'plugin:qa.missing/gateway');
+ assert.deepEqual(errors,[]);
+ record('provider tab presets, provider headers on actual directory reads, restart and unavailable-provider retention');
  await writeFile(path.join(output,'report.json'),JSON.stringify({passed:true,checks,errors,requests:requests.map(({url,method,key})=>({url,method,authenticated:!!key})),realModelCalls:0},null,2));
 }catch(error){await page?.screenshot({path:path.join(output,'failure.png')}).catch(()=>{});await writeFile(path.join(output,'report.json'),JSON.stringify({passed:false,checks,errors,error:String(error)},null,2));throw error;}
 finally{await app?.close();await new Promise(resolve=>server.close(resolve));}

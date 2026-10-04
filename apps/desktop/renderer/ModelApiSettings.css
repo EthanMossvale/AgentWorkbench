@@ -89,3 +89,4 @@
 
 .model-api-custom-effort { display:flex; gap:8px; align-items:center; margin-top:8px; }
 .model-api-custom-effort input { flex:1; min-width:0; }
+.model-api-provider-note{margin:-2px 0 6px}

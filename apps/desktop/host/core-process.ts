@@ -29,6 +29,7 @@ import { officialLoginUrl } from '../../../packages/model-management/native';
 import { createStatePublisher } from '../../../packages/session-core/state-stream';
 import type { PluginIdentity, PluginRecoveryStore, RecoverySnapshot } from '../../../packages/plugins-core/recovery';
 import { createRpcPeer, type CallFence, type RpcPeer } from './process-rpc';
+import { modelProviders } from '../../../packages/model-api/providers';
 
 /**
  * The workbench core: state, persistence, native runtimes, SSH transports, tools
@@ -97,6 +98,7 @@ export async function runCore(parent: ParentPort) {
   });
   const init = await ready;
   const { directory } = init;
+  modelProviders.clientVersion = init.version;
   // Liveness for the recovery guardian: a stalled core (e.g. a looping host plugin) stops these.
   ui.emit('alive'); setInterval(() => ui.emit('alive'), 500).unref();
   const toRenderer = (type: string, payload?: unknown) => { try { if (rendererPort) { rendererPort.postMessage({ type, payload }); portSeq++; } } catch { /* A closed window must not fail the core. */ } };

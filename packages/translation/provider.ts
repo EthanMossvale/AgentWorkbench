@@ -114,7 +114,7 @@ export class Translator {
     else {route='chat/completions';body={model:profile.model,max_completion_tokens:outputLimit,messages:[{role:'system',content:instruction},{role:'user',content:protectedText.text}],...(reasoning?{reasoning_effort:reasoning.effort}:{})};}
     const deadline=translationDeadline(profile.timeoutMs,signal),combined=deadline.signal;
   try {
-    const url=backend?.execute?undefined:endpoint(profile.baseUrl,route); const auth=backend?.execute?undefined:headers(profile.protocol,key,backend?.auth==='none');
+    const url=backend?.execute?undefined:endpoint(profile.baseUrl,route); const auth=backend?.execute?undefined:{...backend?.requestHeaders?.(sessionId),...headers(profile.protocol,key,backend?.auth==='none')};
     assertActive(combined);
     if(this.reserve&&sessionId!=='runtime')await this.reserve(sessionId,profile.maxCalls);
     else if(profile.maxCalls>0&&(this.calls.get(callScope)??0)>=profile.maxCalls)throw new Error('本会话翻译调用预算已用完。');

@@ -11,6 +11,8 @@ export interface TranslationExecutionRequest { instructions: string; input: stri
 export interface TranslationBackend {
   profile: TranslationProfile; key?: string; auth?: 'key' | 'none'; runtime: RuntimeKind; sourceId: string;
   execute?(request: TranslationExecutionRequest): Promise<TranslationCompletion>;
+  /** Provider request headers for direct HTTP backends; credential headers stay core-owned. */
+  requestHeaders?(sessionId: string): Record<string, string>;
 }
 export interface TranslationTargetProvider {
   list(): TranslationTarget[] | Promise<TranslationTarget[]>;

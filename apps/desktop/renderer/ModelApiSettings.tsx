@@ -1,8 +1,9 @@
 import {useUiPreference} from './ui-preferences';
 import { modelUsageRevision } from '../../../packages/model-management/usage';
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import type { AppState, Protocol } from '../../../packages/contracts';
 import type { ApiModel, ModelConnection } from '../../../packages/model-api/types';
+import type { ModelProviderSummary } from '../../../packages/model-api/providers';
 import { nativeContextSettings } from '../../../packages/model-api/native-context';
 import { isEmptyModelDraft, normalizeModelApiUrl, retainManualModelSettings } from '../../../packages/model-api/settings';
 import { api } from './App';
@@ -13,8 +14,10 @@ import ModelUsageSummary from './ModelUsageSummary';
 import ReasoningOptions from './ReasoningOptions';
 import { availableReasoningEfforts, mergeReasoning, reasoningStatus } from '../../../packages/model-api/reasoning-info';
 
-type Draft = Pick<ModelConnection, 'name' | 'baseUrl' | 'protocol' | 'models'> & { modelsUrl: string };
+type Draft = Pick<ModelConnection, 'name' | 'baseUrl' | 'protocol' | 'models' | 'providerId'> & { modelsUrl: string };
 const empty = (): Draft => ({ name: '', baseUrl: '', modelsUrl: '', protocol: 'chat-completions', models: [] });
+const verification: Record<ModelProviderSummary['verification'], string> = { key: '已用真实密钥验证', endpoint: '地址已确认，尚未用密钥验证', docs: '按官方文档配置，尚未验证' };
+const hostOf = (url: string) => { try { return new URL(url).host; } catch { return ''; } };
 const protocols: Record<Protocol, string> = { 'chat-completions': 'Chat Completions', responses: 'Responses', 'anthropic-messages': 'Anthropic Messages' };
 const capabilities = (model: ApiModel) => [model.contextWindow ? model.contextWindow.toLocaleString() + ' 上下文' : '', availableReasoningEfforts(model).length ? availableReasoningEfforts(model).length + ' 个思考档位' : ''].filter(Boolean).join(' · ');
 function withDirectory(models: ApiModel[], directory: ApiModel[]) {
@@ -31,13 +34,21 @@ export default function ModelApiSettings({ state, refresh, notify }: { state: Ap
   const [error, setError] = useState(''), [search, setSearch] = useState(''), [mapping, setMapping] = useState<string>();
   const [deleting, setDeleting] = useState<ModelConnection | null>(null);
   const [expanded, setExpanded] = useUiPreference<string[]>('models.expanded','api');
+  // The source mode follows the edited connection; it is draft data saved as providerId, not a layout preference.
+  const [providers, setProviders] = useState<ModelProviderSummary[]>([]), [mode, setMode] = useState<'provider' | 'custom'>('provider');
+  const loadProviders = () => api<ModelProviderSummary[]>('model-api/providers').then(setProviders).catch(() => {});
+  useEffect(() => { void loadProviders(); }, []);
+  const providerOf = (id?: string) => id ? providers.find(item => item.id === id) : undefined;
   const open = (connection: ModelConnection | null) => {
-    setEditing(connection); setDraft(connection ? { name: connection.name, baseUrl: connection.baseUrl, modelsUrl: connection.modelsUrl ?? '', protocol: connection.protocol, models: connection.models } : empty());
+    void loadProviders(); setMode(connection && !connection.providerId ? 'custom' : 'provider');
+    setEditing(connection); setDraft(connection ? { name: connection.name, baseUrl: connection.baseUrl, modelsUrl: connection.modelsUrl ?? '', protocol: connection.protocol, models: connection.models, ...(connection.providerId ? { providerId: connection.providerId } : {}) } : empty());
     setDirectory(connection?.discoveredModels ?? []); setKey(connection ? undefined : ''); setError(''); setSearch(''); setMapping(undefined);
   };
-  const payload = () => ({ id: editing?.id, revision: editing?.revision, connection: { ...draft, baseUrl: normalizeModelApiUrl(draft.baseUrl), modelsUrl: draft.modelsUrl.trim() ? normalizeModelApiUrl(draft.modelsUrl) : undefined, models: draft.models.filter(model => !isEmptyModelDraft(model)) }, ...(key !== undefined ? { key } : {}) });
+  const payload = () => ({ id: editing?.id, revision: editing?.revision, connection: { ...draft, providerId: mode === 'provider' ? draft.providerId : undefined, baseUrl: normalizeModelApiUrl(draft.baseUrl), modelsUrl: draft.modelsUrl.trim() ? normalizeModelApiUrl(draft.modelsUrl) : undefined, models: draft.models.filter(model => !isEmptyModelDraft(model)) }, ...(key !== undefined ? { key } : {}) });
   const save = async () => {
-    if (busy) return; setBusy('save'); setError('');
+    if (busy) return;
+    if (mode === 'provider' && !draft.providerId) { setError('请选择提供商。'); return; }
+    setBusy('save'); setError('');
     try {
       const saved = await api<ModelConnection>('model-api/save', payload());
       setDraft({ ...saved, modelsUrl: saved.modelsUrl ?? '' }); setKey(undefined); setDirectory(saved.discoveredModels); await refresh();
@@ -46,7 +57,9 @@ export default function ModelApiSettings({ state, refresh, notify }: { state: Ap
     } catch (e) { setError(errorText(e)); } finally { setBusy(null); }
   };
   const discover = async () => {
-    if (busy) return; setBusy('discover'); setError('');
+    if (busy) return;
+    if (mode === 'provider' && !draft.providerId) { setError('请选择提供商。'); return; }
+    setBusy('discover'); setError('');
     try {
       const request = payload();
       const models = await api<ApiModel[]>('model-api/discover', { ...request, connection: { ...request.connection, name: draft.name || '模型连接', models: [] } });
@@ -74,6 +87,17 @@ export default function ModelApiSettings({ state, refresh, notify }: { state: Ap
   const changeSource = (patch: Partial<Draft>) => {
     setDirectory([]); setError('');
     setDraft(previous => ({ ...previous, ...patch, models: previous.models.map(retainManualModelSettings) }));
+  };
+  const pickProvider = (id: string) => {
+    const provider = providerOf(id); if (!provider) return;
+    const name = !draft.name.trim() || draft.name === providerOf(draft.providerId)?.label ? provider.label : draft.name;
+    changeSource({ providerId: id, name, baseUrl: provider.baseUrl, modelsUrl: provider.modelsUrl ?? '', protocol: provider.protocol });
+  };
+  const switchMode = (next: 'provider' | 'custom') => {
+    if (next === mode) return;
+    setMode(next);
+    // Custom keeps the provider's address as an editable starting point; provider mode requires a selection.
+    changeSource({ providerId: next === 'provider' ? draft.providerId : undefined });
   };
   const changeUpstream = (model: ApiModel, id: string) => {
     const known = directory.find(item => item.model === id);
@@ -106,7 +130,7 @@ export default function ModelApiSettings({ state, refresh, notify }: { state: Ap
     <div className="model-api-heading"><h2>API</h2><button className="text-button" data-testid="model-api-add" onClick={() => open(null)}><Icon name="plus" size={14} />添加连接</button></div>
     {error && editing === undefined && !deleting && <p className="model-api-error" role="alert">{error}</p>}
     <div className="model-api-connections">{(state.modelConnections ?? []).map(connection => <article className="model-api-source" key={connection.id} data-testid={'model-api-' + connection.id}>
-      <div className="model-api-source-row"><button type="button" className="model-row-disclosure" aria-label={'展开 '+connection.name} aria-expanded={expanded.includes(connection.id)} onClick={()=>setExpanded(old=>old.includes(connection.id)?old.filter(id=>id!==connection.id):[...old,connection.id])}><Icon name="chevron" size={13}/><span><strong>{connection.name}</strong><small>{new URL(connection.baseUrl).host} · {connection.models.filter(model => model.enabled).length} 个模型</small>{connection.discoveryError && <small className="model-api-source-warning" title={connection.discoveryError}>模型目录暂未读取</small>}</span></button>
+      <div className="model-api-source-row"><button type="button" className="model-row-disclosure" aria-label={'展开 '+connection.name} aria-expanded={expanded.includes(connection.id)} onClick={()=>setExpanded(old=>old.includes(connection.id)?old.filter(id=>id!==connection.id):[...old,connection.id])}><Icon name="chevron" size={13}/><span><strong>{connection.name}</strong><small>{providerOf(connection.providerId)?.label ?? hostOf(connection.baseUrl)} · {connection.models.filter(model => model.enabled).length} 个模型</small>{connection.providerId && providers.length > 0 && !providerOf(connection.providerId) && <small className="model-api-source-warning" title="将按已保存的地址与协议请求，不附加提供商请求头。">提供商不可用</small>}{connection.discoveryError && <small className="model-api-source-warning" title={connection.discoveryError}>模型目录暂未读取</small>}</span></button>
       <button className="text-button" disabled={!!busy} onClick={() => open(connection)}>编辑</button><button className="icon-button" disabled={!!busy} aria-label={'删除 ' + connection.name} onClick={() => { setError(''); setDeleting(connection); }}><Icon name="trash" size={15} /></button>
       <fieldset className="model-api-toggle resource-fieldset" disabled={!!busy}><Toggle label={'启用 ' + connection.name} checked={connection.enabled !== false} onChange={enabled => void toggle(connection, enabled)} /></fieldset></div>
       {expanded.includes(connection.id)&&<ModelUsageSummary scope={{kind:'api',id:connection.id}} refreshKey={modelUsageRevision(state,{kind:'api',id:connection.id})}/>}
@@ -115,12 +139,21 @@ export default function ModelApiSettings({ state, refresh, notify }: { state: Ap
     <LocalModelAccounts state={state} refresh={refresh} notify={notify}/>
     {editing !== undefined && <Modal title={editing ? '编辑模型连接' : '添加模型连接'} subtitle="接入一个来源，选好常用的模型。" onClose={() => { if (!busy) setEditing(undefined); }} className="model-api-modal" dismissible={!busy}>
       <div className="model-api-editor" data-testid="model-api-editor"><div className="model-api-scroll"><fieldset disabled={!!busy}>
-        <div className="model-api-fields">
-          <label>连接名称<input data-autofocus aria-label="连接名称" placeholder="例如：我的书房" value={draft.name} onChange={e => setDraft({ ...draft, name: e.target.value })} /></label>
-          <label>接口协议<select aria-label="接口协议" value={draft.protocol} onChange={e => changeSource({ protocol: e.target.value as Protocol })}>{Object.entries(protocols).map(([value, label]) => <option key={value} value={value}>{label}</option>)}</select></label>
-        </div>
-        <label>API 地址<input aria-label="API 地址" placeholder="https://example.com/v1" spellCheck={false} value={draft.baseUrl} onChange={e => changeSource({ baseUrl: e.target.value })} onBlur={() => completeUrl('baseUrl')} /></label>
-        <label className="model-api-models-url"><span>模型列表地址<small>选填</small></span><input aria-label="模型列表地址" placeholder="留空则从 API 地址读取模型" spellCheck={false} value={draft.modelsUrl} onChange={e => changeSource({ modelsUrl: e.target.value })} onBlur={() => completeUrl('modelsUrl')} /></label>
+        <div className="model-login-tabs model-api-source-tabs" role="tablist" aria-label="接入方式"><button type="button" role="tab" aria-selected={mode === 'provider'} onClick={() => switchMode('provider')}>第三方提供商</button><button type="button" role="tab" aria-selected={mode === 'custom'} onClick={() => switchMode('custom')}>自定义 API</button></div>
+        {mode === 'provider' ? <>
+          <div className="model-api-fields">
+            <label>提供商<select aria-label="提供商" value={draft.providerId ?? ''} onChange={e => pickProvider(e.target.value)}><option value="" disabled>选择提供商</option>{draft.providerId && !providerOf(draft.providerId) && <option value={draft.providerId} disabled>{draft.providerId}（不可用）</option>}{providers.map(provider => <option key={provider.id} value={provider.id}>{provider.label}</option>)}</select></label>
+            <label>连接名称<input data-autofocus aria-label="连接名称" placeholder="例如：我的书房" value={draft.name} onChange={e => setDraft({ ...draft, name: e.target.value })} /></label>
+          </div>
+          {draft.providerId && <p className="model-api-note model-api-provider-note" data-testid="model-api-provider-note">{providerOf(draft.providerId) ? [providerOf(draft.providerId)!.description, hostOf(draft.baseUrl), verification[providerOf(draft.providerId)!.verification]].filter(Boolean).join(' · ') : '此提供商当前不可用（插件已停用或卸载），将按已保存的地址与协议请求，不附加提供商请求头。'}</p>}
+        </> : <>
+          <div className="model-api-fields">
+            <label>连接名称<input data-autofocus aria-label="连接名称" placeholder="例如：我的书房" value={draft.name} onChange={e => setDraft({ ...draft, name: e.target.value })} /></label>
+            <label>接口协议<select aria-label="接口协议" value={draft.protocol} onChange={e => changeSource({ protocol: e.target.value as Protocol })}>{Object.entries(protocols).map(([value, label]) => <option key={value} value={value}>{label}</option>)}</select></label>
+          </div>
+          <label>API 地址<input aria-label="API 地址" placeholder="https://example.com/v1" spellCheck={false} value={draft.baseUrl} onChange={e => changeSource({ baseUrl: e.target.value })} onBlur={() => completeUrl('baseUrl')} /></label>
+          <label className="model-api-models-url"><span>模型列表地址<small>选填</small></span><input aria-label="模型列表地址" placeholder="留空则从 API 地址读取模型" spellCheck={false} value={draft.modelsUrl} onChange={e => changeSource({ modelsUrl: e.target.value })} onBlur={() => completeUrl('modelsUrl')} /></label>
+        </>}
         <label className="model-api-key"><span>API 密钥<small>{editing?.hasKey && key === undefined ? '已加密保存' : '选填'}</small></span><span className="model-api-key-input"><input type="password" autoComplete="new-password" aria-label="API 密钥" placeholder={editing?.hasKey && key === undefined ? '已保存，填写可替换' : '粘贴 API Key'} value={key ?? ''} onChange={e => setKey(e.target.value)} />{editing?.hasKey && key === undefined && <button type="button" className="text-button" onClick={() => setKey('')}>清除</button>}{editing?.hasKey && key !== undefined && <button type="button" className="text-button" onClick={() => setKey(undefined)}>保留原密钥</button>}</span></label>
         <section className="model-api-catalog" aria-label="可用模型">
           <div className="model-api-heading"><h3>选择模型{selected > 0 && <small>{selected} 已选</small>}</h3><div className="model-api-catalog-actions">{selectable.length > 0 && <button type="button" className="text-button" data-testid="model-api-select-all" title="切换此连接的全部模型，包括搜索范围外的模型" onClick={toggleAll}>{allSelected ? '取消全选' : '全选'}</button>}<button type="button" className="text-button" data-testid="model-api-discover" onClick={discover}><Icon name="refresh" size={13} />{busy === 'discover' ? '读取中…' : directory.length ? '刷新模型' : '读取模型'}</button></div></div>

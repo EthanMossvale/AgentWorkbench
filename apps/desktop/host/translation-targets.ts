@@ -5,6 +5,7 @@ import type { TranslationBackend, TranslationTargetProvider } from '../../../pac
 import { NativeTranslationRunner } from '../../../packages/translation/native';
 import type { LocalCliService } from '../../../packages/native-runtime/cli';
 import type { ModelConnections } from './model-connections';
+import { modelProviders } from '../../../packages/model-api/providers';
 import type { LocalModelAccounts } from './local-model-accounts';
 
 export class WorkbenchTranslationTargets implements TranslationTargetProvider {
@@ -24,7 +25,8 @@ export class WorkbenchTranslationTargets implements TranslationTargetProvider {
     const binding=target.binding;
     if(binding.modelConnectionId){
       const connection=this.connections.connection(binding.modelConnectionId),model=connection.models.find(m=>m.id===binding.modelMappingId&&m.enabled);if(!connection.enabled||!model)throw Error('TRANSLATION_TARGET_UNAVAILABLE');
-      return {sourceId:id,runtime:'api',auth:connection.auth,profile:{...profile,baseUrl:connection.baseUrl,protocol:connection.protocol,model:model.model,name:connection.name,consent:true,effort:undefined,verifiedEfforts:[],reasoning:effort?{mode:connection.protocol==='anthropic-messages'?'adaptive':'effort',effort,confirmed:true}:undefined},key:await this.connections.key(connection)};
+      const protocol=modelProviders.protocol(connection,model.model);
+      return {sourceId:id,runtime:'api',auth:connection.auth,requestHeaders:sessionId=>modelProviders.headers({...connection,protocol},{model:model.model,sessionId}),profile:{...profile,baseUrl:connection.baseUrl,protocol,model:model.model,name:connection.name,consent:true,effort:undefined,verifiedEfforts:[],reasoning:effort?{mode:protocol==='anthropic-messages'?'adaptive':'effort',effort,confirmed:true}:undefined},key:await this.connections.key(connection)};
     }
     if(!binding.localAccountId||!this.cli)throw Error('TRANSLATION_TARGET_UNAVAILABLE');
     const session={binding,modelSelection:{model:target.selection!.model,...(effort?{effort}:{})}} as Session;

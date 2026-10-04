@@ -5,14 +5,15 @@ import { apiAttachmentContent, publicContextJson } from '../attachments/input';
 import type { ModelConnection, ApiModel, ApiHistoryEntry, ApiToolDefinition, ApiTurn, ApiToolCall } from './types';
 import { outputTokenLimit, parseModelDirectory } from './config';
 import { assertIndependentTranslationKey } from '../translation/credentials';
+import { modelProviders } from './providers';
 
 type Json = Record<string, any>;
 const object = (v: unknown): Json => v && typeof v === 'object' && !Array.isArray(v) ? v as Json : {};
 const count = (n: unknown) => typeof n === 'number' && Number.isSafeInteger(n) && n >= 0 ? n : null;
 export class ModelRequestError extends Error { constructor(message: string, readonly uncertain = false) { super(message); } }
-export function apiHeaders(connection: ModelConnection, key: string): Record<string, string> {
+export function apiHeaders(connection: ModelConnection, key: string, request?: { model?: string; sessionId?: string }): Record<string, string> {
   if (connection.auth === 'key') { if (!key) throw new ModelRequestError('API 密钥尚未设置。'); assertIndependentTranslationKey(key); }
-  return { 'content-type': 'application/json', ...(connection.protocol === 'anthropic-messages' ? { 'anthropic-version': '2023-06-01', ...(connection.auth === 'key' ? { 'x-api-key': key } : {}) } : connection.auth === 'key' ? { authorization: `Bearer ${key}` } : {}) };
+  return { ...modelProviders.headers(connection, request), 'content-type': 'application/json', ...(connection.protocol === 'anthropic-messages' ? { 'anthropic-version': '2023-06-01', ...(connection.auth === 'key' ? { 'x-api-key': key } : {}) } : connection.auth === 'key' ? { authorization: `Bearer ${key}` } : {}) };
 }
 function connectionFailure(error: unknown, signal: AbortSignal): string {
   if (signal.aborted) return signal.reason?.name === 'TimeoutError' ? '请求超时' : '请求已取消';
@@ -73,13 +74,16 @@ export async function discoverModels(connection: ModelConnection, key: string, f
   }
   throw new ModelRequestError('上游模型目录超过分页限制。');
 }
-export interface ApiConversation { contextPlanning?:ApiContextPlanning; connection: ModelConnection; model: ApiModel; system: string; history: ApiHistoryEntry[]; tools: ApiToolDefinition[]; effort?: string; onUsage?:(turn:ApiTurn,elapsedMs:number)=>void|Promise<void> }
+export interface ApiConversation { contextPlanning?:ApiContextPlanning; connection: ModelConnection; model: ApiModel; system: string; history: ApiHistoryEntry[]; tools: ApiToolDefinition[]; effort?: string; onUsage?:(turn:ApiTurn,elapsedMs:number)=>void|Promise<void>;
+  /** Workbench session; providers receive only a derived routing ID. */
+  sessionId?: string }
 /** Per explicit turn only. Native opaque reasoning/signatures never cross providers or persist in chat history. */
 export class ApiConversationClient {
   private transcript: any[];
   private contextPlanning:ApiContextPlanning;
   private observedContext?:{tokens:number;estimate:number};
   constructor(private options: ApiConversation, private key: string, private fetcher: typeof fetch = fetch) {
+    options = this.options = { ...options, connection: modelProviders.resolve(options.connection, options.model.model) };
     this.contextPlanning=options.contextPlanning??new ApiContextPlanning();
     this.transcript = options.history.map(entry => ({ role: entry.role, content: apiAttachmentContent(entry.content,entry.files??[],options.connection.protocol) }));
   }
@@ -113,7 +117,7 @@ export class ApiConversationClient {
     }
     const combined = AbortSignal.any([signal, AbortSignal.timeout(c.timeoutMs)]);
     const usageStarted = performance.now();
-    const result = await response(this.fetcher, apiEndpoints.resolve({baseUrl:c.baseUrl,resource:route,defaultVersion:false}), { method: 'POST', headers: apiHeaders(c, this.key), body: JSON.stringify(body) }, combined);
+    const result = await response(this.fetcher, apiEndpoints.resolve({baseUrl:c.baseUrl,resource:route,defaultVersion:false}), { method: 'POST', headers: apiHeaders(c, this.key, { model: model.model, sessionId: this.options.sessionId }), body: JSON.stringify(body) }, combined);
     try {
     let data: Json;
     if (!result.headers.get('content-type')?.includes('text/event-stream')) data = await json(result);

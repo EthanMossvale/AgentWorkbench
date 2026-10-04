@@ -14,6 +14,7 @@ import { boundedDetails } from '../../../packages/collaboration-core/activity-de
 import type { NativePeerContextSession } from '../../../packages/collaboration-core/native-inbox';
 import { apiLocalToolDefinitions, ApiLocalTools } from './api-local-tools';
 import type { ModelConnections } from './model-connections';
+import { modelProviders } from '../../../packages/model-api/providers';
 
 interface Hooks {
   attachments?:AttachmentStore;
@@ -98,7 +99,7 @@ export class ApiRunner {
     try{
       const text=old.map(entry=>JSON.stringify({...entry,files:entry.files?.map(file=>file.attachment)})).join('\n');
       summary=await this.contextPlanning.summarize(text,model,signal,async content=>{
-        const client=new ApiConversationClient({contextPlanning:this.contextPlanning,connection,model,system:summaryInstructions,history:[{role:'user',content}],tools:[],onUsage:this.usage(id,connection.protocol,model)},key,this.fetcher);
+        const client=new ApiConversationClient({sessionId:id,contextPlanning:this.contextPlanning,connection,model,system:summaryInstructions,history:[{role:'user',content}],tools:[],onUsage:this.usage(id,modelProviders.protocol(connection,model.model),model)},key,this.fetcher);
         const result=await client.next(signal,()=>{});if(result.calls.length)throw new ModelRequestError('摘要模型返回了不允许的工具请求。');return result.text;
       });
       const through=messages[messages.length-keep-1]?.id;
@@ -113,7 +114,7 @@ export class ApiRunner {
       const history=await this.history(id,connection,model,key,signal);claim=await peerContext.prepare(history.at(-1)!.content);history[history.length-1]!.content=claim.input;
       const context=await this.hooks.context(id),session=this.session(id),provenance=sourceLabel(session,this.read() as AppState);
       const tools=[...apiLocalToolDefinitions,...peers.definitions],callBudget=active.callBudget;
-      const client=new ApiConversationClient({contextPlanning:this.contextPlanning,connection,model,system:system+(connection.tools?'\n'+visualizationPresentation.instructions('api'):'')+(context?'\n'+context:''),history,tools,effort:session.modelSelection?session.modelSelection.effort:model.defaultEffort,onUsage:this.usage(id,connection.protocol,model)},key,this.fetcher);
+      const client=new ApiConversationClient({sessionId:id,contextPlanning:this.contextPlanning,connection,model,system:system+(connection.tools?'\n'+visualizationPresentation.instructions('api'):'')+(context?'\n'+context:''),history,tools,effort:session.modelSelection?session.modelSelection.effort:model.defaultEffort,onUsage:this.usage(id,modelProviders.protocol(connection,model.model),model)},key,this.fetcher);
       const executedCalls=new Map<string,{fingerprint:string;result:unknown;error:boolean}>();
       for(let step=0;;step++){
         if(callBudget&&step>=callBudget){active.accepting=false;await Promise.all(active.writes.values());await this.update(id,s=>{s.status='idle';s.nativeTurnStatus='budget-exhausted';s.apiBudgetPause={turnId:preview.id,calls:step,limit:callBudget,at:new Date().toISOString()};s.nativeApprovals=[];for(const m of s.messages)if(m.nativeTurnId===active.turnId&&m.delivery==='pending')m.delivery='not-sent';});return;}

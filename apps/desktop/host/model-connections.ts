@@ -6,6 +6,7 @@ import { nativeContextSettings } from '../../../packages/model-api/native-contex
 import { mergeDirectory, validateConnection } from '../../../packages/model-api/config';
 import { retainManualModelSettings } from '../../../packages/model-api/settings';
 import { discoverModels } from '../../../packages/model-api/provider';
+import { modelProviders } from '../../../packages/model-api/providers';
 import { verifyConnectionReasoning } from '../../../packages/model-api/reasoning-probe';
 import { applyReasoning, reasoningCandidates } from '../../../packages/model-api/reasoning-info';
 import type { SecretStore } from './store';
@@ -25,6 +26,7 @@ export class ModelConnections {
   async key(connection:ModelConnection){return connection.auth==='none'?'':this.secrets.getModel(connection.credentialRef,modelCredentialScope(connection));}
   call(method:string,p:Record<string,unknown>):Promise<unknown>{
     if(method==='model-api/reasoning/options')return Promise.resolve(this.reasoningOptions.list(p.model as ModelConnection['models'][number]));
+    if(method==='model-api/providers')return Promise.resolve(modelProviders.list());
     if(method.startsWith('model-api/reasoning/'))return this.reasoningCall(method,p);
     const action=()=>this.perform(method,p);
     // Serialize credentials with metadata CAS, including refresh/delete.
