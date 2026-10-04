@@ -61,7 +61,7 @@ async function json(result: Response): Promise<Json> {
   try { return object(JSON.parse(Buffer.concat(chunks).toString('utf8'))); } catch { throw new ModelRequestError('API 未返回有效 JSON。'); }
 }
 export async function discoverModels(connection: ModelConnection, key: string, fetcher: typeof fetch = fetch): Promise<ApiModel[]> {
-  const url = new URL(apiEndpoints.resolve({baseUrl:connection.baseUrl,resource:'models',defaultVersion:false})), headers = apiHeaders(connection, key);
+  const url = new URL(apiEndpoints.resolve({baseUrl:connection.modelsUrl||connection.baseUrl,resource:'models',defaultVersion:false})), headers = apiHeaders(connection, key);
   const signal = AbortSignal.timeout(Math.min(connection.timeoutMs, 30000)), all = new Map<string, ApiModel>(), cursors = new Set<string>();
   if (connection.protocol === 'anthropic-messages') url.searchParams.set('limit', '1000');
   for (let page = 0; page < 10; page++) {

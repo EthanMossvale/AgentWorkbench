@@ -89,6 +89,21 @@ try{
  assert.equal((await call('model-api/list'))[0].hasKey,false);assert.equal(requests.at(-1).key,undefined);
  assert.ok(requests.every(r=>r.method==='GET'));assert.deepEqual(errors,[]);
  record('explicit key clearing works; all requests are catalog GETs and renderer errors are zero');
+ await page.getByTestId('model-api-'+id).getByRole('button',{name:'编辑',exact:true}).click();
+ assert.equal(await page.getByLabel('模型列表地址',{exact:true}).inputValue(),'');
+ await page.getByLabel('模型列表地址',{exact:true}).fill(base+'/catalog/v1/models');
+ await page.getByTestId('model-api-discover').click();await page.getByTestId('model-api-discover').filter({hasText:'刷新模型'}).waitFor();
+ assert.equal(requests.at(-1).url,'/catalog/v1/models');
+ await page.getByTestId('model-api-save').click();await page.getByRole('dialog').waitFor({state:'detached'});
+ saved=(await call('model-api/list'))[0];assert.equal(saved.baseUrl,base+'/custom');assert.equal(saved.modelsUrl,base+'/catalog/v1');assert.equal(requests.at(-1).url,'/catalog/v1/models');
+ await app.close();app=undefined;await launch();await openSettings();
+ await page.getByTestId('model-api-'+id).getByRole('button',{name:'编辑',exact:true}).click();
+ assert.equal(await page.getByLabel('模型列表地址',{exact:true}).inputValue(),base+'/catalog/v1');
+ await page.getByLabel('模型列表地址',{exact:true}).fill('');
+ await page.getByTestId('model-api-save').click();await page.getByRole('dialog').waitFor({state:'detached'});
+ saved=(await call('model-api/list'))[0];assert.equal(Object.hasOwn(saved,'modelsUrl'),false);assert.equal(requests.at(-1).url.split('?')[0],'/custom/models');
+ assert.deepEqual(errors,[]);
+ record('separate model list address reads its own catalog, survives restart, and clearing it falls back to the API address');
  await writeFile(path.join(output,'report.json'),JSON.stringify({passed:true,checks,errors,requests:requests.map(({url,method,key})=>({url,method,authenticated:!!key})),realModelCalls:0},null,2));
 }catch(error){await page?.screenshot({path:path.join(output,'failure.png')}).catch(()=>{});await writeFile(path.join(output,'report.json'),JSON.stringify({passed:false,checks,errors,error:String(error)},null,2));throw error;}
 finally{await app?.close();await new Promise(resolve=>server.close(resolve));}

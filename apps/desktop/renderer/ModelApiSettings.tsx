@@ -13,8 +13,8 @@ import ModelUsageSummary from './ModelUsageSummary';
 import ReasoningOptions from './ReasoningOptions';
 import { availableReasoningEfforts, mergeReasoning, reasoningStatus } from '../../../packages/model-api/reasoning-info';
 
-type Draft = Pick<ModelConnection, 'name' | 'baseUrl' | 'protocol' | 'models'>;
-const empty = (): Draft => ({ name: '', baseUrl: '', protocol: 'chat-completions', models: [] });
+type Draft = Pick<ModelConnection, 'name' | 'baseUrl' | 'protocol' | 'models'> & { modelsUrl: string };
+const empty = (): Draft => ({ name: '', baseUrl: '', modelsUrl: '', protocol: 'chat-completions', models: [] });
 const protocols: Record<Protocol, string> = { 'chat-completions': 'Chat Completions', responses: 'Responses', 'anthropic-messages': 'Anthropic Messages' };
 const capabilities = (model: ApiModel) => [model.contextWindow ? model.contextWindow.toLocaleString() + ' 上下文' : '', availableReasoningEfforts(model).length ? availableReasoningEfforts(model).length + ' 个思考档位' : ''].filter(Boolean).join(' · ');
 function withDirectory(models: ApiModel[], directory: ApiModel[]) {
@@ -32,15 +32,15 @@ export default function ModelApiSettings({ state, refresh, notify }: { state: Ap
   const [deleting, setDeleting] = useState<ModelConnection | null>(null);
   const [expanded, setExpanded] = useUiPreference<string[]>('models.expanded','api');
   const open = (connection: ModelConnection | null) => {
-    setEditing(connection); setDraft(connection ? { name: connection.name, baseUrl: connection.baseUrl, protocol: connection.protocol, models: connection.models } : empty());
+    setEditing(connection); setDraft(connection ? { name: connection.name, baseUrl: connection.baseUrl, modelsUrl: connection.modelsUrl ?? '', protocol: connection.protocol, models: connection.models } : empty());
     setDirectory(connection?.discoveredModels ?? []); setKey(connection ? undefined : ''); setError(''); setSearch(''); setMapping(undefined);
   };
-  const payload = () => ({ id: editing?.id, revision: editing?.revision, connection: { ...draft, baseUrl: normalizeModelApiUrl(draft.baseUrl), models: draft.models.filter(model => !isEmptyModelDraft(model)) }, ...(key !== undefined ? { key } : {}) });
+  const payload = () => ({ id: editing?.id, revision: editing?.revision, connection: { ...draft, baseUrl: normalizeModelApiUrl(draft.baseUrl), modelsUrl: draft.modelsUrl.trim() ? normalizeModelApiUrl(draft.modelsUrl) : undefined, models: draft.models.filter(model => !isEmptyModelDraft(model)) }, ...(key !== undefined ? { key } : {}) });
   const save = async () => {
     if (busy) return; setBusy('save'); setError('');
     try {
       const saved = await api<ModelConnection>('model-api/save', payload());
-      setDraft(saved); setKey(undefined); setDirectory(saved.discoveredModels); await refresh();
+      setDraft({ ...saved, modelsUrl: saved.modelsUrl ?? '' }); setKey(undefined); setDirectory(saved.discoveredModels); await refresh();
       setEditing(undefined);
       notify('连接已保存');
     } catch (e) { setError(errorText(e)); } finally { setBusy(null); }
@@ -50,7 +50,7 @@ export default function ModelApiSettings({ state, refresh, notify }: { state: Ap
     try {
       const request = payload();
       const models = await api<ApiModel[]>('model-api/discover', { ...request, connection: { ...request.connection, name: draft.name || '模型连接', models: [] } });
-      setDirectory(models); setDraft(previous => ({ ...previous, baseUrl: request.connection.baseUrl, models: withDirectory(previous.models, models) }));
+      setDirectory(models); setDraft(previous => ({ ...previous, baseUrl: request.connection.baseUrl, modelsUrl: request.connection.modelsUrl ?? '', models: withDirectory(previous.models, models) }));
       if (!models.length) setError('服务返回了空目录，可手动添加模型。');
     } catch (e) { setError(errorText(e)); } finally { setBusy(null); }
   };
@@ -88,8 +88,9 @@ export default function ModelApiSettings({ state, refresh, notify }: { state: Ap
     setDirectory(previous => previous.filter(model => model.id !== id));
     setMapping(previous => previous === id ? undefined : previous); setError('');
   };
-  const completeUrl = () => {
-    try { const baseUrl = normalizeModelApiUrl(draft.baseUrl); setDraft(previous => ({ ...previous, baseUrl })); }
+  const completeUrl = (field: 'baseUrl' | 'modelsUrl') => {
+    if (!draft[field].trim()) return;
+    try { const value = normalizeModelApiUrl(draft[field]); setDraft(previous => ({ ...previous, [field]: value })); }
     catch { /* Incomplete input is validated on discovery or save. */ }
   };
   const directoryIds = new Set(directory.map(model => model.id));
@@ -118,7 +119,8 @@ export default function ModelApiSettings({ state, refresh, notify }: { state: Ap
           <label>连接名称<input data-autofocus aria-label="连接名称" placeholder="例如：我的书房" value={draft.name} onChange={e => setDraft({ ...draft, name: e.target.value })} /></label>
           <label>接口协议<select aria-label="接口协议" value={draft.protocol} onChange={e => changeSource({ protocol: e.target.value as Protocol })}>{Object.entries(protocols).map(([value, label]) => <option key={value} value={value}>{label}</option>)}</select></label>
         </div>
-        <label>API 地址<input aria-label="API 地址" placeholder="https://example.com/v1" spellCheck={false} value={draft.baseUrl} onChange={e => changeSource({ baseUrl: e.target.value })} onBlur={completeUrl} /></label>
+        <label>API 地址<input aria-label="API 地址" placeholder="https://example.com/v1" spellCheck={false} value={draft.baseUrl} onChange={e => changeSource({ baseUrl: e.target.value })} onBlur={() => completeUrl('baseUrl')} /></label>
+        <label className="model-api-models-url"><span>模型列表地址<small>选填</small></span><input aria-label="模型列表地址" placeholder="留空则从 API 地址读取模型" spellCheck={false} value={draft.modelsUrl} onChange={e => changeSource({ modelsUrl: e.target.value })} onBlur={() => completeUrl('modelsUrl')} /></label>
         <label className="model-api-key"><span>API 密钥<small>{editing?.hasKey && key === undefined ? '已加密保存' : '选填'}</small></span><span className="model-api-key-input"><input type="password" autoComplete="new-password" aria-label="API 密钥" placeholder={editing?.hasKey && key === undefined ? '已保存，填写可替换' : '粘贴 API Key'} value={key ?? ''} onChange={e => setKey(e.target.value)} />{editing?.hasKey && key === undefined && <button type="button" className="text-button" onClick={() => setKey('')}>清除</button>}{editing?.hasKey && key !== undefined && <button type="button" className="text-button" onClick={() => setKey(undefined)}>保留原密钥</button>}</span></label>
         <section className="model-api-catalog" aria-label="可用模型">
           <div className="model-api-heading"><h3>选择模型{selected > 0 && <small>{selected} 已选</small>}</h3><div className="model-api-catalog-actions">{selectable.length > 0 && <button type="button" className="text-button" data-testid="model-api-select-all" title="切换此连接的全部模型，包括搜索范围外的模型" onClick={toggleAll}>{allSelected ? '取消全选' : '全选'}</button>}<button type="button" className="text-button" data-testid="model-api-discover" onClick={discover}><Icon name="refresh" size={13} />{busy === 'discover' ? '读取中…' : directory.length ? '刷新模型' : '读取模型'}</button></div></div>

@@ -6,6 +6,7 @@ import path from 'node:path';
 import { validateConnection } from '../packages/model-api/config';
 import { isEmptyModelDraft, normalizeModelApiUrl, retainManualModelSettings } from '../packages/model-api/settings';
 import type { ModelConnection } from '../packages/model-api/types';
+import { ApiConversationClient } from '../packages/model-api/provider';
 import { ModelConnections } from '../apps/desktop/host/model-connections';
 import { SecretStore, StateStore } from '../apps/desktop/host/store';
 
@@ -96,6 +97,33 @@ test('a failed directory request still saves an empty connection for later manua
     assert.equal(saved.models.length, 0); assert.match(saved.discoveryError!, /404/);
     saved = await f.connections.call('model-api/save', { id: saved.id, revision: saved.revision, connection: { ...saved, models: [model] } }) as ModelConnection;
     assert.deepEqual(saved.models, [model]); assert.equal(saved.auth, 'none');
+  } finally { await f.close(); }
+});
+
+test('an optional model list address reads the directory separately while requests keep the API address', async () => {
+  assert.equal(validateConnection(config).modelsUrl, undefined);
+  assert.equal(Object.hasOwn(validateConnection({ ...config, modelsUrl: '  ' }), 'modelsUrl'), false);
+  assert.equal(validateConnection({ ...config, modelsUrl: 'https://catalog.example/inference/v1/models/' }).modelsUrl, 'https://catalog.example/inference/v1');
+  assert.throws(() => validateConnection({ ...config, modelsUrl: 42 }));
+  assert.throws(() => validateConnection({ ...config, modelsUrl: 'https://user:pass@catalog.example/v1' }));
+  const f = await fixture();
+  try {
+    const separate = { ...config, baseUrl: 'https://gateway.example/inference/openai/v1', modelsUrl: 'https://gateway.example/inference/v1/models' };
+    const directory = await f.connections.call('model-api/discover', { connection: separate, key: 'synthetic-key' }) as unknown[];
+    assert.equal(directory.length, 2); assert.equal(f.requests.at(-1)!.url, 'https://gateway.example/inference/v1/models');
+    let saved = await f.connections.call('model-api/save', { connection: separate, key: 'synthetic-key' }) as ModelConnection;
+    assert.equal(saved.modelsUrl, 'https://gateway.example/inference/v1'); assert.equal(f.requests.at(-1)!.url, 'https://gateway.example/inference/v1/models');
+    const reopened = new StateStore(f.directory); await reopened.load();
+    const connections = f.connect(reopened);
+    saved = await connections.call('model-api/refresh', { id: saved.id, revision: saved.revision }) as ModelConnection;
+    assert.equal(saved.modelsUrl, 'https://gateway.example/inference/v1'); assert.equal(f.requests.at(-1)!.url, 'https://gateway.example/inference/v1/models');
+    assert.equal(f.requests.at(-1)!.headers.authorization, 'Bearer synthetic-key');
+    const chats: string[] = [];
+    await new ApiConversationClient({ connection: saved, model, system: 'Test', history: [{ role: 'user', content: 'Hi' }], tools: [] }, 'synthetic-key', async url => { chats.push(String(url)); return new Response(JSON.stringify({ choices: [{ finish_reason: 'stop', message: { role: 'assistant', content: 'Hello' } }] }), { headers: { 'content-type': 'application/json' } }); }).next(AbortSignal.timeout(5000), () => {});
+    assert.deepEqual(chats, ['https://gateway.example/inference/openai/v1/chat/completions']);
+    saved = await connections.call('model-api/save', { id: saved.id, revision: saved.revision, connection: { ...saved, modelsUrl: '' } }) as ModelConnection;
+    assert.equal(Object.hasOwn(saved, 'modelsUrl'), false); assert.equal(saved.hasKey, true);
+    assert.equal(f.requests.at(-1)!.url, 'https://gateway.example/inference/openai/v1/models'); assert.equal(f.requests.at(-1)!.headers.authorization, 'Bearer synthetic-key');
   } finally { await f.close(); }
 });
 

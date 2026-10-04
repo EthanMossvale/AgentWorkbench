@@ -576,3 +576,7 @@ No adjustable node, key or default changes. The paired hover highlight remains t
 ## D042: process split (2026-10-04)
 
 No adjustable node, key, default or storage location changes. UI preferences, window geometry and their stores stay in the UI process; session data and its store move with the core process and keep the same files and formats. Flush on exit, relocation and update installation now also waits for the core's state to be written.
+
+## Separate model list address (2026-10-04)
+
+The connection editor adds an optional model list address input. Its value is connection data, not a display preference. It is stored as `ModelConnection.modelsUrl` in AppState.modelConnections, in the versioned user state, and saved only by an explicit connection save. The shipped default is empty, meaning the API address is used. Clearing the input removes the field. Unsaved editor text is transient and is discarded on cancel, like the other connection fields. Old state files load unchanged.

@@ -11,6 +11,8 @@ export interface ApiModel {
 }
 export interface ModelConnection {
   id: string; revision: string; name: string; baseUrl: string; protocol: Protocol;
+  /** Optional model directory base when it differs from baseUrl; omitted means baseUrl. */
+  modelsUrl?: string;
   enabled: boolean; auth: 'key' | 'none'; hasKey: boolean; credentialRef?: string;
   models: ApiModel[]; discoveredModels: ApiModel[]; discoveredAt?: string; discoveryError?: string;
   /** Legacy persisted fields, normalized to execution defaults on load/save. */

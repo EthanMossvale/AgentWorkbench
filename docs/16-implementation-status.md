@@ -2486,3 +2486,7 @@ Long-running Claude tool calls produced a row of empty "Subagent · 状态未确
 ## D044 peer messages as user turns (2026-10-04)
 
 Messages one session sends to another are now delivered immediately as normal user turns: inserted into the running turn, or started as a new turn when the target is idle. Previously they waited for the recipient's next user message, and Claude sessions on the SSH path never received them. They appear on the regular user card with the header "由 Claude Code/Codex 从另一会话发送", where "另一会话" opens the sender. With translation on, the card shows a Chinese translation while the model receives the original. Deliveries with an unknown receipt are not replayed. Verified by unit tests and a hidden-window UI check with synthetic history; no live-model or SSH acceptance. Details are in document 36.
+
+## Separate model list address (2026-10-04)
+
+Model connections now accept an optional model list address, for providers that serve their model directory under a different prefix than their chat endpoint. When it is empty, models are read from the API address as before. Directory reads (discover, refresh, save) use it; model requests and native gateways still use the API address. Verified by unit tests and a hidden-window UI test against a synthetic server, including restart and clearing. No live provider was called with a key. Details are in document 36.

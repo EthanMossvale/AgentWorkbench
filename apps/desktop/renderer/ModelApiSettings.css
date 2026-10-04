@@ -29,8 +29,8 @@
 .model-api-editor input:not([type=checkbox]),.model-api-editor select{width:100%;min-width:0;font-size:0.923077rem;padding:10px 12px;background:var(--bg);color:var(--text);border:1px solid var(--line);border-radius:7px;min-height:40px}
 .model-api-editor input::placeholder{color:var(--muted);opacity:.8}
 .model-api-fields{display:grid;grid-template-columns:1fr 1fr;gap:16px}
-.model-api-key>span:first-child{display:flex;align-items:center;gap:9px}
-.model-api-key>span:first-child small{font-size:0.769231rem;opacity:.8}
+.model-api-key>span:first-child,.model-api-models-url>span:first-child{display:flex;align-items:center;gap:9px}
+.model-api-key>span:first-child small,.model-api-models-url>span:first-child small{font-size:0.769231rem;opacity:.8}
 .model-api-key-input{display:flex;align-items:center;border:1px solid var(--line);border-radius:7px;background:var(--bg);padding-right:12px}
 .model-api-key-input input:not([type=checkbox]){border:0;background:none}
 .model-api-key-input .text-button{font-size:0.769231rem;white-space:nowrap;color:var(--muted)}

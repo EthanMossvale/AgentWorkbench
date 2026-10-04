@@ -11,7 +11,8 @@ import { applyReasoning, reasoningCandidates } from '../../../packages/model-api
 import type { SecretStore } from './store';
 import {ReasoningJobs,probeSignature} from './reasoning-jobs';
 
-export const modelCredentialScope = (connection: Pick<ModelConnection, 'id' | 'baseUrl' | 'protocol'>) => JSON.stringify([connection.id, connection.baseUrl, connection.protocol]);
+// modelsUrl is appended only when set, so scopes of existing connections stay byte-identical.
+export const modelCredentialScope = (connection: Pick<ModelConnection, 'id' | 'baseUrl' | 'protocol' | 'modelsUrl'>) => JSON.stringify([connection.id, connection.baseUrl, connection.protocol, ...(connection.modelsUrl ? [connection.modelsUrl] : [])]);
 interface Hooks { snapshot():AppState; update(change:(state:AppState)=>void):Promise<unknown>; busy(id:string):boolean }
 export class ModelConnections {
   private queue:Promise<unknown>=Promise.resolve();

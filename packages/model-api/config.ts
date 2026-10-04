@@ -52,7 +52,9 @@ export function validateConnection(value: unknown, previous?: ModelConnection): 
   const models = v.models.filter((model: unknown) => !isEmptyModelDraft(model)).map(validateApiModel);
   if (models.length > 2000) throw Error('模型映射列表无效。');
   if (new Set(models.map((m: ApiModel) => m.id)).size !== models.length) throw Error('映射标识不能重复。');
-  return { id: previous?.id ?? randomUUID(), revision: randomUUID(), name: clean(v.name, 100), baseUrl: normalizeModelApiUrl(v.baseUrl), protocol: v.protocol, enabled: v.enabled ?? previous?.enabled ?? true, auth: v.auth === 'key' ? 'key' : previous?.auth ?? 'none', hasKey: false, models, discoveredModels: previous?.discoveredModels ?? [], discoveredAt: previous?.discoveredAt, ...API_DEFAULTS };
+  if (v.modelsUrl !== undefined && v.modelsUrl !== null && typeof v.modelsUrl !== 'string') throw Error('模型列表地址无效。');
+  const modelsUrl = typeof v.modelsUrl === 'string' && v.modelsUrl.trim() ? normalizeModelApiUrl(v.modelsUrl) : undefined;
+  return { id: previous?.id ?? randomUUID(), revision: randomUUID(), name: clean(v.name, 100), baseUrl: normalizeModelApiUrl(v.baseUrl), ...(modelsUrl ? { modelsUrl } : {}), protocol: v.protocol, enabled: v.enabled ?? previous?.enabled ?? true, auth: v.auth === 'key' ? 'key' : previous?.auth ?? 'none', hasKey: false, models, discoveredModels: previous?.discoveredModels ?? [], discoveredAt: previous?.discoveredAt, ...API_DEFAULTS };
 }
 export function mergeDirectory(connection: ModelConnection, directory: ApiModel[]): ModelConnection {
   const metadata = new Map(directory.map(model => [model.model, model]));
