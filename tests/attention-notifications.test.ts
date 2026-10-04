@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { AttentionDetector } from '../packages/attention-notifications/index';
+import { AttentionDetector, markTurnEnding } from '../packages/attention-notifications/index';
 import type { AppState, Session } from '../packages/contracts';
 
 const session = (patch: Partial<Session> = {}) => ({ id: 's1', title: 'Task', archived: false, status: 'idle', messages: [], ...patch }) as unknown as Session;
@@ -34,4 +34,15 @@ test('new approvals and pending interactions notify as permission or question', 
   const next = state(session({ status: 'running', nativeApprovals: [{ id: 7, kind: 'file', turnId: 't', details: '', decisions: [] }], nativeInteractions: [interaction('q', 'questions'), interaction('p', 'permissions'), interaction('done', 'questions', 'answered')] as Session['nativeInteractions'] }));
   assert.deepEqual(detector.observe(next).map(alert => alert.kind).sort(), ['permission', 'permission', 'question']);
   assert.deepEqual(detector.observe(next), []);
+});
+
+test('markTurnEnding sets the sidebar marker only for background sessions, in the mutated session itself', () => {
+  const done = session({ status: 'idle' }), failed = session({ id: 's2', status: 'idle', nativeTurnStatus: 'failed', nativeError: 'boom' }), viewed = session({ id: 's3', status: 'idle' });
+  markTurnEnding({ status: 'running' }, done, () => true);
+  markTurnEnding({ status: 'running' }, failed, () => true);
+  markTurnEnding({ status: 'running' }, viewed, () => false);
+  markTurnEnding({ status: 'idle' }, session({ id: 's4' }), () => true);
+  assert.equal(done.unread, true); assert.equal(done.errorMark, undefined);
+  assert.equal(failed.errorMark?.detail, 'boom'); assert.equal(failed.unread, undefined);
+  assert.equal(viewed.unread, undefined); assert.equal(viewed.errorMark, undefined);
 });

@@ -17,7 +17,7 @@ import type { Theme } from '../../../packages/contracts/index';
 import type { ShortcutSettings } from '../../../packages/shortcuts';
 import {decodeGeneratedImage,imagePng} from './image-decoder';
 import { installTray } from './tray';
-import { DesktopNotifier } from './notifications';
+import { DesktopNotifier, registerToastIdentity, toastAppId } from './notifications';
 import { threadDeepLink } from '../../../packages/navigation';
 import { installDesktopMenu, titlebarColors } from './desktop-menu';
 import { isRecoveryGuardian, runRecoveryGuardian, startRecoveryGuardian, type RecoveryGuardian } from './plugin-recovery-guardian';
@@ -54,7 +54,7 @@ const RECOVERY_METHODS=new Set(['initialize','beginBoot','safeMode','begin','fin
 async function boot(){
  await app.whenReady();
  // Windows shows toasts under this identity; the installer's shortcut uses the same appId.
- if(process.platform==='win32')app.setAppUserModelId(app.isPackaged?'com.ethanmossvale.agentworkbench':process.execPath);
+ if(process.platform==='win32')app.setAppUserModelId(toastAppId(app.isPackaged));
  protocol.handle('awb-font',request=>referenceFontResponse(request.url));
  const directory=app.getPath('userData');
  const uiPreferences=new UiPreferenceStore(directory);await uiPreferences.load();
@@ -226,7 +226,14 @@ async function boot(){
   // The core holds plugin modules, data files and child processes; it is gone before this process exits.
   child.kill();await Promise.race([coreExited,new Promise(resolve=>setTimeout(resolve,3000))]);stopRecoveryMirror();if(coreCrashed)return;await recovery.closed();guardian?.close();},!!userDataOverride,branding);
  notifier=new DesktopNotifier(created,uiPreferences,sessionId=>{if(lifecycle.isQuitting())return;if(!hiddenQa)lifecycle.show();try{void core.call('navigate.link',threadDeepLink(sessionId)).catch(()=>{});}catch{/* Not a local thread identifier. */}},!!userDataOverride&&process.env.AGENT_WORKBENCH_TEST_REAL_NOTIFICATIONS!=='1');
+ // Toast title and icon follow the current branding; test profiles leave the user's registry alone.
+ const toastIdentity=()=>{if(!userDataOverride)void registerToastIdentity(toastAppId(app.isPackaged),'AgentWorkbench',brandingImage(brandingSnapshot),directory).catch(error=>console.error('DESKTOP_NOTIFICATION_IDENTITY_FAILED',safeError(error)));};
+ toastIdentity();brandingListeners.add(toastIdentity);
  core.handle('notifications.focused',((sessionId:string)=>notifier!.focused(sessionId)) as never);
+ // The core marks background turn endings inside the state change itself, so it needs focus before any await.
+ let focusSent='';const sendFocus=()=>{if(created.isDestroyed())return;const value={window:created.isVisible()&&!created.isMinimized()&&created.isFocused(),view:String(uiPreferences.get('navigation.view').value),session:String(uiPreferences.get('navigation.session').value)};const text=JSON.stringify(value);if(text!==focusSent){focusSent=text;core.emit('focus',value);}};
+ for(const event of ['focus','blur','show','hide','minimize','restore'] as const)created.on(event as 'focus',sendFocus);
+ uiPreferences.subscribe(sendFocus);sendFocus();
  core.handle('notifications.show',((notice:unknown)=>lifecycle.isQuitting()?{shown:false,sound:false}:notifier!.show(notice)) as never);
  // Host plugins in the core reach these services asynchronously by id.
  const uiServices:Record<string,object|undefined>={

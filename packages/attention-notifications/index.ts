@@ -16,6 +16,20 @@ export interface AttentionNotificationsApi {
   deliver(alert: AttentionAlert): Promise<AttentionDelivery>;
 }
 
+/** How a turn just ended, or undefined when `after` did not just leave `running`. Child agents end inside their parent's turn. */
+export function turnEnding(before: Pick<Session, 'status'> | undefined, after: Session): {failed: boolean; detail: string} | undefined {
+  if (before?.status !== 'running' || after.status === 'running' || after.agentParent || after.archived) return undefined;
+  const failed = after.status !== 'idle' || after.nativeTurnStatus === 'failed';
+  return {failed, detail: failed ? (after.nativeError ?? '').slice(0, 300) : ''};
+}
+/** Sidebar marker written in the same state revision that ends a background turn. */
+export function markTurnEnding(before: Pick<Session, 'status'> | undefined, after: Session, background: (sessionId: string) => boolean) {
+  const ending = turnEnding(before, after);
+  if (!ending || !background(after.id)) return;
+  if (ending.failed) after.errorMark = {at: new Date().toISOString(), ...(ending.detail ? {detail: ending.detail} : {})};
+  else after.unread = true;
+}
+
 const bodies: Record<string, string> = {completed:'任务已完成', failed:'任务出错停止', permission:'正在请求权限', plan:'计划等待确认', question:'提出了一个问题，等待回答'};
 const requestKey = (prefix: string, value: {receipt?: string; id: string | number}) => prefix + ':' + (value.receipt ?? String(value.id));
 
@@ -37,10 +51,8 @@ export class AttentionDetector {
       const previous = this.known.get(session.id), title = session.title || 'Agent Workbench';
       const alert = (id: string, kind: AttentionKind, body: string, error?: string) => alerts.push({id: session.id + ':' + id, sessionId: session.id, kind, title, body, ...(error !== undefined ? {error} : {})});
       // Native child agents end inside their parent's turn; the parent's completion is the task.
-      if (previous?.status === 'running' && session.status !== 'running' && !session.agentParent) {
-        const failed = session.status !== 'idle' || session.nativeTurnStatus === 'failed';
-        alert('completed:' + (session.messages.at(-1)?.id ?? session.messages.length), 'completed', failed ? bodies.failed! : bodies.completed!, failed ? (session.nativeError ?? '').slice(0, 300) : undefined);
-      }
+      const ending = turnEnding(previous, session);
+      if (ending) alert('completed:' + (session.messages.at(-1)?.id ?? session.messages.length), 'completed', ending.failed ? bodies.failed! : bodies.completed!, ending.failed ? ending.detail : undefined);
       for (const [key, kind] of requests) if (!previous?.requests.has(key)) alert(key, kind === 'plan' ? 'permission' : kind, bodies[kind]!);
     }
     this.known = next;

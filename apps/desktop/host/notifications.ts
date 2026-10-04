@@ -1,9 +1,14 @@
-import { app, Notification, type BrowserWindow } from 'electron';
+import { app, Notification, type BrowserWindow, type NativeImage } from 'electron';
+import { execFile } from 'node:child_process';
+import { writeFile } from 'node:fs/promises';
+import path from 'node:path';
+import { promisify } from 'node:util';
 import type { UiPreferenceStore } from '../../../packages/ui-preferences/store';
 import type { AttentionDelivery } from '../../../packages/attention-notifications';
 import { brandingImage } from './branding';
 import { threadDeepLink } from '../../../packages/navigation';
 
+const run = promisify(execFile);
 export interface DesktopNotice { title: string; body: string; sessionId?: string }
 export function desktopNotice(value: unknown): DesktopNotice {
   const v = value as Partial<DesktopNotice> | null;
@@ -11,6 +16,19 @@ export function desktopNotice(value: unknown): DesktopNotice {
   return { title: v.title, body: v.body, ...(v.sessionId ? { sessionId: v.sessionId } : {}) };
 }
 
+/** Windows app identity for toasts. Development launches get their own ID instead of electron.exe's "Electron" Start-menu entry. */
+export const toastAppId = (packaged: boolean) => packaged ? 'com.ethanmossvale.agentworkbench' : 'com.ethanmossvale.agentworkbench.dev';
+/**
+ * Per-user registration of the toast title and icon (HKCU\Software\Classes\AppUserModelId),
+ * like the agent-workbench: protocol registration. The icon is the current branding image.
+ */
+export async function registerToastIdentity(appId: string, name: string, icon: NativeImage, directory: string) {
+  if (process.platform !== 'win32') return;
+  const file = path.join(directory, 'notification-icon.png');
+  await writeFile(file, icon.resize({ width: 256, height: 256, quality: 'best' }).toPNG());
+  const key = `HKCU\\Software\\Classes\\AppUserModelId\\${appId}`;
+  for (const [value, data] of [['DisplayName', name], ['IconUri', file]] as const) await run('reg.exe', ['add', key, '/v', value, '/t', 'REG_EXPAND_SZ', '/d', data, '/f'], { windowsHide: true });
+}
 const threadLink = (sessionId: string) => { try { return threadDeepLink(sessionId); } catch { return undefined; } };
 const xml = (value: string) => value.replace(/[&<>"']/g, character => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&apos;' })[character]!);
 function toastXml(notice: DesktopNotice, link: string, sound: boolean) {

@@ -143,6 +143,8 @@ export class StateStore {
   }
   /** Resolves once every committed revision is on disk; used before exit, relocation and updates. */
   async flush(){await this.queue;if(this.deferredTimer){clearTimeout(this.deferredTimer);this.deferredTimer=undefined;}if(this.written<this.committed)await this.persist();else await this.writing;}
+  /** Runs inside every mutation with the draft session, so a change it makes lands in the same revision. */
+  sessionTransition?:(before:Session|undefined,after:Session)=>void;
   private observe(previous:AppState,next:AppState,only?:ReadonlySet<string>){
     captureModelUsage(previous,next,only);
     const before=new Map(previous.sessions.map(session=>[session.id,session]));
@@ -150,6 +152,7 @@ export class StateStore {
     this.sidebarOrdering.observe(previous,next,observedAt);
     for(const session of next.sessions){
       if(only&&!only.has(session.id))continue;
+      this.sessionTransition?.(before.get(session.id),session);
       draftRecovery.observe(before.get(session.id),session);
       observeTurnTiming(before.get(session.id),session,observedAt);
     }

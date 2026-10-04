@@ -27,7 +27,7 @@ import { FileActionService } from './file-actions';
 import { NativeResources } from './native-resources';
 import { officialLoginUrl } from '../../../packages/model-management/native';
 import { createStatePublisher } from '../../../packages/session-core/state-stream';
-import { AttentionDetector, type AttentionAlert, type AttentionDelivery, type AttentionNotificationsApi } from '../../../packages/attention-notifications';
+import { AttentionDetector, markTurnEnding, type AttentionAlert, type AttentionDelivery, type AttentionNotificationsApi } from '../../../packages/attention-notifications';
 import type { PluginIdentity, PluginRecoveryStore, RecoverySnapshot } from '../../../packages/plugins-core/recovery';
 import { createRpcPeer, type CallFence, type RpcPeer } from './process-rpc';
 import { modelProviders } from '../../../packages/model-api/providers';
@@ -135,17 +135,20 @@ export async function runCore(parent: ParentPort) {
   let navigationSessionId: string | null = null, appearance = '';
   // Plugins replace `focused`/`deliver` through services.override; calls go through this object.
   const notifications: AttentionNotificationsApi = {
-    focused: sessionId => ui.call<boolean>('notifications.focused', sessionId),
+    focused: async sessionId => foreground(sessionId),
     deliver: alert => ui.call<AttentionDelivery>('notifications.show', { title: alert.title, body: alert.body, sessionId: alert.sessionId }),
   };
+  // Pushed by the UI process on window focus and navigation changes; read synchronously inside state mutations.
+  let focus = { window: false, view: 'workspace', session: '' };
+  ui.on('focus', value => { focus = value as typeof focus; });
+  const foreground = (sessionId: string) => focus.window && focus.view === 'workspace' && focus.session === sessionId;
+  state.sessionTransition = (before, after) => markTurnEnding(before, after, sessionId => !foreground(sessionId));
   const attention = new AttentionDetector();
   const notify = async (alert: AttentionAlert) => {
     if (quitting) return;
     let focused = false, delivery: AttentionDelivery = { shown: false, sound: false };
     try { focused = await notifications.focused(alert.sessionId) === true; } catch { /* Unknown focus counts as background. */ }
     if (!focused) try { delivery = await notifications.deliver(structuredClone(alert)); } catch { /* A failed toast does not affect the session. */ }
-    // The sidebar keeps a marker where the spinner was: unread clears on opening, an error mark only when the user clears it.
-    if (!focused && alert.kind === 'completed') await controller.call('session/update', alert.error !== undefined ? { id: alert.sessionId, errorMark: alert.error ? { detail: alert.error } : {} } : { id: alert.sessionId, unread: true }).catch(() => {});
     shared.native!.plugins.publish({ type: 'plugin', id: 'workbench.notifications', topic: 'attention', payload: { ...alert, focused, ...delivery } });
   };
   const controller = new WorkbenchController(state, secrets, {
