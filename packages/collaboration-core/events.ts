@@ -65,6 +65,8 @@ export class ClaudeNativeChildTracker {
   private readonly stops = new Map<string,string>();
   private readonly terminal = new Set<string>();
   observe(frame: NativeFrame, parentId?: string): ClaudeChildObservation {
+    // Tool heartbeats and progress name their own tool, not a child agent.
+    if (frame.value.type === 'tool_progress') return { child: false, events: [] };
     const msg = frame.value, parentTool = text(msg.parent_tool_use_id), taskId = text(msg.task_id), toolId = text(msg.tool_use_id);
     const nativeParentId = (parentTool?this.tools.get(parentTool)?.nativeChildId:undefined) ?? parentId ?? (parentTool ? undefined : text(msg.session_id));
     const snapshot=nativeEventSemantics.background(msg);
@@ -124,4 +126,12 @@ export function parseNativeChildEvents(frame: NativeFrame, tracker = new ClaudeN
   return typeof frame.value.method === 'string' ? parseCodexNativeChildEvents(frame) : tracker.observe(frame).events;
 }
 
-export function hasClaudeChildMarker(frame: NativeFrame): boolean { return !!text(frame.value.parent_tool_use_id); }
+/** Claude tool_progress puts the reporting tool's own call ID in parent_tool_use_id
+ * (heartbeats use a synthetic `<id>-heartbeat-<n>` tool_use_id); it never marks child content. */
+export function claudeToolProgressTarget(value: Record<string, unknown>): string | undefined {
+  if (value.type !== 'tool_progress') return undefined;
+  const id = text(value.tool_use_id), parent = text(value.parent_tool_use_id);
+  return parent && (value.heartbeat === true || id?.startsWith(parent + '-heartbeat-')) ? parent : id;
+}
+
+export function hasClaudeChildMarker(frame: NativeFrame): boolean { return frame.value.type !== 'tool_progress' && !!text(frame.value.parent_tool_use_id); }

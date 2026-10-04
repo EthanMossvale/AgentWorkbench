@@ -13,7 +13,7 @@ import { resolvePermissionMode } from '../../../packages/session-core/permission
 import { initialCollaborationState } from '../../../packages/collaboration-core/types';
 import { recoverCollaborationState } from '../../../packages/collaboration-core/inbox';
 import { validateNativeAgentPolicy } from '../../../packages/collaboration-core/native-policy';
-import { markObservationInterrupted } from '../../../packages/collaboration-core/activity';
+import { dropToolProgressPhantoms, markObservationInterrupted } from '../../../packages/collaboration-core/activity';
 import { assertIndependentTranslationKey } from '../../../packages/translation/credentials';
 import { observeTurnTiming } from '../../../packages/session-core/turn-timing';
 import { createSidebarOrderingService } from '../../../packages/session-core/sidebar-sessions';
@@ -75,6 +75,7 @@ export class StateStore {
         for(const message of session.messages)if(message.questionTranslation?.status==='pending'){message.questionTranslation.status='failed';message.questionTranslation.error='上次问答翻译已中断，可单独重试。';}
         session.nativeAgentPolicy=validateNativeAgentPolicy(session.nativeAgentPolicy);
         if(session.nativeObservation)markObservationInterrupted(session);
+        dropToolProgressPhantoms(session);
         // Presentation code may be missing or disabled on restart. Keep metadata,
         // but require a fresh approved adapter invocation for custom display text.
         for(const activity of session.activities??[])if(activity.protocol){delete activity.protocol.presentation;delete activity.protocol.receipt.adapterId;}

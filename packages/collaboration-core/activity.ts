@@ -1,5 +1,5 @@
 import type { NativeFrame } from '../../services/remote-supervisor';
-import type { NativeChildEvent } from './events';
+import { claudeToolProgressTarget, hasClaudeChildMarker, type NativeChildEvent } from './events';
 import { appendActivityOutput, boundedDetails, codexActivityDetails, claudeToolDetails, claudeResultText, type ActivityDetails } from './activity-details';
 import { codexFileChanges, claudeFileChanges, claudeCompletedChanges, type NativeFileChange } from './file-changes';
 import {claudeToolSemanticName} from '../runtime-claude/tool-names';
@@ -76,8 +76,9 @@ export class NativeActivityTracker {
       this.tools.set(id, next); this.prune(); return [next];
     }
     // Child frames must enter through the explicit child channel, never as parent activity.
-    if (text(msg.parent_tool_use_id) && !nativeChildId) return [];
-    if(msg.type==='tool_progress'&&text(msg.tool_use_id)){const key=`claude:${scope}:${msg.tool_use_id}`,previous=this.tools.get(key);if(!previous||previous.status!=='running')return [];const seconds=msg.elapsed_time_seconds;const next={...previous,updatedAt:at,...(typeof seconds==='number'&&Number.isFinite(seconds)&&seconds>=0?{durationMs:seconds*1000}:{})};this.tools.set(key,next);return [next];}
+    if (hasClaudeChildMarker({ value: msg } as NativeFrame) && !nativeChildId) return [];
+    const progressTool=claudeToolProgressTarget(msg);
+    if(progressTool){const key=`claude:${scope}:${progressTool}`,previous=this.tools.get(key);if(!previous||previous.status!=='running')return [];const seconds=msg.elapsed_time_seconds;const next={...previous,updatedAt:at,...(typeof seconds==='number'&&Number.isFinite(seconds)&&seconds>=0?{durationMs:seconds*1000}:{})};this.tools.set(key,next);return [next];}
     if (msg.type === 'system') {
       const taskId = text(msg.task_id), toolId = text(msg.tool_use_id);
       if (msg.subtype === 'task_started' && msg.task_type === 'local_bash' && taskId && toolId) {
@@ -147,6 +148,14 @@ export function mergeChild(items: NativeChildSnapshot[], event: NativeChildEvent
     items[index] = { ...previous, ...event, settings, updatedAt, ...(event.task!==undefined&&event.task!==previous.task?{taskTranslation:undefined}:{}) };
   } else items.push({ ...event, settings:mergeChildSettings(childSettings({model:event.model},'requested'),event.settings), updatedAt, startedAt: updatedAt });
   if (items.length > 128) items.splice(0, items.length - 128);
+}
+
+/** Earlier builds misread Claude tool heartbeats as child frames. Those phantoms carry no
+ * request, task, title or message and their call ID is not an Agent/Task call. */
+export function dropToolProgressPhantoms(session: { activities?: RuntimeActivity[]; nativeChildren?: NativeChildSnapshot[] }): void {
+  if (!session.nativeChildren?.length) return;
+  const agentCall = (id: string) => (session.activities ?? []).some(activity => activity.id.endsWith(':' + id) && ['Agent', 'Task'].includes(activity.toolName ?? ''));
+  session.nativeChildren = session.nativeChildren.filter(child => !(child.runtime === 'claude' && child.toolCallId && child.nativeChildId === 'parent-tool-use:' + child.toolCallId && !child.title && !child.task && !child.model && !child.messages?.length && !agentCall(child.toolCallId)));
 }
 
 export function markObservationInterrupted(session: { activities?: RuntimeActivity[]; nativeChildren?: NativeChildSnapshot[]; nativeObservation?: string; nativeBackground?:import('../native-events/semantics').NativeBackgroundState }): void {

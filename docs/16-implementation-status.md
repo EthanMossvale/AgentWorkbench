@@ -2472,3 +2472,8 @@ Thinking no longer stacks "思考已结束" rows. All thinking between two piece
 ## D041 whole-document restyles (2026-10-04)
 
 Two root-level `:has()` rules made Chromium restyle the entire document (~92,000 objects) after every DOM change, so typing, streaming and hovering were slow even without a running model, worst in the bilingual view. They are replaced by document classes set only when the sidebar is dragged or a plugin background is shown. Paired translation highlighting no longer re-renders the panes, translated items are memoized and contained, and two per-event full-state copies in the main process are removed. In a hidden bilingual production window, long frames went from ~125 per run to 0–1 and slow input handlers from ~115 ms to ~3 ms (p95). With real Codex/Claude CLIs, main-process busy time while streaming fell from ~42% to 6–7%. Details are in documents 36 and 37; physical-display and live-model acceptance were not performed.
+
+
+## D043 Claude heartbeat cards (2026-10-04)
+
+Long-running Claude tool calls produced a row of empty "Subagent · 状态未确认" cards even though no subagent ran. Claude Code's 30-second tool heartbeats name the running tool in `parent_tool_use_id`, and the workbench read that field as a subagent marker. Heartbeats now update the running tool's elapsed time, and cards the bug already saved are removed on the next start. Real subagent cards are unaffected. Verified by unit tests and the installed 2.1.289 CLI; no live-model acceptance. Details are in document 36.

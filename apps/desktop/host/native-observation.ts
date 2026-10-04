@@ -3,7 +3,7 @@ import type { EventEmitter } from 'node:events';
 import { isMetricsFrame, observeNativeMetrics } from '../../../packages/session-metrics/native';
 import type { AppState, NativeEvent, Session } from '../../../packages/contracts';
 import type { NativeFrame } from '../../../services/remote-supervisor';
-import type { NativeChildEvent } from '../../../packages/collaboration-core/events';
+import { hasClaudeChildMarker, type NativeChildEvent } from '../../../packages/collaboration-core/events';
 import { NativeActivityTracker, mergeActivity, mergeChild, markObservationInterrupted } from '../../../packages/collaboration-core/activity';
 import { recordFileChanges } from '../../../packages/collaboration-core/file-changes';
 import { NativeChildConversationTracker, recordChildMessage } from '../../../packages/collaboration-core/child-conversation';
@@ -91,7 +91,7 @@ export function attachNativeObservation(sessionId: string, source: Pick<EventEmi
       if(images&&event.public&&frame.value.method==='item/completed'&&p?.item?.type==='imageGeneration')observe(frame);
       return;
     }
-    if(initial.session.binding.runtime==='claude'&&frame.value.parent_tool_use_id)return;
+    if(initial.session.binding.runtime==='claude'&&hasClaudeChildMarker(frame))return;
     audit(frame);
     if(initial.session.binding.runtime==='claude'&&nativeEventSemantics.accepts(frame))enqueue(session=>nativeEventSemantics.apply(session,frame));
     if (!(initial.session.binding.modelConnectionId && initial.session.binding.egress === 'direct-api') && isMetricsFrame(initial.session.binding.runtime, frame)) enqueue(session => observeNativeMetrics(session, frame));

@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { NativeActivityTracker, mergeActivity, mergeChild, markObservationInterrupted, type RuntimeActivity, type NativeChildSnapshot } from '../packages/collaboration-core/activity';
+import { NativeActivityTracker, mergeActivity, mergeChild, markObservationInterrupted, dropToolProgressPhantoms, type RuntimeActivity, type NativeChildSnapshot } from '../packages/collaboration-core/activity';
 import { parseCodexNativeChildEvents, ClaudeNativeChildTracker } from '../packages/collaboration-core/events';
 import { decodeNativeFrame } from '../services/remote-supervisor';
 import { normalizeCodexEvent } from '../packages/runtime-codex';
@@ -92,4 +92,28 @@ test('tool details preserve MCP text, file diffs and failure while excluding opa
  assert.match(edit.input!,/-old\n\+new/);
  const long=tracker.observe(frame({method:'item/started',params:{item:{id:'long',type:'commandExecution',command:'x'.repeat(70000)}}}))[0]!;
  assert.equal(long.input!.length,65536);assert.equal(long.inputTruncated,true);
+});
+
+test('Claude tool heartbeats update the running tool and never create a child agent', () => {
+  // Shape emitted by Claude Code 2.1.289: parent_tool_use_id is the reporting tool's own call.
+  const heartbeat = frame({ type: 'tool_progress', tool_use_id: 'toolu_long-heartbeat-0', tool_name: 'mcp__local_device__LocalTaskOutput', parent_tool_use_id: 'toolu_long', elapsed_time_seconds: 30, heartbeat: true, session_id: 'root' });
+  const children = new ClaudeNativeChildTracker();
+  assert.deepEqual(children.observe(heartbeat, 'root'), { child: false, events: [] });
+  const tracker = new NativeActivityTracker('claude'), items: RuntimeActivity[] = [];
+  tracker.observe(frame({ type: 'assistant', session_id: 'root', message: { content: [{ type: 'tool_use', id: 'toolu_long', name: 'mcp__local_device__LocalTaskOutput', input: { task_id: 'task' } }] } })).forEach(item => mergeActivity(items, item));
+  const updates = tracker.observe(heartbeat);
+  assert.equal(updates.length, 1); assert.equal(updates[0]!.id, 'claude:root:toolu_long'); assert.equal(updates[0]!.durationMs, 30000);
+});
+
+test('Saved heartbeat phantoms are dropped while real Agent children are kept', () => {
+  const session = {
+    activities: [{ id: 'claude:root:toolu_agent', runtime: 'claude', kind: 'tool', toolName: 'Agent', status: 'completed', startedAt: 'a', updatedAt: 'a' }] as RuntimeActivity[],
+    nativeChildren: [
+      { runtime: 'claude', nativeChildId: 'parent-tool-use:toolu_long', toolCallId: 'toolu_long', operation: 'progress', status: 'uncertain', updatedAt: 'a' },
+      { runtime: 'claude', nativeChildId: 'parent-tool-use:toolu_agent', toolCallId: 'toolu_agent', operation: 'progress', status: 'uncertain', updatedAt: 'a' },
+      { runtime: 'claude', nativeChildId: 'parent-tool-use:toolu_titled', toolCallId: 'toolu_titled', title: 'Review', operation: 'progress', status: 'uncertain', updatedAt: 'a' },
+    ] as NativeChildSnapshot[],
+  };
+  dropToolProgressPhantoms(session);
+  assert.deepEqual(session.nativeChildren.map(child => child.toolCallId), ['toolu_agent', 'toolu_titled']);
 });
