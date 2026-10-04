@@ -1,4 +1,4 @@
-import { Marked, Tokenizer, type Token, type TokensList } from 'marked';
+import { Marked, Tokenizer, type Token, type Tokens, type TokensList } from 'marked';
 import { decodeHTMLStrict } from 'entities';
 import { fileLinkDestination, webReference, type LinkedText } from '../navigation/file-links';
 import { mathExtensions, markdownMath, maskMathEmphasis } from './math';
@@ -26,6 +26,29 @@ function linkDestination(raw:string):string|undefined {
     if(raw[i]===']'&&--depth===0&&raw[i+1]==='(')return nativeDestination(raw.slice(i+2));
   }
 }
+// CommonMark flanking rules assume spaces between words. In Chinese/Japanese/Korean text
+// `**加载。**当` is meant as bold, so a delimiter next to a CJK character may open or close.
+const cjk=/^(?:[\u1100-\u11ff\u2e80-\u2fdf\u2ff0-\u303f\u3040-\u31ff\u3200-\u9fff\ua960-\ua97f\uac00-\ud7af\uf900-\ufaff\ufe10-\ufe1f\ufe30-\ufe4f\uff00-\uffef]|[\u{20000}-\u{3ffff}])$/u;
+const punctuation=/^[\p{P}\p{S}]$/u;
+const charBefore=(value:string,at:number)=>Array.from(value.slice(Math.max(0,at-2),at)).pop()??'';
+const charAt=(value:string,at:number)=>at<value.length?String.fromCodePoint(value.codePointAt(at)!):'';
+function cjkEmphasis(this:Tokenizer,source:string,maskedSource:string,previous=''):Tokens.Strong|Tokens.Em|undefined {
+  const size=/^\*{1,2}(?!\*)/.exec(source)?.[0].length,next=size?charAt(source,size):'';
+  if(!size||previous==='*'||!next||/\s/.test(next)||!(cjk.test(previous)||cjk.test(next)))return;
+  // The masked source hides code spans, escapes and math, so their asterisks never close.
+  const masked=maskedSource.slice(-source.length);
+  for(let at=size+1;at<masked.length;at++){
+    if(masked[at]!=='*'||masked[at-1]==='*')continue;
+    let end=at;while(masked[end]==='*')end++;
+    if(end-at!==size){at=end;continue;}
+    const before=charBefore(source,at),after=charAt(source,end);
+    if(/\s/.test(before))continue;
+    if(punctuation.test(before)&&after&&!/\s/.test(after)&&!punctuation.test(after)&&!cjk.test(before)&&!cjk.test(after))continue;
+    const text=source.slice(size,at);
+    return {type:size===2?'strong':'em',raw:source.slice(0,end),text,tokens:this.lexer.inlineTokens(text)};
+  }
+}
+
 const parser = new Marked({ gfm: true, breaks: false, extensions: [...mathExtensions, visualizationExtension], tokenizer: {
   link(source) {
     const token=Tokenizer.prototype.link.call(this,source);
@@ -39,7 +62,8 @@ const parser = new Marked({ gfm: true, breaks: false, extensions: [...mathExtens
   },
   emStrong(source, maskedSource, previous) {
     if (!/^[_*]/.test(source)) return false;
-    return Tokenizer.prototype.emStrong.call(this, source, maskMathEmphasis(source, maskedSource), previous);
+    const masked = maskMathEmphasis(source, maskedSource);
+    return Tokenizer.prototype.emStrong.call(this, source, masked, previous) ?? cjkEmphasis.call(this, source, masked, previous);
   },
 } });
 

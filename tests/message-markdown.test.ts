@@ -69,3 +69,19 @@ test('native Markdown Windows file links keep clickable references after tokeniz
  ]);
  assert.equal(markdownBlocks(source).join(''),source);
 });
+
+test('CJK emphasis closes next to full-width punctuation while English keeps CommonMark flanking',()=>{
+ const inline=(source:string)=>(markdownTokens(source)[0] as any).tokens as any[];
+ const strong=(source:string)=>inline(source).filter(token=>token.type==='strong').map(token=>token.text);
+ assert.deepEqual(strong('**在悬停或键盘焦点时开始加载。**当指针移到日志上时开始读取。'),['在悬停或键盘焦点时开始加载。']);
+ assert.deepEqual(strong('**验证：**图像日志测试通过。'),['验证：']);
+ assert.deepEqual(strong('先看**“已查看”**日志，再看**结论**。'),['“已查看”','结论']);
+ const list:any=markdownTokens('- **保留缩略图。**重新打开立即显示。\n- **占位符。**每张图一个方块。')[0];
+ assert.deepEqual(list.items.map((item:any)=>item.tokens[0].tokens[0].type),['strong','strong']);
+ assert.equal(inline('说明*重点。*后文')[1].type,'em');
+ assert.deepEqual(strong('**Why:** the log'),['Why:']);
+ assert.deepEqual(strong('**foo.**bar'),[]);
+ assert.deepEqual(strong('**代码`a**b`内。**之后'),['代码`a**b`内。']);
+ assert.deepEqual(strong(String.raw`\**转义。**之后`),[]);
+ assert.equal(markdownBlocks('**验证：**通过。').join(''),'**验证：**通过。');
+});
